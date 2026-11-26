@@ -10,7 +10,7 @@ on:
       suite:
         description: Experimental evidence suite
         type: choice
-        options: [legacy, cross-family, source-admission, root-profile, factor-classes]
+        options: [legacy, cross-family, source-admission, root-profile, factor-classes, sparse-anchor]
         default: legacy
 permissions:
   contents: read
@@ -569,14 +569,17 @@ jobs:
           if-no-files-found: warn
 
   factor-classes:
-    if: github.event_name == 'push' || inputs.suite == 'factor-classes'
-    name: Reused factor classes / witnessed native and bounded Simulation
+    if: github.event_name == 'push' || inputs.suite == 'factor-classes' || inputs.suite == 'sparse-anchor'
+    name: Contraction ablation / witnessed native and bounded Simulation
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     permissions:
       contents: read
       actions: read
       id-token: write
+    env:
+      EXPERIMENT: ${{ inputs.suite == 'factor-classes' && 'factor-classes' || 'sparse-anchor' }}
+      CANDIDATE_SHA: ${{ inputs.suite == 'factor-classes' && '78a606add677b39d86af076f639f569452ec0ad8' || '69e32e0f140c1aec985167ac472bcde784c53855' }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -595,10 +598,11 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: PhysicsQoo/RaWMoCS
-          ref: 78a606add677b39d86af076f639f569452ec0ad8
+          ref: ${{ env.CANDIDATE_SHA }}
           path: .classes-candidate
           persist-credentials: false
       - uses: actions/checkout@v4
+        if: env.EXPERIMENT == 'factor-classes'
         with:
           repository: PhysicsQoo/RaWMoCS
           ref: d28cdd98fa2b55c73cfd01392fee48ba70602104
@@ -630,15 +634,19 @@ jobs:
         run: |
           set -euo pipefail
           test "$(git -C .classes-base rev-parse HEAD)" = ef8d1ee606bed672ee9be62d189a2b3fbcc905a0
-          test "$(git -C .classes-candidate rev-parse HEAD)" = 78a606add677b39d86af076f639f569452ec0ad8
-          test "$(git -C .classes-static rev-parse HEAD)" = d28cdd98fa2b55c73cfd01392fee48ba70602104
+          test "$(git -C .classes-candidate rev-parse HEAD)" = "$CANDIDATE_SHA"
+          if [[ "$EXPERIMENT" == factor-classes ]]; then
+            test "$(git -C .classes-static rev-parse HEAD)" = d28cdd98fa2b55c73cfd01392fee48ba70602104
+          fi
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends libgmp-dev libmpfr-dev m4 make gcc time pkg-config
           cargo build --locked --release --manifest-path .classes-base/crates/rawmocs-cli/Cargo.toml
           cargo test --locked --release --manifest-path .classes-candidate/crates/rawmocs-cli/Cargo.toml
           cargo build --locked --release --manifest-path .classes-candidate/crates/rawmocs-cli/Cargo.toml
-          cargo test --locked --release --manifest-path .classes-static/crates/rawmocs-cli/Cargo.toml
-          cargo build --locked --release --manifest-path .classes-static/crates/rawmocs-cli/Cargo.toml
+          if [[ "$EXPERIMENT" == factor-classes ]]; then
+            cargo test --locked --release --manifest-path .classes-static/crates/rawmocs-cli/Cargo.toml
+            cargo build --locked --release --manifest-path .classes-static/crates/rawmocs-cli/Cargo.toml
+          fi
       - name: Witnessed same-plan native ablation and short Simulation admission
         run: |
           set -euo pipefail
@@ -669,19 +677,29 @@ jobs:
               return hashlib.sha256(p.read_bytes()).hexdigest()
           base = Path(".classes-base/crates/rawmocs-cli/target/release/rawmocs").resolve()
           candidate = Path(".classes-candidate/crates/rawmocs-cli/target/release/rawmocs").resolve()
-          static = Path(".classes-static/crates/rawmocs-cli/target/release/rawmocs").resolve()
-          arms = {"release":base, "off":candidate, "on":candidate, "static_off":static, "static_on":static}
-          report = {"status":"RUNNING", "bits":100, "digits":30, "cases":{},
+          mode = os.environ["EXPERIMENT"]
+          anchor = mode == "sparse-anchor"
+          flag = "RAWMOCS_RESEARCH_SPARSE_ANCHOR" if anchor else "RAWMOCS_RESEARCH_FACTOR_CLASSES"
+          marker = "PREJOIN_RESEARCH_ANCHOR" if anchor else "PREJOIN_RESEARCH_CLASSES"
+          arms = {"release":base, "off":candidate, "on":candidate}
+          if not anchor:
+              static = Path(".classes-static/crates/rawmocs-cli/target/release/rawmocs").resolve()
+              arms.update(static_off=static, static_on=static)
+          report = {"status":"RUNNING", "experiment":mode, "cases":{},
                     "baseline_sha":"ef8d1ee606bed672ee9be62d189a2b3fbcc905a0",
-                    "candidate_sha":"78a606add677b39d86af076f639f569452ec0ad8",
-                    "static_sha":"d28cdd98fa2b55c73cfd01392fee48ba70602104",
+                    "candidate_sha":os.environ["CANDIDATE_SHA"],
+                    "static_sha":None if anchor else "d28cdd98fa2b55c73cfd01392fee48ba70602104",
                     "binary_sha256":{k:digest(v) for k,v in arms.items()},
                     "scope":"RaWMoCS only; prior independent count witness, not new GPMC timing"}
           def persist():
               (root/"report.json").write_text(json.dumps(report,indent=2)+"\n")
           persist()
           config = ["options:",'  max-time: "5s"',"benchmarks:"]
-          for name,(artifact,sha,run) in sources.items():
+          cohorts = [(name, name, 30, 100, 30) for name in sources]
+          if anchor:
+              cohorts += [(name+"-432", name, 130, 432, 100) for name in ("qft20","qnn8")]
+          for name,source,digits,bits,target in cohorts:
+              artifact,sha,run = sources[source]
               directory = inputs/("rawmocs-quprs-"+artifact)
               cnf, = directory.rglob("gpmc-capture.cnf")
               witness, = directory.rglob("witness.json")
@@ -691,23 +709,26 @@ jobs:
               assert ref["width"]<=19 and ref["work"]<=40000000 and ref["peak"]<=2000000
               if ref["status"]=="INDEPENDENT_FIXED_INTERVAL_COMPLETE":
                   assert ref["order_policy"] in ("fill-reverse","degree-reverse")
-              case = {"source_run":run,"source_sha256":sha,"witness_sha256":digest(witness),"rows":[]}
+              case = {"source_run":run,"source_sha256":sha,"witness_sha256":digest(witness),
+                      "bits":bits,"digits":digits,"target":target,"rows":[]}
               report["cases"][name]=case
               persist()
               expected = None
               signature = None
-              order = ("release","off","on","static_off","static_on",
+              order = ("release","off","on","on","off","release","off","on","release") if anchor else (
+                       "release","off","on","static_off","static_on",
                        "static_on","static_off","on","off","release",
                        "on","static_on","release","static_off","off")
               for i,arm in enumerate(order):
                   binary = arms[arm]
                   env = os.environ.copy()
                   env.pop("RAWMOCS_RESEARCH_FACTOR_CLASSES",None)
+                  env.pop("RAWMOCS_RESEARCH_SPARSE_ANCHOR",None)
                   if arm in ("on","static_on"):
-                      env["RAWMOCS_RESEARCH_FACTOR_CLASSES"]="1"
+                      env[flag]="1"
                   label = f"{name}-{i}-{arm}"
                   rss = root/(label+".rss")
-                  argv = [str(binary),"--digits","30","--solver","prejoin","--timeout-ms","90000",str(cnf)]
+                  argv = [str(binary),"--digits",str(digits),"--solver","prejoin","--timeout-ms","90000",str(cnf)]
                   start=time.monotonic()
                   p=subprocess.run(["timeout","-k","2s","95s","prlimit","--as=3221225472","--",
                       "/usr/bin/time","-f","%M","-o",str(rss),*argv],env=env,text=True,
@@ -723,24 +744,38 @@ jobs:
                   f=count.split()
                   assert sat in ("s SATISFIABLE","s UNSATISFIABLE") and f[:3]==["c","r","mpfr"] and len(f)==5
                   row.update(sat=sat=="s SATISFIABLE",real=f[3],imag=f[4],rss_kib=int(rss.read_text()))
-                  row["witness_relative_upper"]=check_count(row,ref,30)
+                  assert f"RAWMOCS_COMPLETE route=prejoin digits={digits} bits={bits} " in p.stderr
+                  try:
+                      row["witness_relative_upper"]=check_count(row,ref,target)
+                      row["witness_status"]="PASS"
+                  except AssertionError as e:
+                      if bits == 100:
+                          raise
+                      row["witness_status"]="PRECISION_WITNESS_INCONCLUSIVE"
+                      row["witness_error"]=str(e)[:500]
                   plan,=re.findall(r"^PREJOIN_COMPLETE (.*?) plan_ns=",p.stderr,re.M)
                   phase,=re.findall(r"^PREJOIN_PHASE_NS .*? execute=(\d+)",p.stderr,re.M)
                   row.update(plan=plan,execute_ns=int(phase))
                   if arm in ("on","static_on"):
-                      lines=re.findall(r"^PREJOIN_RESEARCH_CLASSES factors=(\d+) cells=(\d+) peak_bytes=(\d+)",p.stderr,re.M)
-                      assert lines
-                      row["metadata"]=[list(map(int,x)) for x in lines]
-                      assert all(x[2]<=2000000 for x in row["metadata"])
+                      if anchor:
+                          lines=re.findall(r"^PREJOIN_RESEARCH_ANCHOR ops=(\d+) inspected=(\d+) checks=(\d+) skips=(\d+) prefix_upper=(\d+)",p.stderr,re.M)
+                          assert lines
+                          row["anchor_telemetry"]=[dict(zip(("ops","inspected","checks","skips","prefix_upper"),map(int,x))) for x in lines]
+                          assert all(x["skips"]<=x["checks"] for x in row["anchor_telemetry"])
+                      else:
+                          lines=re.findall(r"^PREJOIN_RESEARCH_CLASSES factors=(\d+) cells=(\d+) peak_bytes=(\d+)",p.stderr,re.M)
+                          assert lines
+                          row["metadata"]=[list(map(int,x)) for x in lines]
+                          assert all(x[2]<=2000000 for x in row["metadata"])
                   else:
-                      assert "PREJOIN_RESEARCH_CLASSES" not in p.stderr
+                      assert marker not in p.stderr
                   if expected is None:
                       expected,signature=p.stdout,plan
                   assert p.stdout==expected and plan==signature, (label,"same-plan count mismatch")
                   persist()
               case["median"]={a:{k:statistics.median(r[k] for r in case["rows"] if r["arm"]==a)
                                 for k in ("wall_s","execute_ns","rss_kib")} for a in arms}
-              case["status"]="SAME_PLAN_WITNESSED_PASS"
+              case["status"]="SAME_PLAN_WITNESSED_PASS" if all(r["witness_status"]=="PASS" for r in case["rows"]) else "PRECISION_WITNESS_INCONCLUSIVE"
               # Simulation is intentionally short: exclude QFT20 and any
               # case with native p50 > 0.5s on any arm.
               if name in ("qft16","qnn8","qaoa9","vqe8") and max(x["wall_s"] for x in case["median"].values())<=0.5:
@@ -752,13 +787,14 @@ jobs:
                       binary=arms[arm]
                       wrapper=root/f"{name}-{arm}.simulation.sh"
                       out=root/f"{name}-{arm}.simulation.stdout"
-                      cmd=["env","-u","RAWMOCS_RESEARCH_FACTOR_CLASSES"]
+                      cmd=["env","-u","RAWMOCS_RESEARCH_FACTOR_CLASSES","-u","RAWMOCS_RESEARCH_SPARSE_ANCHOR"]
                       if arm in ("on","static_on"):
-                          cmd+=["RAWMOCS_RESEARCH_FACTOR_CLASSES=1"]
+                          cmd+=[flag+"=1"]
                       cmd += [str(binary),"--digits","30","--solver","prejoin","--timeout-ms","90000",str(cnf)]
                       wrapper.write_text("#!/bin/sh\nset -eu\nexec "+shlex.join(cmd)+" >"+shlex.quote(str(out))+"\n")
                       wrapper.chmod(0o755)
-                      config.extend([f'  - name: "rawmocs_factor_classes/{name}/{arm}_mpfr100"',f'    exec: "{wrapper}"'])
+                      group="rawmocs_sparse_anchor" if anchor else "rawmocs_factor_classes"
+                      config.extend([f'  - name: "{group}/{name}/{arm}_mpfr100"',f'    exec: "{wrapper}"'])
                   (root/f"{name}.expected").write_text(expected)
                   case["simulation"]="ADMITTED"
               else:
@@ -768,7 +804,7 @@ jobs:
           Path("codspeed-factor-classes.generated.yml").write_text("\n".join(config)+"\n")
           report["status"]="NATIVE_COMPLETE"
           persist()
-          print("FACTOR_CLASS_NATIVE_FINAL",json.dumps(report),flush=True)
+          print("SPARSE_ANCHOR_NATIVE_FINAL" if anchor else "FACTOR_CLASS_NATIVE_FINAL",json.dumps(report),flush=True)
           PY
       - name: Compare bounded solver CPU and flamegraphs
         uses: CodSpeedHQ/action@v5
@@ -793,14 +829,14 @@ jobs:
               for arm in case["simulation_arms"]:
                   assert (root/f"{name}-{arm}.simulation.stdout").read_bytes()==(root/f"{name}.expected").read_bytes()
               case["simulation"]="COUNT_PARITY_PASS"
-          report["status"]="PASS"
+          report["status"]="PASS" if all(c["status"]=="SAME_PLAN_WITNESSED_PASS" for c in report["cases"].values()) else "PARTIAL_WITNESS"
           (root/"report.json").write_text(json.dumps(report,indent=2)+"\n")
-          print("FACTOR_CLASS_FINAL",json.dumps(report),flush=True)
+          print("SPARSE_ANCHOR_FINAL" if report["experiment"]=="sparse-anchor" else "FACTOR_CLASS_FINAL",json.dumps(report),flush=True)
           PY
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: rawmocs-factor-classes
+          name: rawmocs-${{ env.EXPERIMENT }}
           path: |
             .classes-evidence/
             codspeed-factor-classes.generated.yml

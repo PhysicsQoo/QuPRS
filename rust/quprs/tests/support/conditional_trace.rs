@@ -90,6 +90,66 @@ impl Trace{
         }
         None
     }
+    // Trace-specific integration: never treat the encoding view as an
+    // operator. Both phase and every remaining constraint are transported.
+    // Each accepted step below has raw sum multiplier exactly 2.
+    fn integrate(&mut self)->Option<(&'static str,u32)>{
+        if self.empty()||self.size()>TERM_CAP{return None;}
+        let mut ids:Vec<_>=self.live.iter().copied().filter(|&v|v as usize>=self.n).collect();
+        ids.sort_unstable();
+        for &y in &ids{
+            if self.constraints.iter().flatten().any(|m|m.contains(&y)){continue;}
+            if !self.p.terms.keys().any(|m|m.contains(&y)){
+                assert!(self.live.remove(&y));
+                return Some(("elim",y));
+            }
+        }
+        for &y in &ids{
+            if self.constraints.iter().flatten().any(|m|m.contains(&y)){continue;}
+            let ys:Vec<_>=self.p.terms.iter().filter(|(m,_)|m.contains(&y)).collect();
+            if ys.is_empty()||ys.len()>RHS_CAP+1||ys.iter().any(|(_,c)|!c.is_pure_half()){continue;}
+            let phi:Poly=ys.iter().map(|(m,_)|m.iter().copied().filter(|&v|v!=y).collect()).collect();
+            let mut pivots:Vec<_>=phi.iter().filter(|m|m.len()==1)
+                .filter(|m|m[0] as usize>=self.n&&self.live.contains(&m[0]))
+                .filter(|m|phi.iter().all(|q|q==*m||!q.contains(&m[0])))
+                .map(|m|m[0]).collect();
+            pivots.sort_unstable();
+            for z in pivots{
+                let mut rhs=phi.clone();rhs.remove(&vec![z]);
+                let len=rhs.len();
+                let pa=self.p.terms.keys().filter(|m|!m.contains(&y)&&m.contains(&z)).count();
+                let ca=self.constraints.iter().flatten().filter(|m|m.contains(&z)).count();
+                let work=pa.checked_mul(1usize<<len)?.checked_add(ca.checked_mul(len.max(1))?)?;
+                if work>WORK_CAP{continue;}
+                let mut q=self.clone();
+                q.p.terms.retain(|m,_|!m.contains(&y));
+                q.p.substitute_var_with_poly(z,&rhs);
+                q.constraints=q.constraints.iter().map(|p|sub(p,z,&rhs)).filter(|p|!p.is_empty()).collect();
+                if q.size()>TERM_CAP{continue;}
+                assert!(q.live.remove(&y)&&q.live.remove(&z));
+                assert!(q.p.terms.keys().all(|m|m.iter().all(|v|q.live.contains(v))));
+                assert!(q.constraints.iter().flatten().all(|m|m.iter().all(|v|q.live.contains(v))));
+                *self=q;
+                return Some(("hh",y));
+            }
+        }
+        None
+    }
+}
+// Alternate unique extension (factor 1) and exact integration (factor 2).
+// The fuel cap applies to their combined number of accepted steps.
+fn iterate(t:&mut Trace)->(usize,usize,usize){
+    let (mut subs,mut elim,mut hh)=(0,0,0);
+    for _ in 0..STEP_CAP{
+        if t.step().is_some(){subs+=1;continue;}
+        match t.integrate(){
+            Some(("elim",_))=>elim+=1,
+            Some(("hh",_))=>hh+=1,
+            None=>break,
+            _=>unreachable!(),
+        }
+    }
+    (subs,elim,hh)
 }
 pub(super) fn profile(ps:&PathSum,case:&str){
     let start=std::time::Instant::now();
@@ -111,13 +171,19 @@ pub(super) fn profile(ps:&PathSum,case:&str){
         if t.empty(){"empty"}else{"profiled"},t.live.len(),t.p.terms.len(),
         t.constraints.iter().filter(|q|!q.is_empty()).count(),before-t.n,start.elapsed().as_secs_f64());
     if std::env::var_os("CRR_GPMC_COMPARE").is_some(){
-        compare_gpmc(ps,&t,case);
+        let mut iterated=Trace::from_native(ps).expect("admitted");
+        let it_start=std::time::Instant::now();
+        let (subs,elim,hh)=iterate(&mut iterated);
+        let multiplier_power=elim+hh;
+        println!("CRR_ITERATE case={case} subs={subs} elim={elim} hh={hh} multiplier_power={multiplier_power} hidden_after={} phase_after={} constraints_after={} iterate_s={}",
+            iterated.live.len()-iterated.n,iterated.p.terms.len(),iterated.constraints.iter().filter(|q|!q.is_empty()).count(),it_start.elapsed().as_secs_f64());
+        compare_gpmc(ps,&t,&iterated,multiplier_power,case);
     }
 }
 
 // Same existing encoder and GPMC adapter on both arms. The count is
 // raw, not rescaled using the modified view's number of variables.
-fn compare_gpmc(original:&PathSum,t:&Trace,case:&str){
+fn compare_gpmc(original:&PathSum,t:&Trace,iterated:&Trace,multiplier_power:usize,case:&str){
     use quprs::wmc::WmcManager;
     use quprs::precision_count::{PrintedCount,observed_distance_verdict};
     use num_bigint::BigInt;
@@ -139,6 +205,7 @@ fn compare_gpmc(original:&PathSum,t:&Trace,case:&str){
         mgr
     };
     let a=encode(original,"baseline");let b=encode(&reduced,"conditioned");
+    let c=encode(&iterated.encoding_view(original),"iterated");
     let solve=|mgr:&WmcManager,arm:&str|->Option<PrintedCount>{
         let start=Instant::now();
         let result=mgr.solve_with_deadline_distance_printed_precision("gpmc",Some(start+Duration::from_secs(8)),90);
@@ -159,7 +226,8 @@ fn compare_gpmc(original:&PathSum,t:&Trace,case:&str){
     let (x,y)=if case.as_bytes().iter().map(|&b|b as usize).sum::<usize>()%2==0{
         (solve(&a,"baseline"),solve(&b,"conditioned"))
     }else{let y=solve(&b,"conditioned");(solve(&a,"baseline"),y)};
-    let (Some(x),Some(y))=(x,y)else{
+    let z=solve(&c,"iterated");
+    let (Some(x),Some(y),Some(mut z))=(x,y,z)else{
         println!("CRR_COMPARE case={case} status=incomplete");return;
     };
     // Normalize conservatively with floor(log2 normalization), using
@@ -172,8 +240,15 @@ fn compare_gpmc(original:&PathSum,t:&Trace,case:&str){
     let dx=observed_distance_verdict(&x,original_twice,"1e-8").expect("baseline distance");
     let dy=observed_distance_verdict(&y,original_twice,"1e-8").expect("conditioned distance");
     assert!(std::mem::discriminant(&dx)==std::mem::discriminant(&dy));
-    println!("CRR_COMPARE case={case} status=matched normalized_l1_delta={:.5e} distance_midpoint_match=true normalization_twice={original_twice}",
-        (delta/scale).to_f64().unwrap_or(f64::INFINITY));
+    let factor=BigRational::from_integer(BigInt::from(1u8)<<multiplier_power);
+    z.real*=&factor;z.imag*=&factor;
+    z.real_half_unit*=&factor;z.imag_half_unit*=&factor;
+    let dz=(&x.real-&z.real).abs()+(&x.imag-&z.imag).abs();
+    assert!(dz<=bound,"iterated raw complex count disagreement for {case}");
+    let vz=observed_distance_verdict(&z,original_twice,"1e-8").expect("iterated distance");
+    assert!(std::mem::discriminant(&dx)==std::mem::discriminant(&vz));
+    println!("CRR_COMPARE case={case} status=matched normalized_l1_delta={:.5e} iterated_normalized_l1_delta={:.5e} distance_midpoint_match=true normalization_twice={original_twice}",
+        (delta/&scale).to_f64().unwrap_or(f64::INFINITY),(dz/&scale).to_f64().unwrap_or(f64::INFINITY));
 }
 
 
@@ -229,4 +304,59 @@ fn exact_trace_constraint_substitution(){
     }
     assert!(steps>0);
     println!("CRR_TRACE_ORACLE models=512 input_hist_checks={checks} substitutions={steps}");
+}
+
+
+#[test]
+fn exact_trace_iterated_elim_hh(){
+    use quprs::rational::{PhaseCoeff,Rational};
+    // Z8 quotient Z[z]/(z^4+1): histogram equality is not required
+    // after interference cancellation; compare exact signed coefficients.
+    fn coeff(t:&Trace,x:usize,pow:usize)->[i64;4]{
+        let h=hist(t,x);
+        std::array::from_fn(|i|(h[i] as i64-h[i+4] as i64)*(1i64<<pow))
+    }
+    let mut seed=29u64;
+    let mut next=||{seed=seed.wrapping_mul(6364136223846793005).wrapping_add(1);seed>>32};
+    let (mut checks,mut total_elim,mut total_hh)=(0,0,0);
+    for k in 0..512{
+        let mut ps=PathSum::new(2);ps.rr_tolerance=0.0;
+        for _ in 0..5{ps.v.get_fresh_var();}
+        // y2 is an HH integrator, z3 its internal pivot.
+        // y2 is absent from constraints; the pivot occurs in the phase
+        // and constraints. y6 is initially free in every model.
+        ps.p.add_term(vec![2,3],PhaseCoeff::HALF);
+        for mask in 0u32..16{
+            let ids=[0u32,1,4,5];
+            let m:Vec<_>=ids.iter().enumerate().filter(|(i,_)|mask>>i&1!=0).map(|(_,v)|*v).collect();
+            if next()%7==0{let mut q=m.clone();q.push(2);ps.p.add_term(q,PhaseCoeff::HALF);}
+        }
+        // Output equation with no isolated singleton pivot at first:
+        // ensures HH can expose new constraint substitution.
+        ps.f.functions[0].insert(vec![3,4]);
+        ps.f.functions[0].insert(vec![4,5]);
+        if k%2==0{ps.f.functions[1].insert(vec![3,5]);}
+        for mask in 0u32..32{
+            let ids=[0u32,1,3,4,5];
+            let m:Vec<_>=ids.iter().enumerate().filter(|(i,_)|mask>>i&1!=0).map(|(_,v)|*v).collect();
+            if next()%5==0{ps.p.add_term(m,PhaseCoeff::new_constant(Rational::new((next()%8) as i64,8)));}
+        }
+        let orig=Trace::from_native(&ps).unwrap();let mut t=orig.clone();
+        let (_,elim,hh)=iterate(&mut t);total_elim+=elim;total_hh+=hh;
+        let round=Trace::from_native(&t.encoding_view(&ps)).unwrap();
+        for x in 0..4{
+            assert_eq!(coeff(&orig,x,0),coeff(&t,x,elim+hh));
+            assert_eq!(coeff(&t,x,elim+hh),coeff(&round,x,elim+hh));
+            checks+=1;
+        }
+    }
+    assert!(total_elim>=512&&total_hh>0);
+    println!("CRR_ITERATE_ORACLE models=512 checks={checks} elim={total_elim} hh={total_hh}");
+    // Negative normalization control: omitting a free-variable factor
+    // changes a nonzero trace coefficient exactly.
+    let mut ps=PathSum::new(1);ps.rr_tolerance=0.0;ps.v.get_fresh_var();
+    let orig=Trace::from_native(&ps).unwrap();let mut t=orig.clone();
+    let (_,e,h)=iterate(&mut t);assert_eq!((e,h),(1,0));
+    assert_ne!(coeff(&orig,0,0),coeff(&t,0,0));
+    assert_eq!(coeff(&orig,0,0),coeff(&t,0,1));
 }

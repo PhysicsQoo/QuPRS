@@ -19,7 +19,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        case: ${{ fromJSON(github.event_name == 'workflow_dispatch' && '["e2e","qpeinexact22-432","grover6-432","gf2-7-333","fallback","qft16-memory","qft20","qft22","qpeinexact20","grover6","qaoa9","vqe8","qnn8","wstate8","qft20-negative","planner-qft16","planner-qft22"]' || '["planner-qft16","planner-qft22"]') }}
+        case: ${{ fromJSON(github.event_name == 'workflow_dispatch' && '["e2e","qpeinexact22-432","grover6-432","gf2-7-333","fallback","qft16-memory","qft20","qft22","qpeinexact20","grover6","qaoa9","vqe8","qnn8","wstate8","qft20-negative","planner-qft16","planner-qft22","planner-qft20","planner-qnn8"]' || '["planner-qft16","planner-qft22","planner-qft20","planner-qnn8"]') }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -40,7 +40,7 @@ jobs:
         if: startsWith(matrix.case, 'planner-')
         with:
           repository: PhysicsQoo/RaWMoCS
-          ref: e84a59091fdf7dd03da7944de59af64a886812bb
+          ref: 853096c77165605c6660413691f732048be870f2
           path: .rawmocs-candidate
           persist-credentials: false
       - uses: actions/setup-python@v5
@@ -101,7 +101,7 @@ jobs:
         if: startsWith(matrix.case, 'planner-')
         run: |
           set -euo pipefail
-          test "$(git -C .rawmocs-candidate rev-parse HEAD)" = e84a59091fdf7dd03da7944de59af64a886812bb
+          test "$(git -C .rawmocs-candidate rev-parse HEAD)" = 853096c77165605c6660413691f732048be870f2
           cargo test --locked --release --manifest-path .rawmocs-candidate/crates/rawmocs-cli/Cargo.toml
           cargo build --locked --release --manifest-path .rawmocs-candidate/crates/rawmocs-cli/Cargo.toml
       - name: Build expanded native cohort verifier
@@ -136,7 +136,9 @@ jobs:
           git -C .rawmocs rev-parse HEAD > .integration-evidence/rawmocs-revision.txt
           git -C .rawmocs-candidate rev-parse HEAD > .integration-evidence/candidate-revision.txt
           git -C .gpmc rev-parse HEAD > .integration-evidence/gpmc-revision.txt
-          python research/rawmocs_integration/planner_ablation.py --n "${CASE#planner-qft}" \
+          N="${CASE#planner-qft}"
+          if [ "$CASE" = planner-qnn8 ]; then N=8; fi
+          python research/rawmocs_integration/planner_ablation.py --n "$N" \
             --raw .rawmocs/crates/rawmocs-cli/target/release/rawmocs \
             --candidate .rawmocs-candidate/crates/rawmocs-cli/target/release/rawmocs \
             --gpmc .gpmc/build/gpmc --bin rust/target/release/examples/rawmocs_cohort \

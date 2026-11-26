@@ -23,21 +23,19 @@ structure Forest where
   input_root : ∀ v, v < n → parent v = none
 
 def root (f : Forest) (v : Nat) : Nat :=
-  match h : f.parent v with
+  match _h : f.parent v with
   | none => v
   | some p => root f p
 termination_by v
-decreasing_by exact f.ordered v p h
+decreasing_by exact f.ordered v p _h
 
 theorem root_none (f : Forest) (v : Nat) (h : f.parent v = none) :
     root f v = v := by
-  rw [root]
-  simp [h]
+  rw [root] <;> (first | rfl | (split <;> simp_all) | simp_all)
 
 theorem root_edge (f : Forest) (v p : Nat) (h : f.parent v = some p) :
     root f v = root f p := by
-  rw [root]
-  simp [h]
+  rw [root] <;> (first | rfl | (split <;> simp_all) | simp_all)
 
 theorem root_terminal (f : Forest) (v : Nat) :
     f.parent (root f v) = none := by
@@ -65,7 +63,9 @@ decreasing_by exact f.ordered v p h
 
 theorem root_le (f : Forest) (v : Nat) : root f v ≤ v := by
   cases h : f.parent v with
-  | none => rw [root_none f v h]
+  | none =>
+      rw [root_none f v h]
+      exact Nat.le_refl v
   | some p =>
       rw [root_edge f v p h]
       exact Nat.le_trans (root_le f p) (Nat.le_of_lt (f.ordered v p h))

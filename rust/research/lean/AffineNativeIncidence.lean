@@ -35,7 +35,7 @@ theorem column_decode {n : Nat} (one : Fin n → BitVec n)
   | cons j js ih =>
       -- Use decidable membership explicitly; simp_all can introduce
       -- classical proposition decisions even though Fin equality is decidable.
-      by_cases he : i = j
+      rcases Decidable.em (i = j) with he | he
       · subst j
         have hm : decide (i ∈ i :: js) = true :=
           decide_eq_true (List.mem_cons.mpr (Or.inl rfl))
@@ -43,14 +43,14 @@ theorem column_decode {n : Nat} (one : Fin n → BitVec n)
         | false =>
             have hf : buildColumn one p (i :: js) = buildColumn one p js := by
               simp [buildColumn, hp]
-            rw [hf, ih, hm, hp] <;> simp
+            rw [hf, ih, hm, hp] <;> cases decide (i ∈ js) <;> rfl
         | true =>
             have hf : buildColumn one p (i :: js) = one i ||| buildColumn one p js := by
               simp [buildColumn, hp]
             have hb : decode (one i) i = true := by
               rw [hone]
               exact decide_eq_true rfl
-            rw [hf, decode_or_word, hb, hm, hp]
+            rw [hf, decode_or_word, hb, hm] <;> rfl
       · have hm : decide (i ∈ j :: js) = decide (i ∈ js) := by
           apply Bool.eq_iff_iff.mpr
           simp only [decide_eq_true_eq]
@@ -72,7 +72,7 @@ theorem column_decode {n : Nat} (one : Fin n → BitVec n)
             have hb : decode (one j) i = false := by
               rw [hone]
               exact decide_eq_false he
-            rw [hf, decode_or_word, hb, ih, hm]
+            rw [hf, decode_or_word, hb, ih, hm] <;> rfl
 
 def fullColumn {n : Nat} (one : Fin n → BitVec n) (p : Fin n → Bool) : BitVec n :=
   buildColumn one p (List.finRange n)
@@ -211,13 +211,14 @@ theorem native_word_reconstruction {n : Nat} {M : Type} [DecidableEq M]
 
 /-- One-hot output coordinate using the same unsigned shift as Rust. -/
 def oneHot {n : Nat} (j : Fin n) : BitVec n :=
-  (1 : BitVec n) <<< j.val
+  (1#n) <<< j.val
 
 theorem one_hot_decode {n : Nat} (j k : Fin n) :
     decode (oneHot j) k = decide (k = j) := by
   have hn : 0 < n := by have h := k.isLt; omega
-  simp only [oneHot, decode, BitVec.getLsbD_shiftLeft, BitVec.getLsbD_one]
-  rw [decide_eq_true k.isLt, decide_eq_true hn]
+  change ((1#n) <<< j.val).getLsbD k.val = decide (k = j)
+  rw [BitVec.getLsbD_shiftLeft, BitVec.getLsbD_one,
+    decide_eq_true k.isLt, decide_eq_true hn]
   by_cases h : k = j
   · subst k
     rw [decide_eq_false (Nat.lt_irrefl j.val), Nat.sub_self,
@@ -314,6 +315,49 @@ theorem gathered_word_reconstruction {n : Nat} {M : Type} [DecidableEq M]
     keep mask target fixed value relation offset impossible one_hot_decode
     (gather_keys_nodup terms) hr (gather_keys_coverage terms) h active
 
+
+/-- Signed coordinate of a phase in the negacyclic degree-d basis.
+    The order of the root of unity is 2*d (d=1,2,4,8,16,32 in Rust).
+    The algebraic embedding of this representation is a separate proof. -/
+def phaseCoordinate (d k p : Nat) : Int :=
+  if p % (2*d) = k then 1
+  else if p % (2*d) = k+d then -1 else 0
+
+theorem gathered_fibre_preserved {n : Nat} {M Y : Type} [DecidableEq M]
+    (terms : Fin n → List M) (constant : Fin n → Bool)
+    (keep mask target fixed value : BitVec n)
+    (relation : Fin n → BitVec n) (offset : Fin n → Bool) (impossible : Bool)
+    (hr : ∀ i, (terms i).Nodup)
+    (h : checkWordCertificate (gatherKeys terms) (rowColumn oneHot terms)
+      (fullColumn oneHot constant) keep mask target fixed value relation offset impossible = true)
+    (active : Y → M → Bool) (w : Y → Int) (u : BasisValue keep) (ys : List Y)
+    [DecidableEq (Fin n → Bool)] [DecidableEq (BasisValue keep)] :
+    fibreSum (fun y => nativeEval terms constant (active y))
+      w (restore relation offset u) ys =
+    fibreSum (fun y => project keep (nativeEval terms constant (active y))) w u ys := by
+  have hs := word_certificate_sound (gatherKeys terms) (rowColumn oneHot terms)
+    (fullColumn oneHot constant) keep mask target fixed value relation offset impossible h
+  exact fibre_preserved _ _ (restore relation offset) w
+    (fun y => gathered_word_reconstruction terms constant keep mask target fixed value
+      relation offset impossible hr h (active y)) hs.2.1 u ys
+
+theorem gathered_phase_coordinate_preserved {n : Nat} {M Y : Type} [DecidableEq M]
+    (terms : Fin n → List M) (constant : Fin n → Bool)
+    (keep mask target fixed value : BitVec n)
+    (relation : Fin n → BitVec n) (offset : Fin n → Bool) (impossible : Bool)
+    (hr : ∀ i, (terms i).Nodup)
+    (h : checkWordCertificate (gatherKeys terms) (rowColumn oneHot terms)
+      (fullColumn oneHot constant) keep mask target fixed value relation offset impossible = true)
+    (active : Y → M → Bool) (phase : Y → Nat) (d k : Nat)
+    (u : BasisValue keep) (ys : List Y)
+    [DecidableEq (Fin n → Bool)] [DecidableEq (BasisValue keep)] :
+    fibreSum (fun y => nativeEval terms constant (active y))
+      (fun y => phaseCoordinate d k (phase y)) (restore relation offset u) ys =
+    fibreSum (fun y => project keep (nativeEval terms constant (active y)))
+      (fun y => phaseCoordinate d k (phase y)) u ys :=
+  gathered_fibre_preserved terms constant keep mask target fixed value relation offset
+    impossible hr h active (fun y => phaseCoordinate d k (phase y)) u ys
+
 #print axioms decode_or_word
 #print axioms column_decode
 #print axioms full_column_decode
@@ -330,5 +374,7 @@ theorem gathered_word_reconstruction {n : Nat} {M : Type} [DecidableEq M]
 #print axioms gather_keys_coverage
 #print axioms gather_keys_exact
 #print axioms gathered_word_reconstruction
+#print axioms gathered_fibre_preserved
+#print axioms gathered_phase_coordinate_preserved
 
 end QuPRS.AffineNativeIncidence

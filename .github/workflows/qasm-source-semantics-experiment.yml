@@ -946,11 +946,11 @@ jobs:
             echo 'Unexpected affine incidence theorem axiom dependency' >&2
             exit 1
           fi
-          test "$(grep -Ec 'does not depend on any axioms|depends on axioms' /tmp/qasm-lean-affine-incidence.log)" -eq 16
-          for theorem in decode_or_word column_decode full_column_decode selected_nodup nodup_same_members_perm parity_perm row_keys_perm native_incidence_eval native_word_reconstruction one_hot_decode unique_keys_mem unique_keys_nodup gather_keys_nodup gather_keys_coverage gather_keys_exact gathered_word_reconstruction; do
+          test "$(grep -Ec 'does not depend on any axioms|depends on axioms' /tmp/qasm-lean-affine-incidence.log)" -eq 18
+          for theorem in decode_or_word column_decode full_column_decode selected_nodup nodup_same_members_perm parity_perm row_keys_perm native_incidence_eval native_word_reconstruction one_hot_decode unique_keys_mem unique_keys_nodup gather_keys_nodup gather_keys_coverage gather_keys_exact gathered_word_reconstruction gathered_fibre_preserved gathered_phase_coordinate_preserved; do
             test "$(grep -Ec "^'QuPRS[.]AffineNativeIncidence[.]$theorem' (does not depend on any axioms|depends on axioms)" /tmp/qasm-lean-affine-incidence.log)" -eq 1
           done
-          echo 'LEAN4_AFFINE_NATIVE_INCIDENCE_PASS theorem_axiom_reports=16 or_fold=true row_set_semantics=true source_reconstruction=true one_hot_shift=true key_coverage_model=true rust_container_refinement=false'
+          echo 'LEAN4_AFFINE_NATIVE_INCIDENCE_PASS theorem_axiom_reports=18 or_fold=true row_set_semantics=true source_reconstruction=true one_hot_shift=true key_coverage_model=true signed_phase_coordinate_fibres=true rust_container_refinement=false cyclotomic_embedding=false'
 
       - name: Build and test std-only independent verifier
         run: |

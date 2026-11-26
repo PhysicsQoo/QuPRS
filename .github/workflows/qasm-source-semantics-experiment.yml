@@ -16,6 +16,7 @@ on:
       - rust/research/lean/AliasForest.lean
       - rust/research/lean/ForestEnumeration.lean
       - rust/research/lean/ForestWeightedSum.lean
+      - rust/research/lean/AliasTransport.lean
       - benchmarks/rust_core/benches/conditional_trace.rs
       - benchmarks/rust_core/Cargo.toml
       - benchmarks/rust_core/Cargo.lock
@@ -967,7 +968,7 @@ jobs:
           done
           echo 'CRR_LEAN_ENUMERATION_PASS theorem_axiom_reports=16 original_permutation=false rust_refinement=false'
           sha256sum ForestWeightedSum.lean >> ../../../evidence/source-sha256.txt
-          LEAN_PATH=. lean ForestWeightedSum.lean 2>&1 | tee ../../../evidence/conditional-lean-weighted-sum.log
+          LEAN_PATH=. lean -o ForestWeightedSum.olean ForestWeightedSum.lean 2>&1 | tee ../../../evidence/conditional-lean-weighted-sum.log
           if grep -E 'sorryAx|Lean[.]trustCompiler|Classical[.]choice' ../../../evidence/conditional-lean-weighted-sum.log; then
             exit 1
           fi
@@ -976,6 +977,16 @@ jobs:
             test "$(grep -Ec "^'QuPRS[.]ForestWeightedSum[.]$theorem' (does not depend on any axioms|depends on axioms)" ../../../evidence/conditional-lean-weighted-sum.log)" -eq 1
           done
           echo 'CRR_LEAN_WEIGHTED_SUM_PASS theorem_axiom_reports=19 original_permutation=true rust_refinement=false'
+          sha256sum AliasTransport.lean >> ../../../evidence/source-sha256.txt
+          LEAN_PATH=. lean AliasTransport.lean 2>&1 | tee ../../../evidence/conditional-lean-transport.log
+          if grep -E 'sorryAx|Lean[.]trustCompiler|Classical[.]choice' ../../../evidence/conditional-lean-transport.log; then
+            exit 1
+          fi
+          test "$(grep -Ec 'does not depend on any axioms|depends on axioms' ../../../evidence/conditional-lean-transport.log)" -eq 13
+          for theorem in mono_map mono_support mono_transport xor_cancel xor_exchange anf_toggle anf_transport rows_drop_empty rows_map rows_transport phase_insert phase_transport transported_term; do
+            test "$(grep -Ec "^'QuPRS[.]AliasTransport[.]$theorem' (does not depend on any axioms|depends on axioms)" ../../../evidence/conditional-lean-transport.log)" -eq 1
+          done
+          echo 'CRR_LEAN_TRANSPORT_PASS theorem_axiom_reports=13 abstract_coefficients=true rust_refinement=false'
       - name: Prepare bounded native Conditional RR CodSpeed target
         if: env.CRR_PERF_STAGE == 'simulation'
         run: |

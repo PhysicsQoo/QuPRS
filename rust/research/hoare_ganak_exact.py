@@ -1929,7 +1929,9 @@ def run_gpmc_pure(directory, exe, tmp, deadline):
         run_native_gse_wmc(directory,solve,deadline,long_metrics)
         long_metrics=None
         query_cap=5
-    if (directory/"paper-blind-fibre.tsv").is_file():
+    if (directory/"paper-sector-inputs.tsv").is_file():
+        run_paper_sector_inputs(directory,exe,tmp)
+    elif (directory/"paper-blind-fibre.tsv").is_file():
         run_paper_blind_fibres(directory,exe,tmp)
     elif (directory/"paper-conditioned-fibre.tsv").is_file():
         run_paper_single_fibre(directory,exe,tmp,conditioned=True)
@@ -1937,7 +1939,7 @@ def run_gpmc_pure(directory, exe, tmp, deadline):
         run_paper_single_fibre(directory,exe,tmp)
     # Freeze previously accepted timeout baselines instead of repeatedly
     # spending six additional 30s queries during conditioned-RR research.
-    if (directory/"paper-projected.tsv").is_file() and not any((directory/p).is_file() for p in ("paper-conditioned-fibre.tsv","paper-blind-fibre.tsv")):
+    if (directory/"paper-projected.tsv").is_file() and not any((directory/p).is_file() for p in ("paper-conditioned-fibre.tsv","paper-blind-fibre.tsv","paper-sector-inputs.tsv")):
         query_cap=30
         deadline=time.monotonic()+240
         long_metrics=[]
@@ -2357,6 +2359,81 @@ def run_paper_blind_fibres(directory,exe,tmp):
                 assert na==nb,(case,a["z"],na,nb)
                 paired+=1
     print("HOARE_PAPER_BLIND_PARITY paired="+str(paired),flush=True)
+
+
+def run_paper_sector_inputs(directory,exe,tmp):
+    fields="key case route x status prefix_h h vars clauses sign denominator scale common_ns prefix_ns prep_ns encoding_ns pivots rr_steps limited".split()
+    with (directory/"paper-sector-inputs.tsv").open() as f:
+        plans=list(csv.DictReader(f,fieldnames=fields,delimiter="\t"))
+    assert len(plans)==64
+    groups={}
+    for p in plans:
+        groups.setdefault((p["case"],p["route"]),[]).append(p)
+    assert set(groups)=={(c,r) for c in ("vchain","noancilla") for r in ("input-only","sector-rr")}
+    all_rows={}
+    for (case,route),group in groups.items():
+        assert [int(p["x"]) for p in group]==list(range(16))
+        common=int(group[0]["common_ns"])/1e9
+        assert all(int(p["common_ns"])==int(group[0]["common_ns"]) for p in group)
+        spent=common
+        witness=None
+        records=[]
+        for p in group:
+            row=dict(p)
+            for k in ("x","prefix_h","h","vars","clauses","sign","denominator","scale","common_ns","prefix_ns","prep_ns","encoding_ns","pivots","rr_steps"):
+                row[k]=int(p[k])
+            row.update(projected=None,normalized=None,query_s=0.0,metrics=[])
+            spent+=(row["prefix_ns"]+row["prep_ns"]+row["encoding_ns"])/1e9
+            if spent>=30:
+                row["status"]="BUDGET_NOT_RUN"
+            elif p["status"]=="READY":
+                start=time.monotonic()
+                base=(directory/(p["key"]+".cnf")).read_text()
+                assert base.splitlines()[0]==f'p cnf {row["vars"]} {row["clauses"]}'
+                # Lower phase difference bits are already constrained
+                # by the native projected encoder. Pack the sign only.
+                data,radix,bound=single_fibre_pack(base,[row["sign"]],5+2*row["h"])
+                query=pathlib.Path(tmp)/"sector-input.cnf"
+                query.write_text(data)
+                row["query_sha256"]=hashlib.sha256(data.encode()).hexdigest()
+                row["pack_s"]=time.monotonic()-start
+                t=time.monotonic()
+                try:
+                    remaining=30-spent-row["pack_s"]
+                    if remaining<=0:raise TimeoutError("sector route budget")
+                    out=profile_gpmc([str(exe),"-mode=1","-natw",str(query)],min(30,remaining),
+                                     pathlib.Path(tmp)/"sector-input-time.tsv",row["metrics"])
+                    value=parse_gpmc_integer(out,"wmc",bound*radix)
+                    a,b=single_fibre_decode(value,radix,bound,2)
+                    assert a>=b
+                    mass=a-b
+                    row.update(status="EXACT",projected=mass,normalized=mass<<row["scale"])
+                except (TimeoutError,subprocess.TimeoutExpired):row["status"]="TIMEOUT"
+                except SolverSignalKilled:row["status"]="SIGNAL_KILL"
+                row["query_s"]=time.monotonic()-t
+                spent+=time.monotonic()-start
+            row["accounted_s"]=spent
+            if row["projected"] is not None and row["projected"]>0 and witness is None:
+                witness={"x":row["x"],"accounted_s":spent,"queries_visited":len(records)+1}
+            records.append(row)
+            print("HOARE_PAPER_SECTOR_GPMC "+json.dumps(row),flush=True)
+        exact=[r for r in records if r["projected"] is not None]
+        positive=[r["x"] for r in exact if r["projected"]>0]
+        # Independent frozen dense oracle: consult only after queries.
+        assert all(bool(r["projected"])==(case=="noancilla") for r in exact)
+        verdict="REFUTED" if witness else "PROVED" if len(exact)==16 else "UNKNOWN"
+        print("HOARE_PAPER_SECTOR_SUMMARY "+json.dumps(dict(case=case,route=route,
+            exact=len(exact),positive=positive,witness=witness,verdict=verdict,
+            accounted_s=spent,common_s=common,max_h=max(r["h"] for r in records),
+            pivots=sum(r["pivots"] for r in records))),flush=True)
+        all_rows[case,route]=records
+    paired=0
+    for case in ("vchain","noancilla"):
+        for a,b in zip(all_rows[case,"input-only"],all_rows[case,"sector-rr"]):
+            if a["normalized"] is not None and b["normalized"] is not None:
+                assert a["normalized"]==b["normalized"],(case,a["x"],a["normalized"],b["normalized"])
+                paired+=1
+    print("HOARE_PAPER_SECTOR_PARITY paired="+str(paired),flush=True)
 
 def run_paper_projected_optimized(directory,count,deadline,metrics):
     fields="case mode n h0 h scale vars clauses sign denominator status build_ns rr_ns encoding_ns expected_bad".split()

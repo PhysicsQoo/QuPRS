@@ -370,9 +370,13 @@ fn fixed_input(mut ps:PathSum,x:u64)->PathSum{
     ps
 }
 fn output_pivot(ps:&PathSum,z:u64)->Option<(PathSum,usize)>{
+    output_pivot_mask(ps,(1u64<<ps.v.num_qubits)-1,z)
+}
+fn output_pivot_mask(ps:&PathSum,mask:u64,z:u64)->Option<(PathSum,usize)>{
     let n=ps.v.num_qubits;
     let mut candidates=Vec::new();
     for (i,row) in ps.f.functions.iter().enumerate(){
+        if mask>>i&1==0{continue;}
         for m in row.iter().filter(|m|m.len()==1&&(m[0] as usize)>=n){
             let y=m[0];
             if row.iter().any(|q|q!=m&&q.contains(&y)){continue;}
@@ -563,6 +567,102 @@ fn native_shared_input_checkpoint_exact(){
     println!("HOARE_NATIVE_SHARED_INPUT_CHECKPOINT checks={checks}");
 }
 
+
+// Condition only the output coordinates belonging to the sector.
+// Every unselected output remains part of the native output map;
+// the paired encoder must still enforce equality of ALL outputs.
+fn condition_sector(mut ps:PathSum,mask:u64,z:u64)->(PathSum,u32,usize,usize,bool){
+    assert!(z&!mask==0&&mask>>ps.v.num_qubits==0);
+    let mut scale=0;let mut pivots=0;let mut steps=0;let mut limited=false;
+    for _ in 0..mask.count_ones(){
+        let Some((t,_))=output_pivot_mask(&ps,mask,z) else{break;};
+        ps=t;pivots+=1;
+        let (t,r)=reduce(ps);ps=t;scale+=r.scale2;
+        steps+=r.elim+r.hh+r.omega;limited|=r.limit;
+    }
+    assert!(admitted(&ps));
+    (ps,scale,pivots,steps,limited)
+}
+#[test]
+fn native_partial_output_sector_exact(){
+    use quprs::{Rational,PhaseCoeff};
+    let norm=|a:&[Root],x:usize,mask:u64,z:u64|->i128{
+        (0..4).filter(|&i|i as u64&mask==z)
+            .flat_map(|i|a[4*x+i]).map(|v|i128::from(v)*i128::from(v)).sum()
+    };
+    let mut checks=0;let mut pivots=0;
+    for d in [2i64,8,64]{
+        for cancel in [false,true]{
+            let mut ps=PathSum::new(2);ps.set_auto_reduce(false);
+            let a=ps.v.get_fresh_var();let b=ps.v.get_fresh_var();let c=ps.v.get_fresh_var();
+            ps.f.functions[0]=Poly::from_iter([vec![0],vec![a],vec![b,c]]);
+            ps.f.functions[1]=Poly::from_iter([vec![1],vec![b]]);
+            for (m,w) in [(vec![a],1),(vec![b,c],-1),(vec![a,c],2)]{
+                ps.p.add_term(m,PhaseCoeff::new_constant(Rational::new(w,d)));
+            }
+            if cancel{
+                let y=ps.v.get_fresh_var();
+                ps.p.add_term(vec![y],PhaseCoeff::new_constant(Rational::new(1,2)));
+            }
+            let raw=entries(&ps).unwrap();
+            for x in 0..4u64{
+                let (prefix,r)=reduce(fixed_input(ps.clone(),x));
+                assert!(!r.limit);
+                for mask in 0..4u64{for z in 0..4u64{
+                    if z&!mask!=0{continue;}
+                    let (out,s,p,_,limited)=condition_sector(prefix.clone(),mask,z);
+                    assert!(!limited);pivots+=p;
+                    let got=entries(&out).unwrap();
+                    assert_eq!(norm(&got,x as usize,mask,z).checked_shl(r.scale2+s).unwrap(),
+                        norm(&raw,x as usize,mask,z));
+                    checks+=1;
+                }}
+            }
+        }
+    }
+    // Distinct output labels must not cancel: H then Z at x=0.
+    let mut ps=PathSum::new(1);ps.set_auto_reduce(false);
+    QuantumOp::H(0).apply(&mut ps,false);QuantumOp::Z(0).apply(&mut ps,false);
+    let a=entries(&ps).unwrap();
+    assert!(a[0].iter().zip(a[1]).all(|(&u,v)|u+v==0));
+    assert!(a[0].iter().any(|&v|v!=0)&&a[1].iter().any(|&v|v!=0));
+    assert!(pivots>0);
+    println!("HOARE_NATIVE_PARTIAL_OUTPUT_SECTOR checks={checks} pivots={pivots} distinct_output_control=true");
+}
+fn export_sector_inputs(dir:&std::path::Path,name:&str,residual:&PathSum,raw_scale:u32,
+    build_ns:u128,rr_ns:u128,rows:&mut String){
+    let common_ns=build_ns+rr_ns;
+    // Complete legal input partition, no oracle-driven ordering.
+    for x in 0..16u64{
+        let t=std::time::Instant::now();
+        let (prefix,r)=reduce(fixed_input(residual.clone(),x));
+        let prefix_ns=t.elapsed().as_nanos();
+        let pre:Vec<Anf>=(0..5).map(|i|if x>>i&1==1{Anf::from([1u64<<i])}
+            else{Anf::from([0,1u64<<i])}).collect();
+        let post=vec![Anf::from([0,16])]; // forbidden sector q4=1
+        for sector in [false,true]{
+            let t=std::time::Instant::now();
+            let (out,s,pivots,steps,limited)=if sector{condition_sector(prefix.clone(),16,16)}
+                else{(prefix.clone(),0,0,0,false)};
+            let prep_ns=t.elapsed().as_nanos();
+            let scale=raw_scale+r.scale2+s;
+            let route=if sector{"sector-rr"}else{"input-only"};
+            let key=format!("sector-{name}-{route}-{x}");
+            let t=std::time::Instant::now();
+            let plan=native_dyadic_projection_variant(&out,&pre,&post,32768,262144,true);
+            let enc=t.elapsed().as_nanos();
+            let (status,vars,clauses,sign,d)=if let Some((c,sign,d))=plan{
+                let mut text=format!("p cnf {} {}\n",c.vars,c.clauses.len());
+                for row in &c.clauses{for l in row{text.push_str(&format!("{l} "));}text.push_str("0\n");}
+                std::fs::write(dir.join(format!("{key}.cnf")),text).unwrap();
+                ("READY",c.vars,c.clauses.len(),sign,d)
+            }else{("ENCODING_LIMIT_OR_UNSUPPORTED",0,0,0,0)};
+            rows.push_str(&format!("{key}\t{name}\t{route}\t{x}\t{status}\t{}\t{}\t{vars}\t{clauses}\t{sign}\t{d}\t{scale}\t{common_ns}\t{prefix_ns}\t{prep_ns}\t{enc}\t{pivots}\t{steps}\t{}\n",
+                h(&prefix),h(&out),r.limit||limited));
+        }
+    }
+}
+
 #[test]
 fn paper_qwalk_native_source_admission(){
     let Some(dir)=std::env::var_os("HOARE_PAPER_QWALK_DIR") else{
@@ -571,7 +671,7 @@ fn paper_qwalk_native_source_admission(){
     let export=std::env::var_os("HOARE_PAPER_PROJECTED_DIR").map(std::path::PathBuf::from);
     let mut rows=String::new();
     let mut single_rows=String::new();
-    let mut blind_rows=String::new();
+    let mut sector_rows=String::new();
     for (name,gates,rx,expected_bad) in [("vchain",417,51,false),("noancilla",1305,183,true)]{
         let src=std::fs::read_to_string(std::path::Path::new(&dir).join(format!("{name}.qasm"))).unwrap();
         let (ops,n,rxc)=source_ops(&src);
@@ -614,7 +714,7 @@ fn paper_qwalk_native_source_admission(){
                 if specialize{export_projected(dir,name,"hybrid-pre-heap",&out,initial_h,r.scale2,build_ns,rr_ns,expected_bad,&mut rows);
                     export_single_fibres(dir,name,&out,r.scale2,build_ns,rr_ns,&mut single_rows);
                     // Keep old exporter callable, but freeze its prior measured baseline.
-                    export_blind_fibres(dir,name,&ps,&out,r.scale2,build_ns,rr_ns,&mut blind_rows); }
+                    export_sector_inputs(dir,name,&out,r.scale2,build_ns,rr_ns,&mut sector_rows); }
             }
             let mut bad=0usize;let mut checks=0usize;
             let status=if let Some(a)=entries(&out){
@@ -632,5 +732,5 @@ fn paper_qwalk_native_source_admission(){
     }
     if let Some(dir)=&export{std::fs::write(dir.join("paper-projected.tsv"),rows).unwrap();
         std::fs::write(dir.join("paper-single-fibre.tsv"),single_rows).unwrap();
-        std::fs::write(dir.join("paper-blind-fibre.tsv"),blind_rows).unwrap();}
+        std::fs::write(dir.join("paper-sector-inputs.tsv"),sector_rows).unwrap();}
 }

@@ -2590,6 +2590,12 @@ fn reference_weight(c:&ExactPair)->Result<ExactPair,&'static str>{
     use num_bigint::BigInt;
     use num_integer::Integer;
     use num_traits::{Signed,Zero};
+    // Keep the oracle's own precondition explicit, even if the caller
+    // bypasses exact_pair. Large noncanonical turns can cancel a large
+    // radian term while still amplifying the fixed-point pi error.
+    if c.0.is_negative()||c.0>=Rat::from_integer(1.into()){
+        return Err("weight reference noncanonical turns");
+    }
     let scale=BigInt::from(10u8).pow(90);
     fn atan_inv(q:u32,scale:&BigInt)->BigInt{
         let q=BigInt::from(q);let mut power=q.clone();let square=&q*&q;
@@ -2810,6 +2816,12 @@ fn exact_trace_weight_range_and_input_bound(){
     }
     let large=(Rat::zero(),Rat::from_integer(100_000.into()));
     assert_eq!(reference_weight(&large),Err("weight reference period cap"));
+    for turns in [Rat::new((-1).into(),4.into()),Rat::from_integer(1.into()),
+        Rat::from_integer(BigInt::from(10u8).pow(90))]{
+        let bad=(turns,Rat::zero());
+        assert_eq!(reference_weight(&bad),Err("weight reference noncanonical turns"));
+    }
+    println!("CRR_WEIGHT_REFERENCE_DOMAIN noncanonical_turns_rejected=3");
     let zero=normalized_input_bound(8,0,16,0).unwrap();assert!(zero.is_zero());
     let d=Rat::new(3.into(),BigInt::from(10u8).pow(65));
     let base=normalized_input_bound(8,1,16,0).unwrap();

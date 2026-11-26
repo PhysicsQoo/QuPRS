@@ -346,9 +346,52 @@ def domainCheck (n : Nat) (rs : List Record) : Bool :=
   (inputsKnown ids (dimacsIds n) && inputsKnown (dimacsIds n) ids) &&
     recordsKnown (dimacsIds n) rs
 
+-- Independently replayable live/phase binding checks. The original
+-- stage, freshness, source mapping and weight coverage checks remain.
+def uniqueIds : List Nat → Bool
+  | [] => true
+  | x :: xs => !natMem x xs && uniqueIds xs
+
+def natListEq : List Nat → List Nat → Bool
+  | [], [] => true
+  | x :: xs, y :: ys => (@decide (x = y) (Nat.decEq x y)) && natListEq xs ys
+  | _, _ => false
+
+def sourceDimacs (s : Nat) : List Record → Option Nat
+  | [] => none
+  | .live v id :: rs => if s == v then some id else sourceDimacs s rs
+  | _ :: rs => sourceDimacs s rs
+
+def phaseIds : List Record → List Nat
+  | [] => []
+  | .phase z _ :: rs => z :: phaseIds rs
+  | _ :: rs => phaseIds rs
+
+def andWitness (z : Nat) (ids : List Nat) : List Record → Bool
+  | [] => false
+  | .andGate out xs :: rs =>
+    ((@decide (z = out) (Nat.decEq z out)) && natListEq ids xs) || andWitness z ids rs
+  | _ :: rs => andWitness z ids rs
+
+def phaseRecordOK (rs : List Record) : Record → Bool
+  | .phase z source =>
+    match source.mapM (fun s => sourceDimacs s rs) with
+    | some ids => andWitness z ids rs
+    | none => false
+  | _ => true
+
+def phaseRecordsOK (all : List Record) : List Record → Bool
+  | [] => true
+  | r :: rs => phaseRecordOK all r && phaseRecordsOK all rs
+
+def replayExtras (rs : List Record) (ws : List Nat) : Bool :=
+  (uniqueIds (liveIds rs) && natListEq ws (phaseIds rs).reverse) && phaseRecordsOK rs rs
+
 def replayRows (n : Nat) (records : List Record) : Option (List (List Int) × List Nat) :=
   if topo (liveIds records) records && domainCheck n records then
-    (replayWeights n records).map (fun ws => (recordsRows records, ws))
+    match replayWeights n records with
+    | some ws => if replayExtras records ws then some (recordsRows records, ws) else none
+    | none => none
   else none
 
 -- Explicit constructive equality/membership. Avoid inferred
@@ -699,9 +742,12 @@ theorem replay_rows_binding (n : Nat) (rs : List Record)
     cases hw : replayWeights n rs with
     | none => simp [ht, hw] at h
     | some w =>
-      have he : some (recordsRows rs, w) = some (cs, ws) := by
-        simpa [ht, hw] using h
-      exact ⟨(congrArg Prod.fst (Option.some.inj he)).symm, (and_true_parts ht).1⟩
+      cases hx : replayExtras rs w with
+      | false => simp [ht, hw, hx] at h
+      | true =>
+        have he : some (recordsRows rs, w) = some (cs, ws) := by
+          simpa [ht, hw, hx] using h
+        exact ⟨(congrArg Prod.fst (Option.some.inj he)).symm, (and_true_parts ht).1⟩
 
 theorem accepted_records_sound (gate cnf : List Nat) (n : Nat)
     (rs : List Record) (p : ParsedCnf)
@@ -1642,6 +1688,369 @@ theorem accepted_phase_product_fiber {A : Type} [Zero A] [Add A] [One A] [Mul A]
     (congrArg (fun x => if guardTruth (extendVal v rs) rs then x else 0)
       (literal_product_phase ol weight (extendVal v rs) ws (dimacsIds n) hn hu))
 
+
+-- The runtime has checked the distinct live projection and phase
+-- declarations. Derive the exact extra admission premise.
+theorem replay_extras_checked (n : Nat) (rs : List Record)
+    (cs : List (List Int)) (ws : List Nat)
+    (h : replayRows n rs = some (cs, ws)) : replayExtras rs ws = true := by
+  unfold replayRows at h
+  cases ht : (topo (liveIds rs) rs && domainCheck n rs) with
+  | false => simp [ht] at h
+  | true =>
+    cases hw : replayWeights n rs with
+    | none => simp [ht, hw] at h
+    | some w =>
+      cases hx : replayExtras rs w with
+      | false => simp [ht, hw, hx] at h
+      | true =>
+        have he : some (recordsRows rs, w) = some (cs, ws) := by
+          simpa [ht, hw, hx] using h
+        have hws := congrArg Prod.snd (Option.some.inj he)
+        exact hws ▸ hx
+
+theorem nat_list_eq_iff (xs ys : List Nat) :
+    natListEq xs ys = true ↔ xs = ys := by
+  induction xs generalizing ys with
+  | nil => cases ys <;> simp [natListEq]
+  | cons x xs ih =>
+    cases ys with
+    | nil => simp [natListEq]
+    | cons y ys =>
+      simp only [natListEq, Bool.and_eq_true, decide_eq_true_eq, ih, List.cons.injEq]
+
+theorem replay_live_unique (n : Nat) (rs : List Record) (cs : List (List Int))
+    (ws : List Nat) (hr : replayRows n rs = some (cs, ws)) :
+    uniqueIds (liveIds rs) = true :=
+  (and_true_parts (and_true_parts (show
+    ((uniqueIds (liveIds rs) && natListEq ws (phaseIds rs).reverse) &&
+      phaseRecordsOK rs rs) = true from replay_extras_checked n rs cs ws hr)).1).1
+
+theorem replay_phase_ids (n : Nat) (rs : List Record) (cs : List (List Int))
+    (ws : List Nat) (hr : replayRows n rs = some (cs, ws)) :
+    ws = (phaseIds rs).reverse :=
+  (nat_list_eq_iff ws (phaseIds rs).reverse).mp
+    (and_true_parts (and_true_parts (show
+      ((uniqueIds (liveIds rs) && natListEq ws (phaseIds rs).reverse) &&
+        phaseRecordsOK rs rs) = true from replay_extras_checked n rs cs ws hr)).1).2
+
+-- Compact live bit vector uses record order, independently of
+-- DIMACS allocation order. Decoding outside its live IDs is arbitrary.
+def decodeLive : List Nat → List Bool → Nat → Bool
+  | z :: zs, b :: bs => fun x => if x = z then b else decodeLive zs bs x
+  | _, _ => fun _ => false
+
+theorem projection_agree (a b : Nat → Bool) (ids : List Nat)
+    (h : agreeOn (liftVal a) (liftVal b) ids) : ids.map a = ids.map b := by
+  induction ids with
+  | nil => rfl
+  | cons z zs ih =>
+    have hz : a z = b z := h z (List.mem_cons.mpr (Or.inl rfl))
+    have ht := ih (fun x hm => h x (List.mem_cons.mpr (Or.inr hm)))
+    exact (congrArg (fun x => x :: zs.map a) hz).trans
+      (congrArg (fun tail => b z :: tail) ht)
+
+theorem projection_decode (ids : List Nat) (bits : List Bool)
+    (hu : uniqueIds ids = true) (hl : bits.length = ids.length) :
+    ids.map (decodeLive ids bits) = bits := by
+  induction ids generalizing bits with
+  | nil =>
+    cases bits with
+    | nil => rfl
+    | cons b bs => cases hl
+  | cons z zs ih =>
+    cases bits with
+    | nil => cases hl
+    | cons b bs =>
+      have hh := and_true_parts (show (!natMem z zs && uniqueIds zs) = true from hu)
+      have hs : agreeOn (liftVal (decodeLive (z :: zs) (b :: bs)))
+          (liftVal (decodeLive zs bs)) zs := by
+        intro x hx
+        have hn : x ≠ z := fun he => fresh_not_mem z zs hh.1 (he ▸ hx)
+        change (if x = z then b else decodeLive zs bs x) = decodeLive zs bs x
+        exact if_neg hn
+      have ht := (projection_agree _ _ zs hs).trans (ih bs hh.2 (Nat.succ.inj hl))
+      change (if z = z then b else decodeLive zs bs z) ::
+        zs.map (decodeLive (z :: zs) (b :: bs)) = b :: bs
+      rw [if_pos rfl, ht]
+
+theorem decode_projection (ids : List Nat) (v : Nat → Bool) :
+    agreeOn (liftVal (decodeLive ids (ids.map v))) (liftVal v) ids := by
+  induction ids with
+  | nil => intro x hx; cases hx
+  | cons z zs ih =>
+    intro x hx
+    change (if x = z then v z else decodeLive zs (zs.map v) x) = v x
+    by_cases he : x = z
+    · subst x
+      exact if_pos rfl
+    · rw [if_neg he]
+      rcases List.mem_cons.mp hx with he' | hm
+      · exact False.elim (he he')
+      · exact ih x hm
+
+theorem live_projection_unique (ids : List Nat) (bits : List Bool) (v : Nat → Bool)
+    (hu : uniqueIds ids = true) (hl : bits.length = ids.length)
+    (hm : liveMatch v (decodeLive ids bits) ids = true) :
+    bits = ids.map v :=
+  (projection_decode ids bits hu hl).symm.trans
+    (projection_agree _ _ ids (fun x hx => ((live_match_iff v (decodeLive ids bits) ids).mp hm x hx).symm))
+
+-- Sum congruence and finite Fubini for any additive type satisfying
+-- the four-term interchange law (in particular complex addition).
+theorem sum_bits_congr {A : Type} [Add A] (n : Nat) (f g : List Bool → A)
+    (h : ∀ xs, xs.length = n → f xs = g xs) : sumBits n f = sumBits n g := by
+  induction n generalizing f g with
+  | zero => exact h [] rfl
+  | succ n ih =>
+    change sumBits n (fun xs => f (false :: xs)) + sumBits n (fun xs => f (true :: xs)) =
+      sumBits n (fun xs => g (false :: xs)) + sumBits n (fun xs => g (true :: xs))
+    rw [ih _ _ (fun xs hx => h (false :: xs) (congrArg Nat.succ hx)),
+      ih _ _ (fun xs hx => h (true :: xs) (congrArg Nat.succ hx))]
+
+theorem sum_bits_add {A : Type} [Add A]
+    (shuffle : ∀ a b c d : A, (a+b)+(c+d) = (a+c)+(b+d))
+    (n : Nat) (f g : List Bool → A) :
+    sumBits n (fun xs => f xs + g xs) = sumBits n f + sumBits n g := by
+  induction n generalizing f g with
+  | zero => rfl
+  | succ n ih =>
+    change sumBits n (fun xs => f (false :: xs) + g (false :: xs)) +
+      sumBits n (fun xs => f (true :: xs) + g (true :: xs)) =
+      (sumBits n (fun xs => f (false :: xs)) + sumBits n (fun xs => f (true :: xs))) +
+      (sumBits n (fun xs => g (false :: xs)) + sumBits n (fun xs => g (true :: xs)))
+    rw [ih, ih]
+    exact shuffle _ _ _ _
+
+theorem sum_bits_swap {A : Type} [Add A]
+    (shuffle : ∀ a b c d : A, (a+b)+(c+d) = (a+c)+(b+d))
+    (m n : Nat) (f : List Bool → List Bool → A) :
+    sumBits m (fun xs => sumBits n (f xs)) =
+      sumBits n (fun ys => sumBits m (fun xs => f xs ys)) := by
+  induction m generalizing f with
+  | zero => rfl
+  | succ m ih =>
+    change sumBits m (fun xs => sumBits n (f (false :: xs))) +
+      sumBits m (fun xs => sumBits n (f (true :: xs))) =
+      sumBits n (fun ys =>
+        sumBits m (fun xs => f (false :: xs) ys) +
+        sumBits m (fun xs => f (true :: xs) ys))
+    rw [ih (fun xs ys => f (false :: xs) ys), ih (fun xs ys => f (true :: xs) ys)]
+    exact (sum_bits_add shuffle n _ _).symm
+
+def totalWmc {A : Type} [Zero A] [Add A] (n : Nat) (p : ParsedCnf)
+    (weight : List Bool → A) : A :=
+  sumBits n (fun bits => if cnfTruth (liftVal (decodeBits bits)) p.clauses then weight bits else 0)
+
+-- For each DIMACS bit vector there is exactly one matching compact
+-- live vector. This proves the partition without enumerating live
+-- variables redundantly or assuming the solver counts correctly.
+theorem live_partition_term {A : Type} [Zero A] [Add A]
+    (zl : ∀ a : A, 0+a=a) (zr : ∀ a : A, a+0=a)
+    (p : ParsedCnf) (rs : List Record) (weight : List Bool → A)
+    (bits : List Bool) (hu : uniqueIds (liveIds rs) = true) :
+    sumBits (liveIds rs).length
+      (fun xs => fiberTerm p rs (decodeLive (liveIds rs) xs) weight bits) =
+      (if cnfTruth (liftVal (decodeBits bits)) p.clauses then weight bits else 0) := by
+  let ids := liveIds rs
+  let target := ids.map (decodeBits bits)
+  have hlen : target.length = ids.length := List.length_map
+  have ha := decode_projection ids (decodeBits bits)
+  have hm : liveMatch (decodeBits bits) (decodeLive ids target) ids = true :=
+    (live_match_iff _ _ ids).mpr (fun x hx => (ha x hx).symm)
+  have htarget : fiberTerm p rs (decodeLive ids target) weight bits =
+      (if cnfTruth (liftVal (decodeBits bits)) p.clauses then weight bits else 0) := by
+    unfold fiberTerm
+    rw [hm]
+    rfl
+  have hz : ∀ xs, xs.length = target.length → xs ≠ target →
+      fiberTerm p rs (decodeLive ids xs) weight bits = 0 := by
+    intro xs hx hn
+    unfold fiberTerm
+    cases hmatch : liveMatch (decodeBits bits) (decodeLive ids xs) ids with
+    | false => rfl
+    | true =>
+      exact False.elim (hn (live_projection_unique ids xs (decodeBits bits) hu (hx.trans hlen) hmatch))
+  have hsum := sum_bits_single zl zr target
+    (fun xs => fiberTerm p rs (decodeLive ids xs) weight bits) _ htarget hz
+  rw [hlen] at hsum
+  exact hsum
+
+theorem total_wmc_partition {A : Type} [Zero A] [Add A]
+    (zl : ∀ a : A, 0+a=a) (zr : ∀ a : A, a+0=a)
+    (shuffle : ∀ a b c d : A, (a+b)+(c+d) = (a+c)+(b+d))
+    (n : Nat) (p : ParsedCnf) (rs : List Record) (weight : List Bool → A)
+    (hu : uniqueIds (liveIds rs) = true) :
+    totalWmc n p weight = sumBits (liveIds rs).length
+      (fun xs => actualFiber n p rs (decodeLive (liveIds rs) xs) weight) := by
+  have hsum := sum_bits_swap shuffle (liveIds rs).length n
+    (fun xs bits => fiberTerm p rs (decodeLive (liveIds rs) xs) weight bits)
+  apply Eq.symm
+  exact hsum.trans (sum_bits_congr n _ _ (fun bits _ =>
+    live_partition_term zl zr p rs weight bits hu))
+
+theorem accepted_total_wmc {A : Type} [Zero A] [Add A]
+    (zl : ∀ a : A, 0+a=a) (zr : ∀ a : A, a+0=a)
+    (shuffle : ∀ a b c d : A, (a+b)+(c+d) = (a+c)+(b+d))
+    (gate cnf : List Nat) (n : Nat) (rs : List Record) (p : ParsedCnf)
+    (cs : List (List Int)) (ws : List Nat)
+    (hg : parseGate gate = some (n, rs)) (hp : parseCnf cnf = some p)
+    (hr : replayRows n rs = some (cs, ws)) (h : check gate cnf = true)
+    (weight : List Bool → A) :
+    totalWmc n p weight =
+      sumBits (liveIds rs).length (fun xs =>
+        let u := extendVal (decodeLive (liveIds rs) xs) rs
+        if guardTruth u rs then weight (packBits (fun k => u (k+1)) n) else 0) :=
+  (total_wmc_partition zl zr shuffle n p rs weight (replay_live_unique n rs cs ws hr)).trans
+    (sum_bits_congr (liveIds rs).length _ _ (fun xs _ =>
+      accepted_weighted_fiber zl zr gate cnf n rs p cs ws hg hp hr h
+        (decodeLive (liveIds rs) xs) weight))
+
+theorem accepted_total_phase_product {A : Type} [Zero A] [Add A] [One A] [Mul A]
+    (zl : ∀ a : A, 0+a=a) (zr : ∀ a : A, a+0=a)
+    (shuffle : ∀ a b c d : A, (a+b)+(c+d) = (a+c)+(b+d))
+    (ol : ∀ a : A, 1*a=a)
+    (gate cnf : List Nat) (n : Nat) (rs : List Record) (p : ParsedCnf)
+    (cs : List (List Int)) (ws : List Nat)
+    (hg : parseGate gate = some (n, rs)) (hp : parseCnf cnf = some p)
+    (hr : replayRows n rs = some (cs, ws)) (h : check gate cnf = true)
+    (weight : Int → A)
+    (hn : ∀ z, z ∈ dimacsIds n → weight (-pos z) = 1)
+    (hu : ∀ z, z ∈ dimacsIds n → natMem z ws = false → weight (pos z) = 1) :
+    totalWmc n p (fun bits => literalProduct weight (decodeBits bits) (dimacsIds n)) =
+      sumBits (liveIds rs).length (fun xs =>
+        let u := extendVal (decodeLive (liveIds rs) xs) rs
+        if guardTruth u rs then selectedPhaseProduct weight u ws (dimacsIds n) else 0) :=
+  (total_wmc_partition zl zr shuffle n p rs
+    (fun bits => literalProduct weight (decodeBits bits) (dimacsIds n))
+    (replay_live_unique n rs cs ws hr)).trans
+    (sum_bits_congr (liveIds rs).length _ _ (fun xs _ =>
+      accepted_phase_product_fiber zl zr ol gate cnf n rs p cs ws hg hp hr h
+        (decodeLive (liveIds rs) xs) weight hn hu))
+
+-- Phase output is linked to an actual AND record, with each source
+-- variable independently mapped to a live DIMACS ID.
+theorem and_witness_sound (z : Nat) (ids : List Nat) (rs : List Record)
+    (h : andWitness z ids rs = true) : Record.andGate z ids ∈ rs := by
+  induction rs with
+  | nil => cases h
+  | cons r rs ih =>
+    cases r with
+    | live s id => exact List.mem_cons.mpr (Or.inr (ih h))
+    | zero q => exact List.mem_cons.mpr (Or.inr (ih h))
+    | xorGate q a b => exact List.mem_cons.mpr (Or.inr (ih h))
+    | eqGate a b => exact List.mem_cons.mpr (Or.inr (ih h))
+    | phase q src => exact List.mem_cons.mpr (Or.inr (ih h))
+    | andGate q xs =>
+      have hh : (((@decide (z = q) (Nat.decEq z q)) && natListEq ids xs) ||
+          andWitness z ids rs) = true := h
+      have hor : ((@decide (z = q) (Nat.decEq z q)) && natListEq ids xs) = true ∨
+          andWitness z ids rs = true := by
+        simpa only [Bool.or_eq_true] using hh
+      rcases hor with hm | ht
+      · have hp := and_true_parts hm
+        have hq : z = q := of_decide_eq_true hp.1
+        have hxs := (nat_list_eq_iff ids xs).mp hp.2
+        subst q
+        subst xs
+        exact List.mem_cons.mpr (Or.inl rfl)
+      · exact List.mem_cons.mpr (Or.inr (ih ht))
+
+theorem phase_records_sound (all rs : List Record) (h : phaseRecordsOK all rs = true) :
+    ∀ r, r ∈ rs → phaseRecordOK all r = true := by
+  induction rs with
+  | nil => intro r hm; cases hm
+  | cons r rs ih =>
+    have hh := and_true_parts (show (phaseRecordOK all r && phaseRecordsOK all rs) = true from h)
+    intro q hm
+    rcases List.mem_cons.mp hm with he | ht
+    · subst q
+      exact hh.1
+    · exact ih hh.2 q ht
+
+theorem replay_phase_binding (n : Nat) (rs : List Record)
+    (cs : List (List Int)) (ws : List Nat) (hr : replayRows n rs = some (cs, ws))
+    (z : Nat) (source : List Nat) (hm : Record.phase z source ∈ rs) :
+    ∃ ids : List Nat, source.mapM (fun s => sourceDimacs s rs) = some ids ∧
+      Record.andGate z ids ∈ rs := by
+  have he : ((uniqueIds (liveIds rs) && natListEq ws (phaseIds rs).reverse) &&
+      phaseRecordsOK rs rs) = true := replay_extras_checked n rs cs ws hr
+  have hs := phase_records_sound rs rs (and_true_parts he).2 (.phase z source) hm
+  change (match source.mapM (fun s => sourceDimacs s rs) with
+    | some ids => andWitness z ids rs
+    | none => false) = true at hs
+  cases hmap : source.mapM (fun s => sourceDimacs s rs) with
+  | none => rw [hmap] at hs; cases hs
+  | some ids =>
+    rw [hmap] at hs
+    exact ⟨ids, rfl, and_witness_sound z ids rs hs⟩
+
+theorem source_dimacs_live (s id : Nat) (rs : List Record)
+    (h : sourceDimacs s rs = some id) : id ∈ liveIds rs := by
+  induction rs with
+  | nil => cases h
+  | cons r rs ih =>
+    cases r with
+    | live v q =>
+      change (if s == v then some q else sourceDimacs s rs) = some id at h
+      cases he : (s == v) with
+      | false =>
+        have ht : sourceDimacs s rs = some id := by simpa [he] using h
+        exact List.mem_cons.mpr (Or.inr (ih ht))
+      | true =>
+        have hq : q = id := Option.some.inj (by simpa [he] using h)
+        subst id
+        exact List.mem_cons.mpr (Or.inl rfl)
+    | zero z => exact ih h
+    | andGate z xs => exact ih h
+    | xorGate z a b => exact ih h
+    | eqGate a b => exact ih h
+    | phase z xs => exact ih h
+
+def sourceVal (v : Nat → Bool) (rs : List Record) (s : Nat) : Bool :=
+  match sourceDimacs s rs with
+  | some id => v id
+  | none => false
+
+theorem mapped_source_values (rs : List Record) (source ids : List Nat)
+    (v u : Nat → Bool) (ha : agreeOn (liftVal v) (liftVal u) (liveIds rs))
+    (h : source.mapM (fun s => sourceDimacs s rs) = some ids) :
+    ids.map u = source.map (sourceVal v rs) := by
+  induction source generalizing ids with
+  | nil =>
+    have he : [] = ids := Option.some.inj h
+    subst ids
+    rfl
+  | cons s source ih =>
+    cases hd : sourceDimacs s rs with
+    | none =>
+      simp [List.mapM, hd] at h
+    | some id =>
+      cases ht : source.mapM (fun s => sourceDimacs s rs) with
+      | none =>
+        simp [List.mapM, hd, ht] at h
+      | some rest =>
+        have he : id :: rest = ids := Option.some.inj (by simpa [List.mapM, hd, ht] using h)
+        subst ids
+        have hv : v id = u id := ha id (source_dimacs_live s id rs hd)
+        have htail := ih rest ht
+        change u id :: rest.map u = sourceVal v rs s :: source.map (sourceVal v rs)
+        unfold sourceVal
+        rw [hd, htail, hv]
+
+theorem accepted_phase_monomial (n : Nat) (rs : List Record)
+    (cs : List (List Int)) (ws : List Nat) (hr : replayRows n rs = some (cs, ws))
+    (z : Nat) (source : List Nat) (hm : Record.phase z source ∈ rs)
+    (v : Nat → Bool) :
+    extendVal v rs z = andValue (source.map (sourceVal v rs)) := by
+  obtain ⟨ids, hmap, hgate⟩ := replay_phase_binding n rs cs ws hr z source hm
+  have ht := (replay_rows_binding n rs cs ws hr).2
+  have hdef := extend_defs_sound v (liveIds rs) rs ht (.andGate z ids) hgate
+  have hvalues := mapped_source_values rs source ids v (extendVal v rs)
+    (extend_preserves v (liveIds rs) rs ht) hmap
+  change extendVal v rs z = andValue (ids.map (extendVal v rs)) at hdef
+  exact hdef.trans (congrArg andValue hvalues)
+
 -- Localize any unexpected dependency to a definition vs theorem.
 #print axioms splitBytes
 #print axioms digits
@@ -1786,6 +2195,38 @@ theorem accepted_phase_product_fiber {A : Type} [Zero A] [Add A] [One A] [Mul A]
 #print axioms chosen_literal_true
 #print axioms literal_product_phase
 #print axioms accepted_phase_product_fiber
+#print axioms uniqueIds
+#print axioms natListEq
+#print axioms sourceDimacs
+#print axioms phaseIds
+#print axioms andWitness
+#print axioms phaseRecordOK
+#print axioms phaseRecordsOK
+#print axioms replayExtras
+#print axioms decodeLive
+#print axioms totalWmc
+#print axioms sourceVal
+#print axioms replay_extras_checked
+#print axioms nat_list_eq_iff
+#print axioms replay_live_unique
+#print axioms replay_phase_ids
+#print axioms projection_agree
+#print axioms projection_decode
+#print axioms decode_projection
+#print axioms live_projection_unique
+#print axioms sum_bits_congr
+#print axioms sum_bits_add
+#print axioms sum_bits_swap
+#print axioms live_partition_term
+#print axioms total_wmc_partition
+#print axioms accepted_total_wmc
+#print axioms accepted_total_phase_product
+#print axioms and_witness_sound
+#print axioms phase_records_sound
+#print axioms replay_phase_binding
+#print axioms source_dimacs_live
+#print axioms mapped_source_values
+#print axioms accepted_phase_monomial
 end QuPRS.CnfReplay
 
 def main (args : List String) : IO Unit := do

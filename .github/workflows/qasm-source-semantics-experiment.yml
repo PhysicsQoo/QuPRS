@@ -18,6 +18,7 @@ on:
       - rust/research/lean/ForestWeightedSum.lean
       - rust/research/lean/AliasTransport.lean
       - rust/research/lean/TraceAliasSoundness.lean
+      - rust/research/lean/AliasUnionReplay.lean
       - benchmarks/rust_core/benches/conditional_trace.rs
       - benchmarks/rust_core/Cargo.toml
       - benchmarks/rust_core/Cargo.lock
@@ -989,7 +990,7 @@ jobs:
           done
           echo 'CRR_LEAN_TRANSPORT_PASS theorem_axiom_reports=13 abstract_coefficients=true rust_refinement=false'
           sha256sum TraceAliasSoundness.lean >> ../../../evidence/source-sha256.txt
-          LEAN_PATH=. lean TraceAliasSoundness.lean 2>&1 | tee ../../../evidence/conditional-lean-trace-soundness.log
+          LEAN_PATH=. lean -o TraceAliasSoundness.olean TraceAliasSoundness.lean 2>&1 | tee ../../../evidence/conditional-lean-trace-soundness.log
           if grep -E 'sorryAx|Lean[.]trustCompiler|Classical[.]choice' ../../../evidence/conditional-lean-trace-soundness.log; then
             exit 1
           fi
@@ -998,6 +999,16 @@ jobs:
             test "$(grep -Ec "^'QuPRS[.]TraceAliasSoundness[.]$theorem' (does not depend on any axioms|depends on axioms)" ../../../evidence/conditional-lean-trace-soundness.log)" -eq 1
           done
           echo 'CRR_LEAN_TRACE_SOUNDNESS_PASS theorem_axiom_reports=8 forest_entailment_premise=true rust_refinement=false'
+          sha256sum AliasUnionReplay.lean >> ../../../evidence/source-sha256.txt
+          LEAN_PATH=. lean AliasUnionReplay.lean 2>&1 | tee ../../../evidence/conditional-lean-union-replay.log
+          if grep -E 'sorryAx|Lean[.]trustCompiler|Classical[.]choice' ../../../evidence/conditional-lean-union-replay.log; then
+            exit 1
+          fi
+          test "$(grep -Ec 'does not depend on any axioms|depends on axioms' ../../../evidence/conditional-lean-union-replay.log)" -eq 11
+          for theorem in singleton_row_eq source_row_eq linkForest certifyLink step_child_root step_parent_root step_root_eq step_preserves_entailment empty_entails replay_entails replay_trace_soundness; do
+            test "$(grep -Ec "^'QuPRS[.]AliasUnionReplay[.]$theorem' (does not depend on any axioms|depends on axioms)" ../../../evidence/conditional-lean-union-replay.log)" -eq 1
+          done
+          echo 'CRR_LEAN_UNION_REPLAY_PASS axiom_reports=11 replay_entailment=true executable_checker=false rust_refinement=false'
       - name: Prepare bounded native Conditional RR CodSpeed target
         if: env.CRR_PERF_STAGE == 'simulation'
         run: |

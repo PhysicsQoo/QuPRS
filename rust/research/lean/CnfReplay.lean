@@ -2596,6 +2596,7 @@ theorem mono_id_sound (rs : List Record) (u : Nat → Bool) (z : Nat)
     | nil =>
       have he : z = x := of_decide_eq_true h
       subst z
+      change u x = (u x && true)
       cases u x <;> rfl
     | cons y ys =>
       exact hd (.andGate z (x :: y :: ys)) (and_witness_sound z (x :: y :: ys) rs h)
@@ -2657,8 +2658,10 @@ theorem guard_row_sound (rs : List Record) (v u : Nat → Bool)
     have he : a = id := of_decide_eq_true hh.1
     have hv : v id = u id := ha id (source_dimacs_live row.1 id rs hm)
     have hb := guard_poly_sound rs v u ha hd row.2 b hh.2
-    unfold sourceVal
-    rw [hm, he, hv, hb]
+    have hleft : sourceVal v rs row.1 = v id := by
+      unfold sourceVal
+      rw [hm]
+    rw [he, hleft, hv, hb]
 
 theorem guard_rows_sound (all rs : List Record) (v u : Nat → Bool)
     (ha : agreeOn (liftVal v) (liftVal u) (liveIds all))

@@ -1012,6 +1012,98 @@ fn batch_free(t:&mut Trace,fuel:usize)->usize{
     for &v in &free{assert!(t.live.remove(&v));}
     free.len()
 }
+// Independent free-variable certificate: infer the removed set from
+// both domains, not the reducer's used-set scan or claimed count.
+// Local relation only: phases and rows must be unchanged exactly.
+#[cfg(test)]
+fn check_free_elim(before:&Trace,after:&Trace,m:usize,o:usize)
+    ->Result<std::collections::BTreeSet<u32>, &'static str>{
+    use std::collections::BTreeSet;
+    if before.n!=after.n{return Err("input count");}
+    if (0..before.n).any(|i|u32::try_from(i).ok().map_or(true,|v|!before.live.contains(&v))){
+        return Err("missing input");
+    }
+    if before.p.terms.keys().chain(before.constraints.iter().flatten()).flatten()
+        .any(|v|!before.live.contains(v)){return Err("dangling original support");}
+    let old:BTreeSet<_>=before.live.iter().copied().collect();
+    let new:BTreeSet<_>=after.live.iter().copied().collect();
+    if !new.is_subset(&old){return Err("new live variable");}
+    let removed:BTreeSet<_>=old.difference(&new).copied().collect();
+    if removed.iter().any(|&v|(v as usize)<before.n){return Err("removed input");}
+    if before.p.terms.keys().flatten().any(|v|removed.contains(v)){
+        return Err("removed phase variable");
+    }
+    if before.constraints.iter().flatten().flatten().any(|v|removed.contains(v)){
+        return Err("removed constraint variable");
+    }
+    if before.p.terms!=after.p.terms{return Err("phase drift");}
+    if before.constraints!=after.constraints{return Err("constraint drift");}
+    if m!=removed.len()||o!=0{return Err("free multiplier mismatch");}
+    Ok(removed)
+}
+
+// Compose the already checked alias step and free integration without
+// rebasing normalization on either intermediate domain.
+#[cfg(test)]
+fn check_alias_free_normalization(original:&PathSum,before:&Trace,aliased:&Trace,
+    after:&Trace,steps:&[UnionWitness],claimed:&AliasMap,twice:i32,m:usize,o:usize)
+    ->Result<(), &'static str>{
+    check_alias_normalization(original,before,aliased,steps,claimed,twice,0,0)?;
+    check_free_elim(aliased,after,m,o)?;
+    Ok(())
+}
+
+#[test]
+fn exact_trace_free_elim_certificate(){
+    use quprs::rational::PhaseCoeff;
+    use std::collections::BTreeSet;
+    let mut ps=PathSum::new(1);ps.rr_tolerance=0.0;
+    let phase=ps.v.get_fresh_var();let row=ps.v.get_fresh_var();
+    let a=ps.v.get_fresh_var();let b=ps.v.get_fresh_var();
+    ps.p.add_term(vec![phase],PhaseCoeff::QUARTER);
+    ps.f.functions[0].insert(vec![row]);
+    let before=Trace::from_native(&ps).unwrap();
+    let mut after=before.clone();
+    let f=batch_free(&mut after,64);assert_eq!(f,2);
+    assert_eq!(check_free_elim(&before,&after,f,0),Ok([a,b].into_iter().collect::<BTreeSet<_>>()));
+    for x in 0..2{assert_eq!(hist(&before,x),hist(&after,x).map(|v|v*4));}
+    let mut partial=before.clone();
+    let f=batch_free(&mut partial,1);assert_eq!(f,1);
+    assert_eq!(check_free_elim(&before,&partial,f,0),Ok([a].into_iter().collect()));
+    let mut single=partial.clone();
+    assert_eq!(single.integrate(),Some(("elim",b)));
+    assert_eq!(check_free_elim(&partial,&single,1,0),Ok([b].into_iter().collect()));
+    assert_eq!(single.live,after.live);
+    let mut noop=before.clone();assert_eq!(batch_free(&mut noop,0),0);
+    assert_eq!(check_free_elim(&before,&noop,0,0),Ok(BTreeSet::new()));
+    // Contradictory residuals are declined by the reducer; no committed
+    // deletion or multiplier may be fabricated for that no-op.
+    let mut impossible=before.clone();impossible.constraints.push([Vec::new()].into_iter().collect());
+    let mut rejected=impossible.clone();assert_eq!(batch_free(&mut rejected,64),0);
+    assert_eq!(check_free_elim(&impossible,&rejected,0,0),Ok(BTreeSet::new()));
+    assert_eq!(check_free_elim(&before,&after,1,0),Err("free multiplier mismatch"));
+    assert_eq!(check_free_elim(&before,&after,2,1),Err("free multiplier mismatch"));
+    let mut bad=after.clone();bad.live.remove(&0);
+    assert_eq!(check_free_elim(&before,&bad,3,0),Err("removed input"));
+    let mut bad=after.clone();bad.live.remove(&phase);
+    assert_eq!(check_free_elim(&before,&bad,3,0),Err("removed phase variable"));
+    let mut bad=after.clone();bad.live.remove(&row);
+    assert_eq!(check_free_elim(&before,&bad,3,0),Err("removed constraint variable"));
+    let mut bad=after.clone();bad.live.insert(99);
+    assert_eq!(check_free_elim(&before,&bad,2,0),Err("new live variable"));
+    let mut bad=after.clone();bad.p.add_term(vec![],PhaseCoeff::HALF);
+    assert_eq!(check_free_elim(&before,&bad,2,0),Err("phase drift"));
+    let mut bad=after.clone();bad.constraints.clear();
+    assert_eq!(check_free_elim(&before,&bad,2,0),Err("constraint drift"));
+    let mut bad=before.clone();bad.live.remove(&phase);
+    assert_eq!(check_free_elim(&bad,&after,2,0),Err("dangling original support"));
+    let mut bad=after.clone();bad.n+=1;
+    assert_eq!(check_free_elim(&before,&bad,2,0),Err("input count"));
+    let mut bad=before.clone();bad.live.remove(&0);
+    assert_eq!(check_free_elim(&bad,&after,2,0),Err("missing input"));
+    println!("CRR_FREE_ELIM_CERTIFICATE batch=1 partial=1 single=1 noop=2 rejected=11 multiplier_power=2 source_qasm_certified=false hh_omega_certified=false");
+}
+
 fn batch_then_iterate(t:&mut Trace)->(usize,usize,usize,usize,usize,usize,usize){
     let a=batch_alias(t,64);
     let f=batch_free(t,64-a);
@@ -1298,7 +1390,11 @@ fn exact_trace_batched_alias_forest(){
         assert_eq!(check_alias_normalization(&residual,&orig,&q,&steps,&cert,twice,0,0),Ok(()));
         aliases+=n;
         assert!((0..3).all(|x|q.live.contains(&x)));
+        let aliased=q.clone();
         let f=batch_free(&mut q,64-n);assert!(f>=1);free_count+=f;
+        assert_eq!(check_alias_free_normalization(&residual,&orig,&aliased,&q,&steps,&cert,twice,f,0),Ok(()));
+        assert_eq!(check_alias_free_normalization(&residual,&orig,&aliased,&q,&steps,&cert,twice,f-1,0),
+            Err("free multiplier mismatch"));
         let round=Trace::from_native(&q.encoding_view(&ps)).unwrap();
         for x in 0..8{
             let h=hist(&q,x).map(|v|v*(1u32<<f));
@@ -1327,7 +1423,7 @@ fn exact_trace_batched_alias_forest(){
     assert_eq!(q.constraints.len(),1);
     assert!(q.constraints[0].contains(&vec![1]));
     for x in 0..16{assert_eq!(hist(&orig,x),hist(&q,x));checks+=1;}
-    println!("CRR_BATCH_ORACLE models=513 histogram_checks={checks} alias_eliminations={aliases} free_eliminations={free_count} cycle_control=1 union_certificate_checks=513 alias_normalization_checks=512");
+    println!("CRR_BATCH_ORACLE models=513 histogram_checks={checks} alias_eliminations={aliases} free_eliminations={free_count} cycle_control=1 union_certificate_checks=513 alias_normalization_checks=512 alias_free_certificate_checks=512 alias_free_wrong_multiplier_rejected=512");
 }
 
 

@@ -1011,7 +1011,7 @@ jobs:
 
           schedule_status=0
           if test "$negacyclic_status" -eq 0 && test "$checked_status" -eq 0; then
-            LEAN_PATH=. lean AffineCheckedCycloSchedule.lean 2>&1 | tee /tmp/qasm-lean-affine-schedule.log || schedule_status=$?
+            LEAN_PATH=. lean -o AffineCheckedCycloSchedule.olean AffineCheckedCycloSchedule.lean 2>&1 | tee /tmp/qasm-lean-affine-schedule.log || schedule_status=$?
             if grep -E 'sorryAx|Lean[.]trustCompiler|Classical[.]choice' /tmp/qasm-lean-affine-schedule.log; then
               schedule_status=1
             fi
@@ -1064,7 +1064,7 @@ jobs:
 
           algebra_status=0
           if test "$negacyclic_status" -eq 0 && test "$elimination_status" -eq 0; then
-            LEAN_PATH=. lean AffineCyclotomicAlgebra.lean 2>&1 | tee /tmp/qasm-lean-affine-cyclotomic-algebra.log || algebra_status=$?
+            LEAN_PATH=. lean -o AffineCyclotomicAlgebra.olean AffineCyclotomicAlgebra.lean 2>&1 | tee /tmp/qasm-lean-affine-cyclotomic-algebra.log || algebra_status=$?
             if grep -E 'sorryAx|Lean[.]trustCompiler|Classical[.]choice' /tmp/qasm-lean-affine-cyclotomic-algebra.log; then
               algebra_status=1
             fi
@@ -1079,6 +1079,25 @@ jobs:
             echo 'LEAN4_AFFINE_CYCLOTOMIC_ALGEBRA_PASS theorem_axiom_reports=34 native_pair_sum=true commutative=true distributive=true zero=true bounded_unit=true basis_composition=true associative_on_grid=true input_congruence=true finite_algebra=true ordered_factor_elimination=true checked_reassociation=false'
           else
             echo 'LEAN4_AFFINE_CYCLOTOMIC_ALGEBRA_FAIL' >&2
+          fi
+
+          checked_factor_status=0
+          if test "$algebra_status" -eq 0 && test "$schedule_status" -eq 0; then
+            LEAN_PATH=. lean AffineCheckedFactor.lean 2>&1 | tee /tmp/qasm-lean-affine-checked-factor.log || checked_factor_status=$?
+            if grep -E 'sorryAx|Lean[.]trustCompiler|Classical[.]choice' /tmp/qasm-lean-affine-checked-factor.log; then
+              checked_factor_status=1
+            fi
+            test "$(grep -Ec 'does not depend on any axioms|depends on axioms' /tmp/qasm-lean-affine-checked-factor.log)" -eq 9 || checked_factor_status=1
+            for theorem in is_zero_sound fin_mul_zero checked_mul_some checked_add_some checked_product_some checked_product_from_one checked_product_head_reject fin_add_zero_left checked_bucket_some; do
+              test "$(grep -Ec "^'QuPRS[.]AffineCheckedFactor[.]$theorem' (does not depend on any axioms|depends on axioms)" /tmp/qasm-lean-affine-checked-factor.log)" -eq 1 || checked_factor_status=1
+            done
+          else
+            checked_factor_status=1
+          fi
+          if test "$checked_factor_status" -eq 0; then
+            echo 'LEAN4_AFFINE_CHECKED_FACTOR_PASS theorem_axiom_reports=9 ordered_product=true zero_early_stop=true checked_bucket=true packed_tables=false rust_refinement=false'
+          else
+            echo 'LEAN4_AFFINE_CHECKED_FACTOR_FAIL' >&2
           fi
 
           incidence_status=0
@@ -1096,7 +1115,7 @@ jobs:
           else
             echo 'LEAN4_AFFINE_NATIVE_INCIDENCE_FAIL' >&2
           fi
-          test "$normalization_status" -eq 0 && test "$lift_status" -eq 0 && test "$incidence_status" -eq 0 && test "$negacyclic_status" -eq 0 && test "$checked_status" -eq 0 && test "$schedule_status" -eq 0 && test "$factor_scope_status" -eq 0 && test "$elimination_status" -eq 0 && test "$algebra_status" -eq 0
+          test "$normalization_status" -eq 0 && test "$lift_status" -eq 0 && test "$incidence_status" -eq 0 && test "$negacyclic_status" -eq 0 && test "$checked_status" -eq 0 && test "$schedule_status" -eq 0 && test "$factor_scope_status" -eq 0 && test "$elimination_status" -eq 0 && test "$algebra_status" -eq 0 && test "$checked_factor_status" -eq 0
 
       - name: Build and test std-only independent verifier
         run: |

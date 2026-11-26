@@ -13,6 +13,7 @@ on:
       - rust/research/conditional_rr_walltime.py
       - rust/research/conditional_rr_reference.py
       - rust/research/lean/ConditionalTrace.lean
+      - rust/research/lean/AliasForest.lean
       - benchmarks/rust_core/benches/conditional_trace.rs
       - benchmarks/rust_core/Cargo.toml
       - benchmarks/rust_core/Cargo.lock
@@ -922,14 +923,14 @@ jobs:
         if: env.CRR_PERF_STAGE == 'formal_local'
         run: |
           set -euo pipefail
-          sha256sum rust/research/lean/ConditionalTrace.lean rust/research/lean/lean-toolchain >> evidence/source-sha256.txt
+          sha256sum rust/research/lean/ConditionalTrace.lean rust/research/lean/AliasForest.lean rust/research/lean/lean-toolchain >> evidence/source-sha256.txt
           curl --proto '=https' --tlsv1.2 --fail --location --silent --show-error https://elan.lean-lang.org/elan-init.sh -o /tmp/crr-elan-init.sh
           sh /tmp/crr-elan-init.sh -y --default-toolchain none
           export PATH="$HOME/.elan/bin:$PATH"
           cd rust/research/lean
           test "$(cat lean-toolchain)" = "leanprover/lean4:v4.36.0"
           lean --version | tee ../../../evidence/conditional-lean-version.txt
-          lean ConditionalTrace.lean 2>&1 | tee ../../../evidence/conditional-lean-proof.log
+          LEAN_PATH=. lean -o ConditionalTrace.olean ConditionalTrace.lean 2>&1 | tee ../../../evidence/conditional-lean-proof.log
           if grep -E 'sorryAx|Lean[.]trustCompiler|Classical[.]choice' ../../../evidence/conditional-lean-proof.log; then
             echo 'Unexpected Lean axiom dependency' >&2
             exit 1
@@ -939,6 +940,16 @@ jobs:
             test "$(grep -Ec "^'QuPRS[.]ConditionalTrace[.]$theorem' (does not depend on any axioms|depends on axioms)" ../../../evidence/conditional-lean-proof.log)" -eq 1
           done
           echo 'CRR_LEAN_LOCAL_PASS theorem_axiom_reports=14 complex_embedding=false rust_refinement=false'
+          LEAN_PATH=. lean AliasForest.lean 2>&1 | tee ../../../evidence/conditional-lean-forest.log
+          if grep -E 'sorryAx|Lean[.]trustCompiler|Classical[.]choice' ../../../evidence/conditional-lean-forest.log; then
+            echo 'Unexpected forest axiom dependency' >&2
+            exit 1
+          fi
+          test "$(grep -Ec 'does not depend on any axioms|depends on axioms' ../../../evidence/conditional-lean-forest.log)" -eq 18
+          for theorem in root_none root_edge root_terminal root_live root_le root_is_root input_retained extend_satisfies extend_roots consistent_root extend_restrict extend_congr unique_extension extension_injective extension_bijection transport_restrict mapped_sum forest_sum; do
+            test "$(grep -Ec "^'QuPRS[.]AliasForest[.]$theorem' (does not depend on any axioms|depends on axioms)" ../../../evidence/conditional-lean-forest.log)" -eq 1
+          done
+          echo 'CRR_LEAN_FOREST_PASS theorem_axiom_reports=18 live_domain_bijection=true enumeration_refinement=false rust_refinement=false'
       - name: Prepare bounded native Conditional RR CodSpeed target
         if: env.CRR_PERF_STAGE == 'simulation'
         run: |

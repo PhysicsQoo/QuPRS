@@ -132,6 +132,7 @@ def main():
 
         # Primary GPMC pilot uses a separate budget before Ganak regressions.
         gpmc_rows=run_gpmc_pure(directory,pathlib.Path(sys.argv[4]).resolve(),tmp,time.monotonic()+45)
+        run_predicate_moment_gpmc(directory,pathlib.Path(sys.argv[4]).resolve(),tmp)
         deadline=time.monotonic()+90
         # Qualify unweighted free variables, UNSAT and large integers.
         assert count("p cnf 3 1\n1 0\n", []) == 4
@@ -4626,6 +4627,80 @@ def online_sector_cli(args):
     print("ONLINE_GPMC_RECEIPT "+json.dumps(dict(query_sha256=hashlib.sha256(data.encode()).hexdigest(),
         solver_sha256=hashlib.sha256(pathlib.Path(exe).read_bytes()).hexdigest(),metrics=records)),flush=True)
     print("ONLINE_GPMC_RESULT "+status,flush=True)
+
+
+def run_predicate_moment_gpmc(directory, exe, tmp):
+    """Matched bounded moment routes, exact MPZ packed Z8, no oracle routing."""
+    fields="case route primary vars clauses phase den legal build_ns encoding_ns expected truth".split()
+    with (directory/"predicate-moments.tsv").open() as f:
+        plans=list(csv.DictReader(f,fieldnames=fields,delimiter="\t"))
+    cases={}
+    for p in plans:
+        for k in ("primary","vars","clauses","den","legal","build_ns","encoding_ns"):
+            p[k]=int(p[k])
+        assert p["route"] not in cases.setdefault(p["case"],{})
+        cases[p["case"]][p["route"]]=p
+    assert len(cases)==8 and all(set(v)=={"two","four","collision"} for v in cases.values())
+    spent={"fourth":0.0,"staged":0.0}
+    results=[]
+    def solve(p,end,receipts):
+        started=time.monotonic()
+        base=(directory/("predicate-"+p["case"]+"-"+p["route"]+".cnf")).read_text()
+        assert base.splitlines()[0]==f'p cnf {p["vars"]} {p["clauses"]}'
+        data,radix,bound=single_fibre_pack(base,list(map(int,p["phase"].split(","))),p["primary"])
+        query=pathlib.Path(tmp)/"predicate-moment.cnf"
+        query.write_text(data)
+        row=dict(route=p["route"],base_sha256=hashlib.sha256(base.encode()).hexdigest(),
+                 query_sha256=hashlib.sha256(data.encode()).hexdigest(),
+                 vars=p["vars"],clauses=p["clauses"],encoding_ns=p["encoding_ns"],
+                 pack_s=time.monotonic()-started,metrics=[],status="UNKNOWN")
+        receipts.append(row)
+        remaining=min(3.0,end-time.monotonic())
+        if remaining<=0:raise TimeoutError("moment budget")
+        out=profile_gpmc([str(exe),"-mode=1","-natw",str(query)],remaining,
+                         pathlib.Path(tmp)/"predicate-moment-time.tsv",row["metrics"])
+        value=parse_gpmc_integer(out,"wmc",bound*radix**7)
+        bins=single_fibre_decode(value,radix,bound,8)
+        coeff=tuple(bins[j]-bins[j+4] for j in range(4))
+        assert coeff==tuple(map(int,p["expected"].split(","))),(p["case"],p["route"],coeff)
+        row.update(status="EXACT",coefficients=coeff,wall_s=time.monotonic()-started)
+        return coeff
+    for i,(case,p) in enumerate(cases.items()):
+        for route in (("fourth","staged") if i%2==0 else ("staged","fourth")):
+            start=time.monotonic()
+            end=start+min(6.0,max(0.0,24.0-spent[route]))
+            row=dict(case=case,route=route,verdict="UNKNOWN",receipts=[],reason="RESOURCE")
+            den,legal=p["two"]["den"],p["two"]["legal"]
+            assert all(q["den"]==den and q["legal"]==legal and q["truth"]==p["two"]["truth"] for q in p.values())
+            try:
+                if route=="fourth":
+                    coeff=solve(p["four"],end,row["receipts"])
+                    proved=coeff==(legal*den*den,0,0,0)
+                    row["reason"]="FOURTH_MOMENT"
+                else:
+                    coeff=solve(p["two"],end,row["receipts"])
+                    if coeff!=(legal*den,0,0,0):
+                        proved=False
+                        row["reason"]="LEAKAGE"
+                    else:
+                        proved=solve(p["collision"],end,row["receipts"])==(0,0,0,0)
+                        row["reason"]="COLLISION"
+                row["verdict"]="PROVED" if proved else "REFUTED"
+                assert proved==(p["two"]["truth"]=="true")
+            except (TimeoutError,subprocess.TimeoutExpired,SolverSignalKilled):
+                pass
+            row["wall_s"]=time.monotonic()-start
+            spent[route]+=row["wall_s"]
+            row["build_ns"]=p["two"]["build_ns"]
+            row["total_with_encoding_s"]=row["wall_s"]+(row["build_ns"]+sum(r["encoding_ns"] for r in row["receipts"]))/1e9
+            results.append(row)
+            print("HOARE_PREDICATE_MOMENT_GPMC "+json.dumps(row),flush=True)
+    print("HOARE_PREDICATE_MOMENT_GPMC_SUMMARY "+json.dumps(dict(cases=len(cases),arms=len(results),
+        exact=sum(r["verdict"]!="UNKNOWN" for r in results),
+        unknown=sum(r["verdict"]=="UNKNOWN" for r in results),
+        fourth_calls=sum(len(r["receipts"]) for r in results if r["route"]=="fourth"),
+        staged_calls=sum(len(r["receipts"]) for r in results if r["route"]=="staged"),
+        staged_leakage_stops=sum(r["reason"]=="LEAKAGE" for r in results),spent=spent)),flush=True)
 
 if __name__ == "__main__":
     if len(sys.argv)>1 and sys.argv[1]=="--online-sector":

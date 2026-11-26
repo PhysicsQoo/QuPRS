@@ -4504,6 +4504,7 @@ fn partition_export(dir:&std::path::Path){
         }
         std::fs::write(dir.join("manifest.tsv"),manifest).unwrap();
         println!("HOARE_EXTERNAL_FIXTURES cases=7 variants=14");
+        super::constrained_predicate_overlap::export_global_predicate(&dir);
         export_scaled(&dir);
         export_hybrid(&dir);
         export_rare_wmc(&dir);
@@ -8455,6 +8456,130 @@ mod constrained_predicate_overlap {
         }
         assert_eq!((models,entries,invariant,rejected),(128,1024,16,112));
         println!("HOARE_CONSTRAINED_PREDICATE_KERNEL models={models} entries={entries} invariant={invariant} rejected={rejected}");
+    }
+
+    // Solver-neutral global moment fixtures. The independently computed
+    // expectation is written as metadata, never as a CNF restriction.
+    pub(super) fn export_global_predicate(dir:&std::path::Path){
+        let fixtures:Vec<(&str,usize,Vec<G>,Vec<G>,u64,u64)>=vec![
+            ("identity-full",1,vec![],vec![],3,3),
+            ("hh-full",1,vec![G::H(0),G::H(0)],vec![],3,3),
+            ("h-full",1,vec![G::H(0)],vec![],3,3),
+            ("h-restricted",1,vec![G::H(0)],vec![],1,1),
+            ("t-frame",1,vec![G::H(0),G::T(0)],vec![G::H(0),G::T(0)],3,3),
+            ("bell-frame",2,vec![G::H(0),G::CX(0,1)],vec![G::H(0),G::CX(0,1)],5,5),
+            ("bell-mismatch",2,vec![G::H(0),G::CX(0,1),G::T(1)],vec![G::CX(0,1)],1,15),
+            ("empty-pre",2,vec![G::H(0)],vec![G::H(1)],0,5),
+        ];
+        let mut manifest=String::new();
+        for (name,n,ga,gb,pre,post) in fixtures{
+            let build=std::time::Instant::now();
+            let a=native(n,&ga).unwrap();let b=native(n,&gb).unwrap();
+            let build_ns=build.elapsed().as_nanos();
+            let size=1usize<<n;
+            let table:Vec<Vec<Root>>=(0..size).map(|x|(0..size).map(|z|dense_overlap(n,&ga,&gb,x as u64,z as u64)).collect()).collect();
+            let (two,four,cross)=aggregate(n,pre,post,&table);
+            let den=1i64<<(a.h+b.h);
+            let legal=i64::from(pre.count_ones());
+            let verdict=two==[legal*den,0,0,0]&&cross==[0;4];
+            assert_eq!(verdict,four==[legal*den*den,0,0,0]);
+            for (route,copies,collision,expected) in [("two",2,false,two),("four",4,false,four),("collision",4,true,cross)]{
+                let t=std::time::Instant::now();
+                let(c,phase,primary)=global(&a,&b,pre,post,copies,collision,None);
+                let mut data=format!("p cnf {} {}\n",c.vars,c.clauses.len());
+                for cl in &c.clauses{for l in cl{data.push_str(&format!("{l} "));}data.push_str("0\n");}
+                let encoding_ns=t.elapsed().as_nanos();
+                assert_eq!(count(&c,phase,primary).0,expected);
+                std::fs::write(dir.join(format!("predicate-{name}-{route}.cnf")),data).unwrap();
+                let expected=expected.iter().map(|v|v.to_string()).collect::<Vec<_>>().join(",");
+                manifest.push_str(&format!("{name}\t{route}\t{primary}\t{}\t{}\t{},{},{}\t{den}\t{legal}\t{build_ns}\t{encoding_ns}\t{expected}\t{verdict}\n",c.vars,c.clauses.len(),phase[0],phase[1],phase[2]));
+            }
+        }
+        std::fs::write(dir.join("predicate-moments.tsv"),manifest).unwrap();
+        println!("HOARE_CONSTRAINED_PREDICATE_EXPORT cases=8 formulas=24");
+    }
+
+    fn inverse_ops(ops:&[G])->Vec<G>{
+        let mut out=Vec::new();
+        for g in ops.iter().rev(){
+            match *g{
+                G::T(q)=>out.extend(std::iter::repeat_n(G::T(q),7)),
+                G::H(_)|G::X(_)|G::CX(_,_)|G::CZ(_,_)=>out.push(g.clone()),
+                _=>panic!("unsupported inverse fixture"),
+            }
+        }
+        out
+    }
+    fn frame_candidate(s:&Symbolic)->Option<Symbolic>{
+        let n=s.n;let mask=(1u64<<n)-1;
+        let p:Poly=s.phase.iter().filter(|(m,_)|**m&mask==0).map(|(&m,&k)|(m>>n,k)).collect();
+        let mut cols=vec![0u64;s.h];let mut off=0u64;
+        for (j,f) in s.output.iter().enumerate(){
+            for &m in f{
+                if m&mask!=0{continue;}
+                let u=m>>n;
+                if u==0{off|=1<<j;}else{
+                    if u.count_ones()!=1{return None;}
+                    cols[u.trailing_zeros() as usize]|=1<<j;
+                }
+            }
+        }
+        let inv=left_inverse(&cols,n)?;
+        let forms:Vec<_>=inv.iter().map(|&m|lift_parity(m,(m&off).count_ones()%2==1)).collect();
+        let q=subst(&p,&forms);
+        let forward:Vec<_>=(0..n).map(|j|{
+            let m=cols.iter().enumerate().fold(0u64,|v,(i,c)|v|(((c>>j)&1)<<i));
+            lift_parity(m,off>>j&1==1)
+        }).collect();
+        let phase=subst(&q,&forward);
+        if phase!=p{return None;}
+        // FixedPure generator: external slots are padding, legal domain {0}.
+        // Construct the affine uniform support, then compose output phase.
+        let output=(0..n).map(|j|{
+            let mut f=std::collections::BTreeSet::new();
+            if off>>j&1==1{f.insert(0);}
+            for (i,&c) in cols.iter().enumerate(){if c>>j&1==1{f.insert(1u64<<(n+i));}}
+            f
+        }).collect();
+        Some(Symbolic{n,h:s.h,output,phase:phase.into_iter().map(|(m,k)|(m<<n,k)).collect()})
+    }
+    fn ray_cnf(a:&Symbolic,b:&Symbolic)->bool{
+        let (c,p,k)=encode(a,b,0,&[0,0],None);
+        count(&c,p,k).0==[1i64<<(a.h+b.h),0,0,0]
+    }
+    #[test]
+    fn hoare_constrained_predicate_split_replay(){
+        // Explicit fixed-pure specifications and gate sequences. The
+        // generated frame is checked against prefix and backward target.
+        let fixtures:Vec<(usize,Vec<G>)>=vec![
+            (1,vec![G::H(0),G::T(0)]),
+            (2,vec![G::H(0),G::CX(0,1),G::T(1)]),
+            (2,vec![G::H(0),G::X(1),G::CX(0,1),G::T(1)]),
+            (3,vec![G::H(0),G::H(1),G::CX(0,2),G::CX(1,2),G::T(2),G::CZ(0,1)]),
+        ];
+        let mut accepted=0;let mut rejected=0;
+        for (n,prefix) in fixtures{
+            let a=native(n,&prefix).unwrap();
+            let psi=frame_candidate(&a).unwrap();
+            assert!(ray_cnf(&psi,&psi)); // normalized candidate, exact phase overlap
+            assert!(ray_cnf(&a,&psi)); // prefix obligation
+            for mutant in [false,true]{
+                let mut suffix=inverse_ops(&prefix);
+                if mutant{suffix.push(G::X(0));}
+                let backward=inverse_ops(&suffix);
+                let b=native(n,&backward).unwrap();
+                let split=ray_cnf(&psi,&b);
+                let direct=ray_cnf(&a,&b);
+                let mut full=prefix.clone();full.extend(suffix);
+                let dense=dense_state(n,&full,0);
+                let expected=dense.iter().skip(1).all(|v|*v==[0;4]);
+                assert_eq!(expected,!mutant);
+                assert_eq!(split,expected);assert_eq!(direct,expected);
+                if split{accepted+=1;}else{rejected+=1;}
+            }
+        }
+        assert_eq!((accepted,rejected),(4,4));
+        println!("HOARE_CONSTRAINED_PREDICATE_SPLIT accepted={accepted} rejected={rejected} prefix_certificates=4");
     }
 }
 

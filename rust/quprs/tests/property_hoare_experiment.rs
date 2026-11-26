@@ -3505,10 +3505,113 @@ fn algebraic_rus_check(name:&str,s:&Symbolic,hist:&[u64;64],weighted_hist:&[u64;
     }
 }
 
+
+// Unit-weight, fixed mod-4 derivative class. Each eliminated odd phase
+// contributes a deterministic exponent of the real cyclotomic unit alpha.
+// This does not introduce any freely summed target-term selector.
+fn rus_unit_export(dir:&std::path::Path,manifest:&mut String,name:&str,s:&Symbolic,hist:&[u64;64]){
+    let start=std::time::Instant::now();let p=algebraic_pivots(s,&[]);
+    let piv=(s.n..s.n+s.h).filter(|&i|p>>i&1!=0).collect::<Vec<_>>();
+    let keep=(s.n..s.n+s.h).filter(|&i|p>>i&1==0).collect::<Vec<_>>();
+    let base_phase=s.phase.iter().filter(|(&m,_)|m&p==0).map(|(&m,&c)|(m,c)).collect::<BTreeMap<_,_>>();
+    let deriv=piv.iter().map(|&i|s.phase.iter().filter(|(&m,_)|m&(1u64<<i)!=0)
+        .map(|(&m,&c)|(m&!(1u64<<i),c)).collect::<BTreeMap<_,_>>()).collect::<Vec<_>>();
+    // Syntactic proof, not a fit to observed phase histograms.
+    if deriv.iter().any(|d|d.iter().any(|(&m,&c)|m!=0&&c%4!=0)){
+        println!("HOARE_RUS_UNIT_UNSUPPORTED case={name} reason=derivative-class");
+        return;
+    }
+    let r=deriv.iter().map(|d|usize::from(*d.get(&0).unwrap_or(&0)%4)).collect::<Vec<_>>();
+    let alpha=[1,1,0,-1];let inv=[-1,1,0,-1];let sqrt2=[0,1,0,-1];
+    assert_eq!(rus_mul(alpha,inv),root(0));
+    let local_base=|r:usize|match r{
+        0=>[2,0,0,0],1=>rus_mul(add(root(0),root(1)),inv),2=>sqrt2,
+        3=>add(root(0),root(3)),_=>unreachable!()
+    };
+    let local=|d:usize|->(bool,usize,usize){let b=d/4;match d%4{
+        0=>(b==0,0,0),1=>(true,6*b,1-b),2=>(true,1+6*b,0),3=>(true,6*b,b),_=>unreachable!()
+    }};
+    for d in 0..8{
+        let(g,e,k)=local(d);let mut a=rus_mul(local_base(d%4),root(e));
+        if k==1{a=rus_mul(a,alpha);}
+        assert_eq!(if g{a}else{[0;4]},add(root(0),root(d)));
+    }
+    let odd=r.iter().filter(|&&v|v%2==1).count();
+    let width=(usize::BITS-odd.leading_zeros()) as usize;
+    assert!(width<=4);
+    let base=r.iter().fold(root(0),|a,&v|rus_mul(a,local_base(v)));
+    let primary=1+keep.len();
+    let mut f=FactorPilot{c:Cnf::new(primary),gates:BTreeMap::new(),polys:BTreeMap::new(),work:0};
+    let mut bits=vec![ZERO;s.n+s.h];bits[1]=2;
+    for (j,&i) in keep.iter().enumerate(){bits[i]=(3+j) as Lit;}
+    let mut phase=mod_phase(&mut f,&base_phase,&bits,3,"factor").unwrap();
+    let mut count=vec![ZERO;width];
+    for (d,&v) in deriv.iter().zip(&r){
+        let b=mod_phase(&mut f,d,&bits,3,"factor").unwrap()[2];
+        if v==0{f.c.enforce(-b);}
+        else{
+            let delta=if v==2{[ONE,b,b]}else{[ZERO,b,b]};
+            phase=mod_add(&mut f,&phase,&delta).unwrap();
+            if v%2==1{
+                let mut term=vec![ZERO;width];term[0]=if v==1{-b}else{b};
+                count=mod_add(&mut f,&count,&term).unwrap();
+            }
+        }
+    }
+    let z=s.output.iter().map(|a|f.anf(a,&bits,true).unwrap()).collect::<Vec<_>>();
+    let roots=phase.into_iter().chain(z).chain([2]).chain(count).collect::<Vec<_>>();
+    let aliases=roots.iter().map(|&l|f.alias(l).unwrap()).collect::<Vec<_>>();
+    assert!(f.bounded());
+    let encode_ns=start.elapsed().as_nanos();
+    let mut expected=vec![0u64;64<<width];let mut admitted=0usize;
+    for x in 0..2usize{for a in 0..1usize<<keep.len(){
+        let y=keep.iter().enumerate().fold(0u64,|r,(j,&i)|r|(((a>>j&1) as u64)<<(i-s.n)));
+        let(z,e)=path(s,(2*x) as u64,y);let(mut g,mut q,mut k)=(true,e,0usize);
+        let mut term=root(e);
+        for (&i,&v) in piv.iter().zip(&r){
+            let(zz,ee)=path(s,(2*x) as u64,y|(1u64<<(i-s.n)));
+            let d=(ee+8-e)%8;assert_eq!(zz,z);assert_eq!(d%4,v);
+            let(ok,delta,j)=local(d);g&=ok;q=(q+delta)%8;k+=j;
+            term=rus_mul(term,add(root(0),root(d)));
+        }
+        let mut direct=rus_mul(base,root(q));
+        for _ in 0..k{direct=rus_mul(direct,alpha);}
+        assert_eq!(term,if g{direct}else{[0;4]});
+        let assignment=(x|(a<<1)) as u64;
+        let up=factor_up(&f.c,primary,assignment);
+        if !g{assert!(up.is_none());continue;}
+        admitted+=1;
+        let digit=64*k+32*x+8*z as usize+q;assert!(k<=odd);
+        let v=up.unwrap();
+        let actual=aliases.iter().enumerate().fold(0usize,|r,(i,&l)|r|(usize::from(lit_value(l,&v)==1)<<i));
+        assert_eq!(actual,digit);expected[digit]+=1;
+    }}
+    let mut coeff=[[0i64;4];8];
+    let mut a=base;
+    for k in 0..=odd{
+        for j in 0..8{for e in 0..8{
+            let n=expected[64*k+8*j+e] as i64;
+            coeff[j]=add(coeff[j],shift(a,e).map(|v|v*n));
+        }}
+        a=rus_mul(a,alpha);
+    }
+    for j in 0..8{assert_eq!(coeff[j],std::array::from_fn(|i|hist[8*j+i] as i64-hist[8*j+i+4] as i64));}
+    let name=format!("rus-unit-{name}");
+    std::fs::write(dir.join(format!("{name}.cnf")),serialize_external(&f.c,&[]).unwrap()).unwrap();
+    let fmt=|v:&[i64]|v.iter().map(|v|v.to_string()).collect::<Vec<_>>().join(",");
+    let ds=aliases.iter().map(|v|v.to_string()).collect::<Vec<_>>().join(",");
+    let ex=expected.iter().map(|v|v.to_string()).collect::<Vec<_>>().join(",");
+    let reference=coeff.iter().flatten().copied().collect::<Vec<_>>();
+    let h=s.h;let residual=keep.len();let radix=(1u64<<primary)+1;let checks=1usize<<primary;
+    manifest.push_str(&format!("{name}\t{h}\t{residual}\t{primary}\t{odd}\t{}\t{}\t{radix}\t{ds}\t{ex}\t{}\t{}\t{encode_ns}\t{checks}\t{admitted}\n",f.c.vars,f.c.clauses.len(),fmt(&base),fmt(&reference)));
+    println!("HOARE_RUS_UNIT_EXPORT case={name} h={h} residual={residual} odd={odd} vars={} clauses={} checks={checks} admitted={admitted}",f.c.vars,f.c.clauses.len());
+}
+
 fn rus_export(dir:&std::path::Path){
     let Some(srcdir)=std::env::var_os("HOARE_FACTOR_SOURCE_DIR")else{return;};
     let src=std::path::PathBuf::from(srcdir);
     algebraic_rus_controls();
+    let mut unit_manifest=String::new();
     let mut manifest=String::new();let mut rr_manifest=String::new();let mut fixed_manifest=String::new();let mut gram_manifest=String::new();let mut composite=Vec::new();
     for (name,h,expected_ops,corr) in [("Figure7",7usize,14usize,true),("Figure8",3,8,false),("Figure9",5,13,false),
         ("Figure10a",9,21,false),("Figure10b",17,37,true),("Figure10c",16,33,false)]{
@@ -3548,6 +3651,7 @@ fn rus_export(dir:&std::path::Path){
         let fixed_prep_ns=rr_start.elapsed().as_nanos();
         assert_eq!(fixed.h,h);
         algebraic_rus_check(name,&fixed,&hist,&weighted_hist);
+        rus_unit_export(dir,&mut unit_manifest,name,&fixed,&hist);
         let mut frame=NativeGuardFrame::new(&ps,Anf::from([0])).unwrap();
         let(mut scale2,mut rr_steps,mut elim,mut hh,mut omega)=(0u32,0usize,0usize,0usize,0usize);
         for _ in 0..32{
@@ -3694,6 +3798,7 @@ fn rus_export(dir:&std::path::Path){
     assert_eq!(gram_manifest.lines().count(),28);
     std::fs::write(dir.join("native-rus-gram.tsv"),gram_manifest).unwrap();
     rus_compose_export(dir,&composite);
+    std::fs::write(dir.join("native-rus-unit.tsv"),unit_manifest).unwrap();
 }
 
 fn sparse_target_export(dir:&std::path::Path){

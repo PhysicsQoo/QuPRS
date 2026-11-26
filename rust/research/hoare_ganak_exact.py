@@ -1191,6 +1191,64 @@ def run_rus_composite(directory,exe,tmp):
         print("HOARE_RUS_COMPOSITE_GPMC "+json.dumps(r),flush=True)
     print("HOARE_RUS_COMPOSITE_SUMMARY "+json.dumps(dict(expected=6,exact=exact)),flush=True)
 
+
+def run_rus_unit(directory,exe,tmp,direct):
+    """Exact natural counting of phase/fibre/real-unit exponents, no selectors."""
+    with (directory/"native-rus-unit.tsv").open() as f:rows=list(csv.reader(f,delimiter="\t"))
+    assert len(rows)<=6 and len({r[0] for r in rows})==len(rows)
+    exact=0;cross=0;start=time.monotonic()
+    for case,h0,h,primary,odd,vs,cs,B,ds,ex,base,ref,enc,checks,admitted in rows:
+        h0,h,primary,odd,vs,cs,B,enc,checks,admitted=map(int,(h0,h,primary,odd,vs,cs,B,enc,checks,admitted))
+        assert 0<=h<=h0<=17 and primary==1+h and B==(1<<primary)+1
+        assert 0<=odd<=h0-h and checks==1<<primary and 0<=admitted<=checks
+        assert 0<vs<=4096 and 0<cs<=32768
+        dl=list(map(int,ds.split(",")));expected=list(map(int,ex.split(",")))
+        K=list(map(int,base.split(",")));ref=list(map(int,ref.split(",")))
+        assert len(K)==4 and len(ref)==32 and len(dl)==6+odd.bit_length()
+        assert len(dl)==len(set(dl)) and all(0<l<=vs for l in dl)
+        assert len(expected)==1<<len(dl) and sum(expected)==admitted
+        assert all(0<=v<B for v in expected) and not any(expected[64*(odd+1):])
+        header,*clauses=(directory/f"{case}.cnf").read_text().splitlines()
+        assert header==f"p cnf {vs} {cs}" and len(clauses)==cs
+        weights={l:B**(1<<i) for i,l in enumerate(dl)}
+        weights.update({-l:1 for l in dl})
+        path=pathlib.Path(tmp)/"rus-unit.cnf"
+        path.write_text("c t wmc\n"+header+"\n"+"".join(f"c p weight {l} {w} 0\n" for l,w in sorted(weights.items()))+"\n".join(clauses)+"\n")
+        r=dict(case=case,h0=h0,h=h,primary=primary,odd=odd,vars=vs,clauses=cs,
+               encode_ns=enc,checks=checks,admitted=admitted,query_sha256=hashlib.sha256(path.read_bytes()).hexdigest(),metrics=[],status="UNKNOWN")
+        try:
+            remaining=40-(time.monotonic()-start)
+            if remaining<=0:raise TimeoutError("unit scheduling deadline")
+            out=profile_gpmc([str(exe),"-mode=1","-natw",str(path)],min(5,remaining),pathlib.Path(tmp)/"rus-unit-time.tsv",r["metrics"])
+            v=parse_gpmc_integer(out,"wmc",B**len(expected)-1)
+            bits=v.bit_length();digits=[]
+            for _ in expected:digits.append(v%B);v//=B
+            assert v==0 and digits==expected
+            coeff=[[0]*4 for _ in range(8)]
+            a=K
+            t=time.monotonic_ns()
+            for k in range(odd+1):
+                for j in range(8):
+                    for e in range(8):
+                        q=[0]*4;q[e%4]=1 if e<4 else -1
+                        term=rus_mul(a,q)
+                        for i,c in enumerate(term):coeff[j][i]+=c*digits[64*k+8*j+e]
+                a=rus_mul(a,[1,1,0,-1])
+            decode_ns=time.monotonic_ns()-t
+            assert [c for a in coeff for c in a]==ref
+            name=case.removeprefix("rus-unit-")
+            if name in direct:
+                assert direct[name]==coeff
+                cross+=1
+                r["raw_crosscheck"]=True
+            exact+=1
+            r.update(status="EXACT",packed_bits=bits,nonzero_bins=sum(v!=0 for v in digits),
+                     decode_ns=decode_ns,coeff=coeff)
+        except (TimeoutError,subprocess.TimeoutExpired):r["status"]="TIMEOUT"
+        except SolverSignalKilled:r["status"]="UNATTRIBUTED_SIGNAL_KILL"
+        print("HOARE_RUS_UNIT_GPMC "+json.dumps(r),flush=True)
+    print("HOARE_RUS_UNIT_SUMMARY "+json.dumps(dict(expected=6,exported=len(rows),exact=exact,raw_crosschecked=cross)),flush=True)
+
 def run_rus_gram(directory,exe,tmp,reference,linear):
     """Independent reduced-source Gram queries; no oracle in verdict computation."""
     with (directory/"native-rus-gram.tsv").open() as f:
@@ -1738,6 +1796,8 @@ def run_gpmc_pure(directory, exe, tmp, deadline):
             print("HOARE_RUS_ABLATION_PARITY "+json.dumps(dict(route=route,raw_pairs=len(raw_pairs),linear_pairs=len(linear_pairs))),flush=True)
         if (directory/"native-rus-gram.tsv").is_file():
             run_rus_gram(directory,exe,tmp,direct,dr)
+        if (directory/"native-rus-unit.tsv").is_file():
+            run_rus_unit(directory,exe,tmp,direct)
         if (directory/"native-rus-composite.tsv").is_file():
             run_rus_composite(directory,exe,tmp)
             replay=os.environ.get("HOARE_CUBIC_REPLAY","0")

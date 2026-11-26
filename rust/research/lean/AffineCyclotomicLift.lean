@@ -18,7 +18,7 @@ def coordinate (d k p : Nat) : Int :=
 theorem residue_scale (p d s : Nat) :
     (p*s) % (2*(d*s)) = (p % (2*d))*s := by
   rw [← Nat.mul_assoc]
-  exact Nat.mul_mod_mul_right p (2*d) s
+  exact Nat.mul_mod_mul_right s p (2*d)
 
 theorem coordinate_lift (d k p s : Nat) (hs : 0 < s) :
     coordinate (d*s) (k*s) (p*s) = coordinate d k p := by
@@ -27,18 +27,18 @@ theorem coordinate_lift (d k p s : Nat) (hs : 0 < s) :
   have he : (p % (2*d))*s = k*s ↔ p % (2*d) = k := by
     constructor
     · intro h
-      exact Nat.eq_of_mul_eq_mul_right hs h
+      exact Nat.mul_right_cancel hs h
     · intro h
       rw [h]
   have hf : (p % (2*d))*s = (k+d)*s ↔ p % (2*d) = k+d := by
     constructor
     · intro h
-      exact Nat.eq_of_mul_eq_mul_right hs h
+      exact Nat.mul_right_cancel hs h
     · intro h
       rw [h]
   simp only [he, hf]
 
-theorem coordinate_off_grid (d k p s : Nat) (hs : 0 < s)
+theorem coordinate_off_grid (d k p s : Nat)
     (hk : k % s ≠ 0) :
     coordinate (d*s) k (p*s) = 0 := by
   unfold coordinate
@@ -50,7 +50,10 @@ theorem coordinate_off_grid (d k p s : Nat) (hs : 0 < s)
   have h2 : (p % (2*d))*s ≠ k+d*s := by
     intro h
     have hmod := congrArg (fun z : Nat => z % s) h
-    simp only [Nat.add_mod, Nat.mul_mod_left, Nat.add_zero, Nat.mod_mod] at hmod
+    have hleft : ((p % (2*d))*s) % s = 0 := Nat.mul_mod_left _ _
+    have hright : (k+d*s) % s = k % s := by
+      rw [Nat.add_mod, Nat.mul_mod_left, Nat.add_zero, Nat.mod_mod]
+    rw [hleft, hright] at hmod
     exact hk hmod.symm
   simp only [if_neg h1, if_neg h2]
 
@@ -69,13 +72,13 @@ theorem phase_sum_lift {Y : Type} (d k s : Nat) (hs : 0 < s)
   | cons y ys ih =>
       simp only [phaseSum, coordinate_lift d k (phase y) s hs, ih]
 
-theorem phase_sum_off_grid {Y : Type} (d k s : Nat) (hs : 0 < s)
+theorem phase_sum_off_grid {Y : Type} (d k s : Nat)
     (hk : k % s ≠ 0) (phase : Y → Nat) (guard : Y → Bool) (ys : List Y) :
     phaseSum (d*s) k (fun y => phase y*s) guard ys = 0 := by
   induction ys with
   | nil => rfl
   | cons y ys ih =>
-      simp only [phaseSum, coordinate_off_grid d k (phase y) s hs hk, ih]
+      simp only [phaseSum, coordinate_off_grid d k (phase y) s hk, ih]
       cases guard y <;> rfl
 
 #print axioms residue_scale

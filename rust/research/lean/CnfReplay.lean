@@ -3316,34 +3316,82 @@ theorem parse_ledger_snap_raw (raw : Token) (s : LedgerSnap)
             | false =>
               rw [ledger_bool_false _ _ _ hp] at h2
               obtain ⟨ps, _, h3⟩ := ledger_bind_some _ _ _ h2
+              -- Normalize the applied phase join point explicitly. Keep
+              -- the sentinel test at the head of the hypothesis.
+              change (if cs == [33] then
+                (some ([] : List (List (List Nat)))).bind (fun rs =>
+                  if natLE nv 4096 && uniqueIds ids && inputsKnown ids (List.range nv) &&
+                      ps.all (fun m => uniqueIds m && inputsKnown ids m) &&
+                      rs.all (fun p => p.all (fun m => uniqueIds m && inputsKnown ids m)) then
+                    some (LedgerSnap.mk raw nv ids phase cs ps rs)
+                  else none)
+                else (splitBytes 124 cs).mapM parseLedgerPoly >>= fun rs =>
+                  if natLE nv 4096 && uniqueIds ids && inputsKnown ids (List.range nv) &&
+                      ps.all (fun m => uniqueIds m && inputsKnown ids m) &&
+                      rs.all (fun p => p.all (fun m => uniqueIds m && inputsKnown ids m)) then
+                    some (LedgerSnap.mk raw nv ids phase cs ps rs)
+                  else none) = some s at h3
               cases hc : (cs == [33]) with
               | false =>
                 rw [ledger_bool_false _ _ _ hc] at h3
                 obtain ⟨rs, _, h4⟩ := ledger_bind_some _ _ _ h3
+                change (if natLE nv 4096 && uniqueIds ids && inputsKnown ids (List.range nv) &&
+                      ps.all (fun m => uniqueIds m && inputsKnown ids m) &&
+                      rs.all (fun p => p.all (fun m => uniqueIds m && inputsKnown ids m)) then
+                  some (LedgerSnap.mk raw nv ids phase cs ps rs)
+                  else none) = some s at h4
                 have he : some (LedgerSnap.mk raw nv ids phase cs ps rs) = some s :=
                   ledger_if_some_branch _ _ _ h4
                 exact (congrArg LedgerSnap.raw (Option.some.inj he)).symm
               | true =>
                 rw [ledger_bool_true _ _ _ hc] at h3
-                obtain ⟨rs, _, h4⟩ := ledger_bind_some _ _ _ h3
-                have he : some (LedgerSnap.mk raw nv ids phase cs ps rs) = some s :=
-                  ledger_if_some_branch _ _ _ h4
+                change (if natLE nv 4096 && uniqueIds ids && inputsKnown ids (List.range nv) &&
+                      ps.all (fun m => uniqueIds m && inputsKnown ids m) &&
+                      ([] : List (List (List Nat))).all (fun p => p.all (fun m => uniqueIds m && inputsKnown ids m)) then
+                  some (LedgerSnap.mk raw nv ids phase cs ps [])
+                  else none) = some s at h3
+                have he : some (LedgerSnap.mk raw nv ids phase cs ps []) = some s :=
+                  ledger_if_some_branch _ _ _ h3
                 exact (congrArg LedgerSnap.raw (Option.some.inj he)).symm
             | true =>
               rw [ledger_bool_true _ _ _ hp] at h2
               obtain ⟨ps, _, h3⟩ := ledger_bind_some _ _ _ h2
+              -- Normalize the applied phase join point explicitly. Keep
+              -- the sentinel test at the head of the hypothesis.
+              change (if cs == [33] then
+                (some ([] : List (List (List Nat)))).bind (fun rs =>
+                  if natLE nv 4096 && uniqueIds ids && inputsKnown ids (List.range nv) &&
+                      ps.all (fun m => uniqueIds m && inputsKnown ids m) &&
+                      rs.all (fun p => p.all (fun m => uniqueIds m && inputsKnown ids m)) then
+                    some (LedgerSnap.mk raw nv ids phase cs ps rs)
+                  else none)
+                else (splitBytes 124 cs).mapM parseLedgerPoly >>= fun rs =>
+                  if natLE nv 4096 && uniqueIds ids && inputsKnown ids (List.range nv) &&
+                      ps.all (fun m => uniqueIds m && inputsKnown ids m) &&
+                      rs.all (fun p => p.all (fun m => uniqueIds m && inputsKnown ids m)) then
+                    some (LedgerSnap.mk raw nv ids phase cs ps rs)
+                  else none) = some s at h3
               cases hc : (cs == [33]) with
               | false =>
                 rw [ledger_bool_false _ _ _ hc] at h3
                 obtain ⟨rs, _, h4⟩ := ledger_bind_some _ _ _ h3
+                change (if natLE nv 4096 && uniqueIds ids && inputsKnown ids (List.range nv) &&
+                      ps.all (fun m => uniqueIds m && inputsKnown ids m) &&
+                      rs.all (fun p => p.all (fun m => uniqueIds m && inputsKnown ids m)) then
+                  some (LedgerSnap.mk raw nv ids phase cs ps rs)
+                  else none) = some s at h4
                 have he : some (LedgerSnap.mk raw nv ids phase cs ps rs) = some s :=
                   ledger_if_some_branch _ _ _ h4
                 exact (congrArg LedgerSnap.raw (Option.some.inj he)).symm
               | true =>
                 rw [ledger_bool_true _ _ _ hc] at h3
-                obtain ⟨rs, _, h4⟩ := ledger_bind_some _ _ _ h3
-                have he : some (LedgerSnap.mk raw nv ids phase cs ps rs) = some s :=
-                  ledger_if_some_branch _ _ _ h4
+                change (if natLE nv 4096 && uniqueIds ids && inputsKnown ids (List.range nv) &&
+                      ps.all (fun m => uniqueIds m && inputsKnown ids m) &&
+                      ([] : List (List (List Nat))).all (fun p => p.all (fun m => uniqueIds m && inputsKnown ids m)) then
+                  some (LedgerSnap.mk raw nv ids phase cs ps [])
+                  else none) = some s at h3
+                have he : some (LedgerSnap.mk raw nv ids phase cs ps []) = some s :=
+                  ledger_if_some_branch _ _ _ h3
                 exact (congrArg LedgerSnap.raw (Option.some.inj he)).symm
 
 theorem parsed_ledger_snap_canonical (raw : Token) (s : LedgerSnap)

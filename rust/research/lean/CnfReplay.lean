@@ -3671,18 +3671,33 @@ theorem check_ledger_byte_witness (bytes : List Nat)
                                           cases pf with
                                           | none => cases h
                                           | some final =>
-                                            generalize hr : replayLedger initial {} steps = pr at h
-                                            cases pr with
-                                            | none => cases h
+                                            -- Expose the actual replay scrutinee before
+                                            -- eliminating its Option result; outer true
+                                            -- guards and the paired parser match reduce
+                                            -- definitionally, not by dependent elimination.
+                                            change (match replayLedger initial {} steps with
+                                              | some (actual,t) => natListEq actual.raw final.raw &&
+                                                  natListEq (ledgerTallyList t) expected &&
+                                                  ledgerMultiplier t == mult
+                                              | none => false) = true at h
+                                            cases hr : replayLedger initial {} steps with
+                                            | none =>
+                                              have hfalse : false = true := by
+                                                first | exact h | simpa only [hr] using h
+                                              cases hfalse
                                             | some result =>
                                               cases result with
                                               | mk actual t =>
+                                                have haccepted : (natListEq actual.raw final.raw &&
+                                                  natListEq (ledgerTallyList t) expected &&
+                                                  ledgerMultiplier t == mult) = true := by
+                                                  first | exact h | simpa only [hr] using h
                                                 have hhead := and_true_parts he
                                                 have hc := parsed_ledger_snap_canonical start initial hi
                                                 have hfinal := parsed_ledger_snap_canonical last final hf
                                                 have hsteps := parse_ledger_steps_canonical _ steps hs
                                                 have hend := ledger_accepted_endpoint initial actual final steps t
-                                                  expected mult hc hfinal hsteps hr h
+                                                  expected mult hc hfinal hsteps hr haccepted
                                                 exact ⟨tag,norm,k,counts,st,start,rest,et,last,rev,n,mult,
                                                   expected,initial,steps,final,t,ha,hrows,hg,hn,hm,hcounts,hi,hrev,
                                                   hhead.1,ledger_kind_eq _ _ hhead.2,hs,hf,hend.1,hend.2.1,hend.2.2⟩

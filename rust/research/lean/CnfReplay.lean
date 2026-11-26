@@ -2973,6 +2973,112 @@ theorem ledger_scale_compose {A : Type} (scale : Nat → A → A)
     exact (chain current e.1.before hh.1).trans (he.trans
       ((congrArg (scale e.2) ht).trans (ha e.2 (es.map Prod.snd).sum (value final))))
 
+
+-- Exponent in units of sqrt(2); rejected proposals contribute zero.
+def ledgerStepExponent (s : LedgerStep) : Nat :=
+  if !s.commit then 0
+  else if s.kind == 1 then 2 * (removedIds s.before s.trial).length
+  else if s.kind == 3 || s.kind == 4 then 2
+  else if s.kind == 5 then 1
+  else 0
+
+theorem ledger_advance_multiplier (t : LedgerTally) (s : LedgerStep)
+    (next : LedgerTally) (h : ledgerAdvance t s = some next) :
+    ledgerMultiplier next = ledgerMultiplier t + ledgerStepExponent s := by
+  unfold ledgerAdvance at h
+  dsimp only at h
+  repeat (first | split at h | contradiction)
+  all_goals
+    cases h
+    simp_all [ledgerMultiplier, ledgerStepExponent] <;> omega
+
+-- Extract actual successful recursive calls (including fuel) from the
+-- executable replay, rather than assuming an abstract ordered relation.
+theorem replay_ledger_cons (current : LedgerSnap) (t : LedgerTally)
+    (s : LedgerStep) (ss : List LedgerStep) (final : LedgerSnap) (out : LedgerTally)
+    (h : replayLedger current t (s :: ss) = some (final,out)) :
+    ∃ next, current.raw = s.before.raw ∧ ledgerAdvance t s = some next ∧
+      natLE (ledgerFuel next) 64 = true ∧
+      replayLedger (ledgerNext current s) next ss = some (final,out) := by
+  cases hc : natListEq current.raw s.before.raw with
+  | false => simp [replayLedger, hc] at h
+  | true =>
+    cases ha : ledgerAdvance t s with
+    | none => simp [replayLedger, hc, ha] at h
+    | some next =>
+      cases hf : natLE (ledgerFuel next) 64 with
+      | false => simp [replayLedger, hc, ha, hf] at h
+      | true =>
+        refine ⟨next, (nat_list_eq_iff _ _).mp hc, ?_, ?_, ?_⟩
+        · first | exact ha | rfl
+        · first | exact hf | rfl
+        · simpa [replayLedger, hc, ha, hf] using h
+
+theorem replay_ledger_multiplier (current : LedgerSnap) (t : LedgerTally)
+    (steps : List LedgerStep) (final : LedgerSnap) (out : LedgerTally)
+    (h : replayLedger current t steps = some (final,out)) :
+    ledgerMultiplier out = ledgerMultiplier t + (steps.map ledgerStepExponent).sum := by
+  induction steps generalizing current t with
+  | nil =>
+    change some (current,t) = some (final,out) at h
+    cases h
+    simp
+  | cons s ss ih =>
+    obtain ⟨next, _, hadv, _, htail⟩ := replay_ledger_cons current t s ss final out h
+    have hm := ledger_advance_multiplier t s next hadv
+    have ht := ih (ledgerNext current s) next htail
+    rw [ht, hm]
+    simp only [List.map_cons, List.sum_cons]
+    omega
+
+-- Semantic composition over the actual executable recursive calls.
+-- Snapshot consistency and the semantics of each committed local rule
+-- remain explicit premises; rejected proposals need no semantic law.
+theorem replay_ledger_scale {A : Type} (scale : Nat → A → A)
+    (h0 : ∀ a, scale 0 a = a)
+    (ha : ∀ i j a, scale i (scale j a) = scale (i+j) a)
+    (value : LedgerSnap → A) (current : LedgerSnap) (t : LedgerTally)
+    (steps : List LedgerStep) (final : LedgerSnap) (out : LedgerTally)
+    (chain : ∀ a b : LedgerSnap, a.raw = b.raw → value a = value b)
+    (stepSound : ∀ s, s ∈ steps → s.commit = true →
+      value s.before = scale (ledgerStepExponent s) (value s.trial))
+    (h : replayLedger current t steps = some (final,out)) :
+    value current = scale (steps.map ledgerStepExponent).sum (value final) := by
+  induction steps generalizing current t with
+  | nil =>
+    change some (current,t) = some (final,out) at h
+    cases h
+    exact (h0 (value final)).symm
+  | cons s ss ih =>
+    obtain ⟨next, hchain, _, _, htail⟩ := replay_ledger_cons current t s ss final out h
+    have hlocal : value current = scale (ledgerStepExponent s) (value (ledgerNext current s)) := by
+      cases hc : s.commit with
+      | false => simp [ledgerStepExponent, ledgerNext, hc, h0]
+      | true =>
+        rw [committed_ledger_next current s hc]
+        exact (chain current s.before hchain).trans
+          (stepSound s (List.mem_cons.mpr (Or.inl rfl)) hc)
+    have ht := ih (ledgerNext current s) next
+      (fun q hm => stepSound q (List.mem_cons.mpr (Or.inr hm))) htail
+    exact hlocal.trans ((congrArg (scale (ledgerStepExponent s)) ht).trans
+      (ha (ledgerStepExponent s) (ss.map ledgerStepExponent).sum (value final)))
+
+theorem replay_ledger_scale_from_zero {A : Type} (scale : Nat → A → A)
+    (h0 : ∀ a, scale 0 a = a)
+    (ha : ∀ i j a, scale i (scale j a) = scale (i+j) a)
+    (value : LedgerSnap → A) (current : LedgerSnap)
+    (steps : List LedgerStep) (final : LedgerSnap) (out : LedgerTally)
+    (chain : ∀ a b : LedgerSnap, a.raw = b.raw → value a = value b)
+    (stepSound : ∀ s, s ∈ steps → s.commit = true →
+      value s.before = scale (ledgerStepExponent s) (value s.trial))
+    (h : replayLedger current {} steps = some (final,out)) :
+    value current = scale (ledgerMultiplier out) (value final) := by
+  have hm := replay_ledger_multiplier current {} steps final out h
+  change ledgerMultiplier out = 0 + (steps.map ledgerStepExponent).sum at hm
+  rw [Nat.zero_add] at hm
+  rw [hm]
+  exact replay_ledger_scale scale h0 ha value current {} steps final out chain stepSound h
+
 -- Localize any unexpected dependency to a definition vs theorem.
 #print axioms splitBytes
 #print axioms digits
@@ -3221,6 +3327,12 @@ theorem ledger_scale_compose {A : Type} (scale : Nat → A → A)
 #print axioms rejected_ledger_next
 #print axioms committed_ledger_next
 #print axioms ledger_scale_compose
+#print axioms ledgerStepExponent
+#print axioms ledger_advance_multiplier
+#print axioms replay_ledger_cons
+#print axioms replay_ledger_multiplier
+#print axioms replay_ledger_scale
+#print axioms replay_ledger_scale_from_zero
 end QuPRS.CnfReplay
 
 def main (args : List String) : IO Unit := do

@@ -3548,7 +3548,8 @@ theorem parse_ledger_steps_canonical (tokens : List (List Token))
 -- Preserve the exact token origin of each witness, including the
 -- header and both endpoints. No external parser correctness assumed.
 def LedgerByteWitness (bytes : List Nat) : Prop :=
-  ∃ tag norm k counts st start rest et last rev
+  ∃ (tag norm k : Token) (counts : List Token) (st start : Token)
+    (rest : List (List Token)) (et last : Token) (rev : List (List Token))
     (n mult : Nat) (expected : List Nat) (initial : LedgerSnap)
     (steps : List LedgerStep) (final : LedgerSnap) (t : LedgerTally),
     ascii bytes = true ∧
@@ -3593,7 +3594,7 @@ theorem check_ledger_byte_witness (bytes : List Nat)
   cases aok with
   | false => cases h
   | true =>
-    dsimp only at h
+    try dsimp only at h
     generalize hrows : rows bytes = records at h
     cases records with
     | nil => cases h
@@ -3619,13 +3620,13 @@ theorem check_ledger_byte_witness (bytes : List Nat)
                   cases tail with
                   | cons extra more => cases h
                   | nil =>
-                    dsimp only at h
+                    try dsimp only at h
                     generalize hg : (tag == [99,114,114,45,108,101,100,103,101,114,45,118,50] &&
                       st == [115,116,97,114,116] && counts.length == 7) = gok at h
                     cases gok with
                     | false => cases h
                     | true =>
-                      dsimp only at h
+                      try dsimp only at h
                       generalize hn : parseNatToken norm = pn at h
                       cases pn with
                       | none => cases h
@@ -3655,13 +3656,13 @@ theorem check_ledger_byte_witness (bytes : List Nat)
                                     cases tail with
                                     | cons extra more => cases h
                                     | nil =>
-                                      dsimp only at h
+                                      try dsimp only at h
                                       generalize he : (et == [101,110,100] &&
                                         n == initial.n+initial.live.length) = eok at h
                                       cases eok with
                                       | false => cases h
                                       | true =>
-                                        dsimp only at h
+                                        try dsimp only at h
                                         generalize hs : rev.reverse.mapM parseLedgerStep = ps at h
                                         cases ps with
                                         | none => cases h

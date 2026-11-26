@@ -2266,8 +2266,9 @@ fn exact_trace_source_locked_receipts(){
         let (mgr,v,c)=route_encode(chosen);
         assert_eq!((v,c),if selected{(bv,bc)}else{(av,ac)});
         let dimacs=mgr.try_to_dimacs_string("gpmc").expect("receipt DIMACS");
-        let (_,_,weight_checks)=check_receipt_cnf(chosen,&dimacs).expect("selected CNF certificate");
-        println!("CRR_REAL_CNF_CERTIFICATE case={case} status=matched vars={v} clauses={c} weights={weight_checks} structural=true numerical_weight_check=true solver_count_certified=false");
+        let (_,_,weight_checks)=check_receipt_cnf(chosen,&dimacs).unwrap_or_else(|e|panic!("selected CNF certificate {case}: {e}"));
+        let input_bound=normalized_input_bound(chosen.v.path_vars.len(),weight_checks,twice,if selected{k}else{0}).unwrap();
+        println!("CRR_REAL_CNF_CERTIFICATE case={case} status=matched vars={v} clauses={c} weights={weight_checks} structural=true numerical_weight_check=true normalized_input_bound={input_bound} bound_conditional_on_reference=true solver_count_certified=false");
         let (_,lv,lc,lm,lo,ls)=lazy_prepare(p);
         assert_eq!((v,c,selected),(lv,lc,ls));
         assert_eq!((lm,lo),if selected{(counts.1+counts.2,counts.3)}else{(0,0)});
@@ -2341,11 +2342,21 @@ fn gpmc_trace_witness_source_receipts(){
     const HH_SHA:&str="444ebc5f455b5d5d2d5b41ba842ce4563cce55111e4e71cb4712387544f8e9e2";
     const HSH_SHA:&str="7a2a99a74691a0129e85bd2ab91b9bf944736b02873891c8a5bfab6cda154b4c";
     const X_SHA:&str="6d0c49fcc92e79d6bbed4f2d7f0eb06926666988cf4c87271d8ae059f572580a";
+    const I2:&str="OPENQASM 2.0;\ninclude \"qelib1.inc\";\nqreg q[2];\nh q[0];\nh q[0];\n";
+    const CZ:&str="OPENQASM 2.0;\ninclude \"qelib1.inc\";\nqreg q[2];\nh q[1];\ncx q[0],q[1];\nh q[1];\n";
+    const CX:&str="OPENQASM 2.0;\ninclude \"qelib1.inc\";\nqreg q[2];\ncx q[0],q[1];\n";
+    const I2_SHA:&str="1a9ccd1a9fac8cdd85a09ac745f1f4818099c704d97d4f5e3d30f68c675be088";
+    const CZ_SHA:&str="c84b86843a732059981d7b58caa2d4ba715a8ea45a0063f8cb1b0f6397518a13";
+    const CX_SHA:&str="53acdf2573ff69c7561545518ad4fbe6d5cd3b0310dcd2623158e217b36d1006";
     let mut cases=Vec::new();
-    for (id,source,pin,want) in [("hh_source_eq",HH,HH_SHA,2i64),("hsh_source_neq",HSH,HSH_SHA,1),("x_source_neq",X,X_SHA,0)]{
+    for (id,source,pin,want) in [("hh_source_eq",HH,HH_SHA,4i64),("hsh_source_neq",HSH,HSH_SHA,2),("x_source_neq",X,X_SHA,0)]{
         assert_eq!(receipt_sha(source.as_bytes()),pin);
         assert_eq!(receipt_sha(HH.as_bytes()),HH_SHA);
         cases.push((id,source.to_string(),HH.to_string(),pin.to_string(),HH_SHA.to_string(),Some(want)));
+    }
+    for (id,source,pin) in [("cz_source_neq",CZ,CZ_SHA),("cx_source_neq",CX,CX_SHA)]{
+        assert_eq!(receipt_sha(source.as_bytes()),pin);assert_eq!(receipt_sha(I2.as_bytes()),I2_SHA);
+        cases.push((id,source.to_string(),I2.to_string(),pin.to_string(),I2_SHA.to_string(),Some(1)));
     }
     for (id,file,a,b) in [
         ("qft_16","qft_nativegates_ibm_qiskit_opt0_16.qasm","398b32262259af75fcf44ab711b77281818d0cc7","d321013120dbad7082892026e1ee7a70f9edc206"),
@@ -2378,9 +2389,19 @@ fn gpmc_trace_witness_source_receipts(){
         for (arm,mgr,m,o) in [("baseline",baseline,0,0),("certified",conditioned,counts.1+counts.2,counts.3)]{
             let cnf=mgr.try_to_dimacs_string("gpmc").expect("solver receipt CNF");
             let encoded=if arm=="baseline"{p}else{&reduced};
-            let (_,_,w)=check_receipt_cnf(encoded,&cnf).expect("solver input CNF certificate");
-            println!("CRR_SOLVER_CNF_CERTIFICATE case={case} arm={arm} weights={w} cnf_sha256={} structural=true numerical_weight_check=true",receipt_sha(cnf.as_bytes()));
+            let (actual,e,w)=check_receipt_cnf(encoded,&cnf).unwrap_or_else(|err|panic!("solver CNF {case} {arm}: {err}"));
+            let input_bound=normalized_input_bound(encoded.v.path_vars.len(),w,twice,2*m+o).unwrap();
+            println!("CRR_SOLVER_CNF_CERTIFICATE case={case} arm={arm} weights={w} cnf_sha256={} structural=true numerical_weight_check=true normalized_input_bound={input_bound} bound_conditional_on_reference=true",receipt_sha(cnf.as_bytes()));
+            let exact=if expected.is_some(){
+                let count=exact_serialized_wmc(&actual).unwrap();
+                assert_eq!(count,exact_live_wmc(encoded,&actual,&e).unwrap());Some(count)
+            }else{None};
             if let Some((raw,cnf_sha,stdout_sha))=receipt_solve(&cnf,&exe,case,arm){
+                if let Some((re,im))=exact{
+                    let delta=(&raw.real-re).abs()+(&raw.imag-im).abs();
+                    assert!(delta<=Rat::new(1.into(),BigInt::from(10u8).pow(50)));
+                    println!("CRR_BOUNDED_WMC_REFERENCE case={case} arm={arm} status=matched raw_l1_delta={delta} exact_serialized_count=true external_solver_error_certified=false");
+                }
                 // Midpoint distance uses exact rational scaling and an
                 // adjusted integer exponent; no rounded sqrt2 needed.
                 let factor=Rat::from_integer(BigInt::from(1u8)<<(m+o/2));
@@ -2391,9 +2412,9 @@ fn gpmc_trace_witness_source_receipts(){
                 println!("CRR_SOLVER_BOUND case={case} arm={arm} source_sha256={src_sha} target_sha256={dst_sha} residual_sha256={} final_sha256={} ledger_sha256={} cnf_sha256={cnf_sha} stdout_sha256={stdout_sha} normalization_twice={twice} multiplier_squared_exponent={} trace_modulus_squared={trace_sq} verdict={verdict:?} source_semantics_certified=false cnf_semantics_certified=false solver_count_certified=false",
                     receipt_trace(&start),receipt_trace(&end),receipt_ledger(&ledger),2*m+o);
                 if let Some(want)=expected{
-                    let truth=Rat::new(want.into(),2.into());
+                    let truth=Rat::new(want.into(),4.into());
                     assert!((&trace_sq-&truth).abs()<=Rat::new(1.into(),BigInt::from(10u8).pow(50)));
-                    let wanted=if want==2{PrintedVerdict::Equivalent}else{PrintedVerdict::NotEquivalent};
+                    let wanted=if want==4{PrintedVerdict::Equivalent}else{PrintedVerdict::NotEquivalent};
                     assert_eq!(std::mem::discriminant(&verdict),std::mem::discriminant(&wanted));
                 }
                 results.push((trace_sq,restored,verdict));
@@ -2410,7 +2431,7 @@ fn gpmc_trace_witness_source_receipts(){
             if expected.is_none(){real_pairs+=1;}
         }
     }
-    assert_eq!(controls,3);assert!(real_pairs>0,"no complete real solver receipt pair");
+    assert_eq!(controls,5);assert!(real_pairs>0,"no complete real solver receipt pair");
     println!("CRR_SOLVER_RECEIPT_SUMMARY analytic_controls={controls} real_matched_pairs={real_pairs} incomplete_calls={incomplete} source_semantics_certified=false solver_count_certified=false");
 }
 
@@ -2541,14 +2562,16 @@ fn expected_receipt_cnf(ps:&PathSum)->Result<ExpectedCnf,&'static str>{
 
 // Independent fixed-point numerical oracle. Machin pi and Taylor
 // sin/cos use integer truncation, not native MPFR or binary64.
-// Bounded angle |theta|<=8; scale 10^90; 200 terms. Reference
-// error budget 10^-80 per component is deliberately conservative:
-// Machin truncations <4000 units, Taylor truncations propagated
-// by sum(8^j/j!)<3000, 200 terms, factorial tail <10^-180.
-// This bounds reference error, NOT external solver arithmetic.
+// Reduce the angle by an integer multiple of the independently
+// computed 2*pi before Taylor. Cap the quotient to 10000; with
+// 10^90 scale, the Machin error (<4001 units) is amplified by at
+// most 20002, plus Taylor and final truncation. Reference component
+// budget 10^-80 is conservative within this domain. This is not a
+// kernel-checked numerical theorem or an external solver error bound.
 #[cfg(test)]
 fn reference_weight(c:&ExactPair)->Result<ExactPair,&'static str>{
     use num_bigint::BigInt;
+    use num_integer::Integer;
     use num_traits::{Signed,Zero};
     let scale=BigInt::from(10u8).pow(90);
     fn atan_inv(q:u32,scale:&BigInt)->BigInt{
@@ -2561,9 +2584,15 @@ fn reference_weight(c:&ExactPair)->Result<ExactPair,&'static str>{
         sum
     }
     let pi=16i32*atan_inv(5,&scale)-4i32*atan_inv(239,&scale);
-    let angle=&c.0*Rat::from_integer(2i32*pi)+&c.1*Rat::from_integer(2i32*&scale);
-    let x=angle.to_integer();
-    if x.abs()>8i32*&scale{return Err("weight reference angle cap");}
+    let period:BigInt=2i32*pi;
+    let angle=&c.0*Rat::from_integer(period.clone())+&c.1*Rat::from_integer(2i32*&scale);
+    // Reduce in fixed-point units with exact rational arithmetic.
+    // The floor is taken after integer truncation; even a quotient
+    // off by one is harmless because we subtract an integer period.
+    let q=angle.to_integer().div_floor(&period);
+    if q.abs()>BigInt::from(10_000){return Err("weight reference period cap");}
+    let x=(angle-Rat::from_integer(q*period)).to_integer();
+    if x.abs()>8i32*&scale{return Err("weight reference reduced angle cap");}
     let mut term=scale.clone();let mut re=scale.clone();let mut im=BigInt::zero();
     for j in 1..=200u32{
         term=term*&x/(&scale*BigInt::from(j));
@@ -2630,7 +2659,7 @@ fn check_cnf_fibers(ps:&PathSum,actual:&CnfReceipt,e:&ExpectedCnf)->usize{
 #[test]
 fn exact_trace_cnf_semantic_certificate(){
     use quprs::rational::{PhaseCoeff,Rational};
-    let mut fibers=0;let mut weights=0;
+    let mut fibers=0;let mut weights=0;let mut wmc=0;
     // Vary constants, empty outputs, nonlinear products, XOR, free
     // live variables, and mixed rational radian/turn coefficients.
     for mask in 0..32{
@@ -2648,6 +2677,7 @@ fn exact_trace_cnf_semantic_certificate(){
         let s=mgr.try_to_dimacs_string("gpmc").unwrap();
         let (a,e,w)=check_receipt_cnf(&p,&s).unwrap();
         fibers+=check_cnf_fibers(&p,&a,&e);weights+=w;
+        assert_eq!(exact_serialized_wmc(&a).unwrap(),exact_live_wmc(&p,&a,&e).unwrap());wmc+=1;
     }
     let mut p=PathSum::new(1);p.rr_tolerance=0.0;
     let y=p.v.get_fresh_var();p.p.add_term(vec![y],PhaseCoeff::QUARTER);
@@ -2678,5 +2708,96 @@ fn exact_trace_cnf_semantic_certificate(){
         format!("c p weight {z} 1.0 0.0 0")
     }else{l.to_string()}).collect::<Vec<_>>().join("\n");
     assert!(matches!(check_receipt_cnf(&p,&bad),Err("numerical phase weight mismatch")));
-    println!("CRR_CNF_SEMANTIC_CERTIFICATE models=32 fibers={fibers} weights={weights} rejected=7 reference_component_error_budget=1e-80 observed_weight_tolerance=1e-65 solver_count_certified=false");
+    println!("CRR_CNF_SEMANTIC_CERTIFICATE models=32 fibers={fibers} weights={weights} rejected=7 exact_serialized_wmc={wmc} reference_component_error_budget=1e-80 observed_weight_tolerance=1e-65 solver_count_certified=false");
+}
+
+
+// Exact arithmetic on the *serialized decimal weights*, not the
+// transcendental ideal weights. Two independent finite sums:
+// all satisfying DIMACS assignments vs all diagonal live assignments.
+#[cfg(test)]
+fn receipt_mul(a:&ExactPair,b:&ExactPair)->ExactPair{
+    (&a.0*&b.0-&a.1*&b.1,&a.0*&b.1+&a.1*&b.0)
+}
+#[cfg(test)]
+fn exact_serialized_wmc(actual:&CnfReceipt)->Result<ExactPair,&'static str>{
+    use num_traits::Zero;
+    if actual.vars>18{return Err("bounded WMC variable cap");}
+    let mut sum=(Rat::zero(),Rat::zero());
+    for bits in 0usize..(1usize<<actual.vars){
+        let bit=|v:i32|bits>>(v.unsigned_abs()-1)&1!=0;
+        if !actual.clauses.iter().all(|r|r.iter().any(|&v|bit(v)==(v>0))){continue;}
+        let mut weight=(Rat::from_integer(1.into()),Rat::zero());
+        for (&lit,w) in &actual.weights{
+            if bit(lit)==(lit>0){weight=receipt_mul(&weight,w);}
+        }
+        sum.0+=weight.0;sum.1+=weight.1;
+    }
+    Ok(sum)
+}
+#[cfg(test)]
+fn exact_live_wmc(ps:&PathSum,actual:&CnfReceipt,e:&ExpectedCnf)->Result<ExactPair,&'static str>{
+    use std::collections::BTreeMap;
+    use num_traits::Zero;
+    if e.live.len()>18{return Err("bounded live WMC variable cap");}
+    let mut sum=(Rat::zero(),Rat::zero());
+    for bits in 0usize..(1usize<<e.live.len()){
+        let assignment:BTreeMap<_,_>=e.live.keys().enumerate().map(|(i,&v)|(v,bits>>i&1!=0)).collect();
+        let monomial=|m:&Vec<u32>|m.iter().all(|v|assignment[v]);
+        if !ps.f.functions.iter().enumerate().all(|(i,row)|
+            (row.iter().filter(|m|monomial(m)).count()%2!=0)==assignment[&(i as u32)]){continue;}
+        let mut weight=(Rat::from_integer(1.into()),Rat::zero());
+        for (&z,(mono,_)) in &e.phase{
+            let lit=if monomial(mono){z}else{-z};
+            weight=receipt_mul(&weight,actual.weights.get(&lit).ok_or("missing live weight")?);
+        }
+        sum.0+=weight.0;sum.1+=weight.1;
+    }
+    Ok(sum)
+}
+
+// Conditional analytic input perturbation bound. Per-component error
+// <= 1e-65+1e-80 implies modulus error <= 3e-65. For unit ideal
+// weights, binomial expansion <= geometric series:
+// (1+d)^L - 1 <= L*d/(1-L*d). Use the number of all live assignments
+// as a fiber-count upper bound and round the power-of-two scaling
+// upward using floor((N-k)/2). No external solver error included.
+#[cfg(test)]
+fn normalized_input_bound(live:usize,terms:usize,twice:i32,k:usize)->Result<Rat,&'static str>{
+    use num_bigint::BigInt;
+    let one=Rat::from_integer(1.into());
+    let d=Rat::new(3.into(),BigInt::from(10u8).pow(65));
+    let ld=d*Rat::from_integer(BigInt::from(terms));
+    if ld>=one{return Err("input perturbation cap");}
+    let exponent=i64::try_from(live).map_err(|_|"bound live overflow")?
+        -(i64::from(twice)-i64::try_from(k).map_err(|_|"bound exponent overflow")?).div_euclid(2);
+    if exponent.unsigned_abs()>100_000{return Err("bound scaling cap");}
+    let pow=BigInt::from(1u8)<<(exponent.unsigned_abs() as usize);
+    let scale=if exponent>=0{Rat::from_integer(pow)}else{Rat::new(1.into(),pow)};
+    Ok(scale*&ld/(one-ld))
+}
+#[test]
+fn exact_trace_weight_range_and_input_bound(){
+    use quprs::rational::PhaseCoeff;
+    use num_bigint::BigInt;
+    use num_traits::Zero;
+    let mut checks=0;
+    for r in [100i64,-100,1000,-1000,10000,-10000]{
+        let mut p=PathSum::new(1);p.rr_tolerance=0.0;
+        let mut c=PhaseCoeff::QUARTER;c.radians=Some(Rat::new(r.into(),1.into()));
+        p.p.add_term(vec![0],c);
+        let (mgr,_,_)=route_encode(&p);
+        let dimacs=mgr.try_to_dimacs_string("gpmc").unwrap();
+        check_receipt_cnf(&p,&dimacs).unwrap();checks+=1;
+    }
+    let large=(Rat::zero(),Rat::from_integer(100_000.into()));
+    assert_eq!(reference_weight(&large),Err("weight reference period cap"));
+    let zero=normalized_input_bound(8,0,16,0).unwrap();assert!(zero.is_zero());
+    let d=Rat::new(3.into(),BigInt::from(10u8).pow(65));
+    let base=normalized_input_bound(8,1,16,0).unwrap();
+    assert_eq!(base,&d/(Rat::from_integer(1.into())-&d));
+    assert_eq!(normalized_input_bound(8,1,17,1).unwrap(),base);
+    assert_eq!(normalized_input_bound(8,1,16,1).unwrap(),&base*Rat::from_integer(2.into()));
+    assert!(normalized_input_bound(8,2,16,0).unwrap()>base);
+    println!("CRR_WEIGHT_RANGE_BOUND signed_large_angles={checks} cap_rejected=1 perturbation_controls=5 solver_error_included=false");
 }

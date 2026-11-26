@@ -245,6 +245,13 @@ jobs:
           python3 scripts/install_gpmc_release.py --dest "$tmp/gpmc" | tee evidence/hoare-gpmc-release.json
           python3 rust/research/hoare_ganak_exact.py "$tmp/ganak" evidence/hoare-exact-fixtures "$(command -v minisat)" "$tmp/gpmc" \
             2>&1 | tee evidence/hoare-ganak-exact.log
+          HOARE_ONLINE_GPMC="$tmp/gpmc" \
+          HOARE_ONLINE_HELPER="$GITHUB_WORKSPACE/rust/research/hoare_ganak_exact.py" \
+          HOARE_ONLINE_DIR="$GITHUB_WORKSPACE/evidence/online-hybrid" \
+            cargo test --locked --manifest-path rust/Cargo.toml -p quprs \
+              --test hoare_paper_source_experiment native_online_hybrid_sector -- --exact --nocapture \
+            2>&1 | tee evidence/hoare-online-hybrid.log
+          grep -Fx 'HOARE_ONLINE_HYBRID_COHORT cases=7 arms=20 duplicate=0' evidence/hoare-online-hybrid.log
           # Reuse the same GPMC binary; isolate the upstream Python package.
           python3 -m venv "$tmp/quokka-env"
           "$tmp/quokka-env/bin/python" -m pip install --disable-pip-version-check numpy==2.2.6

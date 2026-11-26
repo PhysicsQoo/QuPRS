@@ -4600,5 +4600,35 @@ def run_hybrid(directory, tmp, deadline, two_weighted, sat_exe):
           screened_proofs=sum(r["screened"]["route"].startswith("SAT_") for r in records))),flush=True)
 
 
+
+def online_sector_cli(args):
+    """One live call. No other sector is prepared by this process."""
+    start=time.monotonic()
+    exe,cnf,sign,primary,seconds=args
+    deadline=start+float(seconds)
+    base=pathlib.Path(cnf).read_text()
+    data,radix,bound=single_fibre_pack(base,[int(sign)],int(primary))
+    query=pathlib.Path(cnf+".wmc")
+    query.write_text(data)
+    records=[]
+    status="TIMEOUT"
+    remaining=deadline-time.monotonic()
+    if remaining>0:
+        try:
+            out=profile_gpmc([exe,"-mode=1","-natw",str(query)],remaining,
+                pathlib.Path(cnf+".time"),records)
+            val=parse_gpmc_integer(out,"wmc",bound*radix)
+            a,b=single_fibre_decode(val,radix,bound,2)
+            assert a>=b
+            status="EXACT "+str(a-b) if time.monotonic()<deadline else "TIMEOUT"
+        except (TimeoutError,subprocess.TimeoutExpired):status="TIMEOUT"
+        except SolverSignalKilled:status="SIGNAL_KILL"
+    print("ONLINE_GPMC_RECEIPT "+json.dumps(dict(query_sha256=hashlib.sha256(data.encode()).hexdigest(),
+        solver_sha256=hashlib.sha256(pathlib.Path(exe).read_bytes()).hexdigest(),metrics=records)),flush=True)
+    print("ONLINE_GPMC_RESULT "+status,flush=True)
+
 if __name__ == "__main__":
-    main()
+    if len(sys.argv)>1 and sys.argv[1]=="--online-sector":
+        online_sector_cli(sys.argv[2:])
+    else:
+        main()

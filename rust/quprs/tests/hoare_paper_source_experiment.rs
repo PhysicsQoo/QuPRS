@@ -2360,6 +2360,169 @@ fn native_hybrid_sector_export(){
     println!("HOARE_NATIVE_HYBRID_EXPORT sectors={total} factor={factor} wmc_ready={exported}");
 }
 
+
+fn online_hybrid_cases()->Vec<(&'static str,Vec<QuantumOp>,usize,Vec<u64>,Vec<bool>)>{
+    use QuantumOp as G;
+    let mut cases:Vec<(&'static str,Vec<QuantumOp>,usize,Vec<u64>,Vec<bool>)>=Vec::new();
+    for (name,src) in [
+        ("qft4",include_str!("../../../benchmarks/Feynman/qft_4.qasm")),
+        ("mod5",include_str!("../../../benchmarks/Feynman/mod5_4.qasm")),
+        ("hwb6",include_str!("../../../benchmarks/Feynman/hwb6.qasm")),
+        ("barenco5",include_str!("../../../benchmarks/Feynman/barenco_tof_5.qasm")),
+    ]{
+        let (ops,n)=feynman_source_ops(src);
+        let (native,width)=parse_qasm_str(src).unwrap();
+        assert_eq!((native,width),(ops.clone(),n));
+        let mask=1u64<<(n-1);
+        let expected=(0..4u64).map(|x|gate_reference_width(&ops,x,n).iter().enumerate()
+            .any(|(z,r)|z as u64&mask!=0&&r.iter().any(|&v|v!=0))).collect();
+        cases.push((name,ops,n,(0..4).collect(),expected));
+    }
+    // Real unitary controls. Wide output sector with no hidden variables
+    // is intentionally rejected by the boundary coverage-width guard.
+    cases.push(("wide14-zero",vec![G::H(0),G::H(1)],14,vec![0,1],vec![false,false]));
+    cases.push(("wide14-positive",vec![G::H(0),G::X(13)],14,vec![0,1],vec![true,true]));
+    // q12 controls fanout of H(q0) into q1..q11. For x=0 the
+    // selected forbidden sector is zero. For x=4096 the retained
+    // twelve outputs depend on the same hidden bit (bucket width13).
+    let mut fan=vec![G::H(0)];
+    for q in 1..12{fan.push(G::CCX(12,0,q));}
+    cases.push(("mixed13",fan,13,vec![0,4096],vec![false,true]));
+
+    cases
+}
+fn online_gpmc_sector(ps:&PathSum,x:u64,mask:u64,key:&str,dir:&std::path::Path,
+    solver:&std::path::Path,helper:&std::path::Path,deadline:std::time::Instant)
+    ->Result<String,&'static str>{
+    if std::time::Instant::now()>=deadline{return Err("DEADLINE");}
+    let n=ps.v.num_qubits;
+    let pre:Vec<Anf>=(0..n).map(|i|if x>>i&1==1{Anf::from([1u64<<i])}
+        else{Anf::from([0,1u64<<i])}).collect();
+    let post=vec![Anf::from([0,mask])];
+    let Some((c,sign,_))=native_dyadic_projection_variant(ps,&pre,&post,32768,262144,true)
+        else{return Err("ENCODING_LIMIT");};
+    let mut text=format!("p cnf {} {}\n",c.vars,c.clauses.len());
+    for row in &c.clauses{for l in row{text.push_str(&format!("{l} "));}text.push_str("0\n");}
+    let cnf=dir.join(format!("{key}.cnf"));
+    std::fs::write(&cnf,text).unwrap();
+    let remaining=deadline.saturating_duration_since(std::time::Instant::now());
+    if remaining.is_zero(){return Err("DEADLINE");}
+    // Python profiles and terminates its GPMC subprocess. The parent
+    // checks the same absolute budget after completion; cleanup is
+    // cooperative and may overrun it, never credited as on-time.
+    let output=std::process::Command::new("python3").arg(helper).arg("--online-sector")
+        .arg(solver).arg(&cnf).arg(sign.to_string()).arg((n+2*h(ps)).to_string())
+        .arg(format!("{:.9}",remaining.as_secs_f64())).output().expect("online GPMC helper launch");
+    assert!(output.status.success(),"online GPMC helper failure {}",String::from_utf8_lossy(&output.stderr));
+    let stdout=String::from_utf8(output.stdout).unwrap();
+    let rows:Vec<_>=stdout.lines().filter(|l|l.starts_with("ONLINE_GPMC_RESULT ")).collect();
+    assert_eq!(rows.len(),1,"{stdout}");
+    println!("HOARE_ONLINE_GPMC key={key} {}",stdout.trim().replace('\n'," "));
+    if std::time::Instant::now()>=deadline{return Err("DEADLINE");}
+    let result=rows[0].strip_prefix("ONLINE_GPMC_RESULT ").unwrap();
+    if let Some(v)=result.strip_prefix("EXACT "){
+        assert!(!v.is_empty()&&v.bytes().all(|b|b.is_ascii_digit())&&(v=="0"||!v.starts_with('0')));
+        Ok(v.to_owned())
+    }else{
+        match result{"TIMEOUT"=>Err("TIMEOUT"),"SIGNAL_KILL"=>Err("SIGNAL_KILL"),_=>panic!("invalid helper result {result}")}
+    }
+}
+#[test]
+fn native_online_hybrid_sector(){
+    let Some(solver)=std::env::var_os("HOARE_ONLINE_GPMC") else{return;};
+    let solver=std::path::PathBuf::from(solver);
+    let helper=std::path::PathBuf::from(std::env::var_os("HOARE_ONLINE_HELPER").unwrap());
+    let dir=std::path::PathBuf::from(std::env::var_os("HOARE_ONLINE_DIR").unwrap());
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut cases=0;let mut arms=0;
+    for (name,ops,n,inputs,expected) in online_hybrid_cases(){
+        let mask=1u64<<(n-1);
+        // QFT WMC-only timeout cohort is already frozen; do not rerun
+        // it in this small integration pilot.
+        let routes:&[&str]=if name=="qft4"{&["factor-gpmc","tiling-gpmc"]}
+            else{&["factor-gpmc","tiling-gpmc","wmc-only"]};
+        for &route in routes{
+            let start=std::time::Instant::now();
+            let deadline=start+std::time::Duration::from_secs(30);
+            let mut raw=PathSum::new(n);raw.set_auto_reduce(false);
+            for op in &ops{op.apply(&mut raw,false);}
+            let (general,gr,_,_,expired,_)=reduce_indexed(raw,deadline,true);
+            assert!(!expired&&!gr.limit);
+            let common=start.elapsed().as_nanos();
+            let mut coverage=BTreeMap::<u64,String>::new();
+            let mut factor=0;let mut tiles=0;let mut wmc=0;let mut wmc_attempts=0;
+            let mut visited=0;let mut first=None;let mut failures=BTreeMap::<&str,usize>::new();
+            let mut rejects=BTreeMap::<&str,usize>::new();
+            for (ord,&x) in inputs.iter().enumerate(){
+                if std::time::Instant::now()>=deadline{break;}
+                visited+=1;
+                let (p,r,_,_,expired,_)=reduce_indexed(fixed_input(general.clone(),x),deadline,true);
+                if expired||r.limit{*failures.entry(if expired{"DEADLINE"}else{"RR_LIMIT"}).or_default()+=1;continue;}
+                let mut result=None;
+                if route!="wmc-only"{
+                    match early_sector_minimum(&p,mask,mask,deadline){
+                        Ok(a)=>{
+                            assert_eq!(a.len(),mask as usize);
+                            let v=a.iter().flatten().try_fold(0i128,|s,&v|s.checked_add(v.checked_mul(v)?));
+                            if let Some(v)=v{result=Some(v.to_string());factor+=1;}
+                            else{*rejects.entry("OVERFLOW").or_default()+=1;}
+                        }
+                        Err(e)=>{*rejects.entry(e).or_default()+=1;}
+                    }
+                }
+                if result.is_none()&&route=="tiling-gpmc"&&std::time::Instant::now()<deadline{
+                    // This pilot supports the already accepted D8 tiler,
+                    // not a new generic D64 tiler.
+                    match tiled_boundary8(&p,mask,mask,deadline){
+                        Ok(t) if t.values.iter().all(Option::is_some)=>{
+                            let v=t.values.iter().flatten().flatten().try_fold(0i128,|s,&v|s.checked_add(v.checked_mul(v)?));
+                            if let Some(v)=v{result=Some(v.to_string());tiles+=1;}
+                            else{*rejects.entry("TILE_OVERFLOW").or_default()+=1;}
+                        }
+                        Ok(_)=>{*rejects.entry("PARTIAL_TILE").or_default()+=1;}
+                        Err(e)=>{*rejects.entry(e).or_default()+=1;}
+                    }
+                }
+                if result.is_none()&&std::time::Instant::now()<deadline{
+                    wmc_attempts+=1;let key=format!("online-{name}-{route}-{ord}");
+                    match online_gpmc_sector(&p,x,mask,&key,&dir,&solver,&helper,deadline){
+                        Ok(v)=>{result=Some(v);wmc+=1;}
+                        Err(e)=>{*failures.entry(e).or_default()+=1;}
+                    }
+                }
+                if std::time::Instant::now()>=deadline{
+                    *failures.entry("DEADLINE").or_default()+=1;break;
+                }
+                if let Some(v)=result{
+                    // Controls have known exact unnormalized residual
+                    // coefficient-square sum (no RR normalization change).
+                    if name.starts_with("wide14")||name=="mixed13"{
+                        assert_eq!(gr.scale2+r.scale2,0);
+                        assert_eq!(v,if name=="wide14-positive"||(name=="mixed13"&&x==4096){"2"}else{"0"});
+                    }
+                    let positive=v!="0";assert!(coverage.insert(x,v).is_none());
+                    if positive{first=Some(x);break;}
+                }
+            }
+            let verdict=if first.is_some(){"REFUTED"}else if coverage.len()==inputs.len(){"PROVED"}else{"UNKNOWN"};
+            // Reference consulted only after actual stop.
+            for (&x,v) in &coverage{let i=inputs.iter().position(|&z|z==x).unwrap();assert_eq!(v!="0",expected[i]);}
+            let want=if expected.iter().any(|&v|v){"REFUTED"}else{"PROVED"};
+            assert_eq!(verdict,want,"{name} {route}");
+            assert_eq!(factor+tiles+wmc,coverage.len());
+            if route=="factor-gpmc"&&name=="mixed13"{assert_eq!((factor,tiles,wmc),(1,0,1));}
+            if route=="tiling-gpmc"&&name=="mixed13"{assert_eq!((factor,tiles,wmc),(1,1,0));}
+            if name=="wide14-zero"{assert_eq!((factor,tiles,wmc),(0,0,2));}
+            if name=="wide14-positive"{assert_eq!((factor,tiles,wmc),(0,0,1));assert_eq!(visited,1);}
+            println!("HOARE_ONLINE_HYBRID name={name} route={route} verdict={verdict} exact={} planned={} visited={visited} factor={factor} tiles={tiles} wmc={wmc} wmc_attempts={wmc_attempts} common_ns={common} elapsed_ns={} first={first:?} rejects={rejects:?} failures={failures:?}",coverage.len(),inputs.len(),start.elapsed().as_nanos());
+            arms+=1;
+        }
+        cases+=1;
+    }
+    assert_eq!((cases,arms),(7,20));
+    println!("HOARE_ONLINE_HYBRID_COHORT cases={cases} arms={arms} duplicate=0");
+}
+
 #[test]
 fn paper_qwalk_native_source_admission(){
     let Some(dir)=std::env::var_os("HOARE_PAPER_QWALK_DIR") else{

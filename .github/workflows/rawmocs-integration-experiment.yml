@@ -10,7 +10,7 @@ on:
       suite:
         description: Experimental evidence suite
         type: choice
-        options: [legacy, cross-family, source-admission, root-profile, factor-classes, sparse-anchor, prefix-memo, axis-profile, direct-binary, operand-profile, pool-profile, last-use-donor, masked-donor]
+        options: [legacy, cross-family, source-admission, root-profile, factor-classes, sparse-anchor, prefix-memo, axis-profile, direct-binary, operand-profile, pool-profile, last-use-donor, masked-donor, descendant-units]
         default: legacy
 permissions:
   contents: read
@@ -569,7 +569,7 @@ jobs:
           if-no-files-found: warn
 
   factor-classes:
-    if: github.event_name == 'push' || inputs.suite == 'factor-classes' || inputs.suite == 'sparse-anchor' || inputs.suite == 'prefix-memo' || inputs.suite == 'axis-profile' || inputs.suite == 'direct-binary' || inputs.suite == 'operand-profile' || inputs.suite == 'pool-profile' || inputs.suite == 'last-use-donor' || inputs.suite == 'masked-donor'
+    if: github.event_name == 'workflow_dispatch' && (inputs.suite == 'factor-classes' || inputs.suite == 'sparse-anchor' || inputs.suite == 'prefix-memo' || inputs.suite == 'axis-profile' || inputs.suite == 'direct-binary' || inputs.suite == 'operand-profile' || inputs.suite == 'pool-profile' || inputs.suite == 'last-use-donor' || inputs.suite == 'masked-donor')
     name: Contraction ablation / witnessed native and bounded Simulation
     runs-on: ubuntu-24.04
     timeout-minutes: 25
@@ -977,5 +977,168 @@ jobs:
           path: |
             .classes-evidence/
             codspeed-factor-classes.generated.yml
+          include-hidden-files: true
+          if-no-files-found: warn
+
+  descendant-units:
+    if: github.event_name == 'push' || inputs.suite == 'descendant-units'
+    name: General fallback descendant unit closure
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    env:
+      CANDIDATE_SHA: 762a1da60c70000134b31dd41aee7e0c78068209
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: PhysicsQoo/RaWMoCS
+          ref: 762a1da60c70000134b31dd41aee7e0c78068209
+          path: .classes-candidate
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: rawmocs-quprs-planner-gen-*
+          run-id: 45734596083
+          github-token: ${{ github.token }}
+          path: .descendant-input
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: .classes-candidate/crates/rawmocs-cli -> target
+          shared-key: rawmocs-general-dependencies
+          cache-workspace-crates: 'false'
+      - name: Build exact candidate and exercise weighted closure controls
+        run: |
+          set -euo pipefail
+          test "$(git -C .classes-candidate rev-parse HEAD)" = "$CANDIDATE_SHA"
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libgmp-dev libmpfr-dev m4 make gcc time pkg-config
+          cargo test --locked --release --manifest-path .classes-candidate/crates/rawmocs-cli/Cargo.toml
+          cargo build --locked --release --manifest-path .classes-candidate/crates/rawmocs-cli/Cargo.toml
+      - name: Source-locked bounded descendant propagation ablation
+        run: |
+          set -euo pipefail
+          mkdir -p .descendant-evidence
+          python3 - <<'PY'
+          import hashlib, json, os, re, subprocess, sys, time
+          from fractions import Fraction
+          from pathlib import Path
+          root = Path(".descendant-evidence").resolve()
+          solver = Path(".classes-candidate/crates/rawmocs-cli/target/release/rawmocs").resolve()
+          sys.path.insert(0, str(Path(".classes-candidate/crates/rawmocs-cli/tools").resolve()))
+          from release_transfer import check_count
+          def digest(p):
+              return hashlib.sha256(p.read_bytes()).hexdigest()
+          chain = root/"branch-chain.cnf"
+          n=2048
+          chain.write_text(f"p cnf {n} {2*(n-1)}\nc t wmc\nc p weight 1 -0.5 0.25 0\nc p weight -1 0.25 -0.125 0\n" +
+              "".join(f"-{i} {i+1} 0\n{i} -{i+1} 0\n" for i in range(1,n)))
+          cases=[("chain",chain,digest(chain),5,None)]
+          for name,sha,limit in (
+              ("vqe8","55938d577be87d91dd520b7002de7ec886c6035405e5400f6f80392a385562ee",5),
+              ("qaoa9","9b5bf2619c2c2dd0c16c80f372a33bb23fb0ca0f7feeb671c6fcfd1c80f15be4",15),
+              ("qnn12","2c74e555a8a8ea974cde02bcc5cc0823c5ed63b5fc7be8f628f777accd433204",15)):
+              src=Path(".descendant-input")/("rawmocs-quprs-planner-gen-"+name)
+              cnf,=src.rglob("gpmc-capture.cnf")
+              assert digest(cnf)==sha
+              witnesses=list(src.rglob("witness.json"))
+              assert len(witnesses)<=1
+              ref=None
+              if witnesses:
+                  obj=json.loads(witnesses[0].read_text())
+                  if obj.get("status") in ("INDEPENDENT_INTERVAL_COMPLETE","INDEPENDENT_FIXED_INTERVAL_COMPLETE"):
+                      assert obj["source_sha256"]==sha and obj["bits"]==550
+                      assert obj["width"]<=19 and obj["work"]<=40000000 and obj["peak"]<=2000000
+                      if obj["status"]=="INDEPENDENT_FIXED_INTERVAL_COMPLETE":
+                          assert obj["order_policy"] in ("fill-reverse","degree-reverse")
+                      ref=obj
+              if name in ("vqe8","qaoa9"):
+                  assert ref is not None
+              cases.append((name,cnf.resolve(),sha,limit,ref))
+          report={"candidate_sha":os.environ["CANDIDATE_SHA"],"binary_sha256":digest(solver),
+                  "working_bits":100,"scope":"Same-binary instrumented general fallback; bounded search progress, not GPMC speedup","cases":{}}
+          def save():
+              (root/"report.json").write_text(json.dumps(report,indent=2)+"\n")
+          for name,cnf,sha,limit,ref in cases:
+              case={"source_sha256":sha,"timeout_s":limit,"rows":[]}
+              report["cases"][name]=case
+              def run(arm,i):
+                  label=f"{name}-{arm}-{i}"
+                  env=os.environ.copy()
+                  env.pop("RAWMOCS_RESEARCH_DESCENDANT_UNITS",None)
+                  env["RAWMOCS_RESEARCH_GENERAL_STATS"]="1"
+                  if arm=="adaptive":
+                      env["RAWMOCS_RESEARCH_DESCENDANT_UNITS"]="1"
+                  rss=root/(label+".rss")
+                  argv=["timeout","-k","2s",str(limit+3)+"s","prlimit","--as=3221225472","--",
+                      "/usr/bin/time","-f","%M","-o",str(rss),str(solver),"--digits","30",
+                      "--solver","general","--timeout-ms",str(limit*1000),str(cnf)]
+                  t=time.monotonic()
+                  p=subprocess.run(argv,env=env,capture_output=True,text=True,timeout=limit+7)
+                  row={"arm":arm,"exit":p.returncode,"wall_s":time.monotonic()-t}
+                  case["rows"].append(row)
+                  (root/(label+".stdout")).write_text(p.stdout)
+                  (root/(label+".stderr")).write_text(p.stderr)
+                  if rss.exists() and rss.read_text().strip().isdigit():
+                      row["rss_kib"]=int(rss.read_text())
+                  save()
+                  lines=re.findall(r"^GENERAL_RESEARCH_DESCENDANT (.*)$",p.stderr,re.M)
+                  if p.returncode==124:
+                      assert not p.stdout.strip()
+                      row["status"]="CENSORED_EXTERNAL_TIMEOUT"
+                  else:
+                      assert len(lines)==1, (label,p.stderr[-1000:])
+                      stats={k:int(v) for k,v in (t.split("=") for t in lines[0].split())}
+                      row["stats"]=stats
+                      assert stats["complete"]==int(p.returncode==0)
+                      assert stats["root_indexed"]<=stats["indexed_attempts"]
+                      assert stats["indexed_complete"]+stats["indexed_conflicts"]<=stats["indexed_attempts"]
+                      if arm=="scan":
+                          assert stats["indexed_attempts"]==0
+                      if p.returncode==0:
+                          sat,count=p.stdout.splitlines()
+                          f=count.split()
+                          assert sat in ("s SATISFIABLE","s UNSATISFIABLE") and f[:3]==["c","r","mpfr"] and len(f)==5
+                          assert "RAWMOCS_COMPLETE route=general digits=30 bits=100 " in p.stderr
+                          row.update(sat=sat=="s SATISFIABLE",real=f[3],imag=f[4])
+                          row["stdout_sha256"]=hashlib.sha256(p.stdout.encode()).hexdigest()
+                          if name=="chain":
+                              assert row["sat"] and Fraction(row["real"])==Fraction(-1,4) and Fraction(row["imag"])==Fraction(1,8)
+                              if arm=="adaptive":
+                                  assert stats["indexed_complete"]>=2 and stats["root_indexed"]==0
+                              row["status"]="ANALYTIC_PASS"
+                          elif ref is not None:
+                              row["witness_upper"]=check_count(row,ref,30)
+                              row["status"]="WITNESSED_PASS"
+                          else:
+                              row["status"]="COUNT_UNWITNESSED"
+                      else:
+                          assert p.returncode==4 and not p.stdout.strip() and "RAWMOCS_FAILURE kind=TIMEOUT" in p.stderr, (label,p.stderr[-1000:])
+                          row["status"]="CENSORED_SOLVER_TIMEOUT"
+                  save()
+                  return row
+              a=run("scan",0)
+              b=run("adaptive",1)
+              if name=="chain":
+                  assert a["status"]==b["status"]=="ANALYTIC_PASS"
+              if a["exit"]==b["exit"]==0:
+                  assert a["stdout_sha256"]==b["stdout_sha256"]
+                  for k in ("nodes","cache_hits","branches","splits"):
+                      assert a["stats"][k]==b["stats"][k], (name,k)
+                  c=run("adaptive",2)
+                  d=run("scan",3)
+                  assert c["exit"]==d["exit"]==0 and c["stdout_sha256"]==d["stdout_sha256"]==a["stdout_sha256"]
+                  case["status"]="PAIRED_COUNT_PARITY" if all(r["status"] in ("ANALYTIC_PASS","WITNESSED_PASS") for r in case["rows"]) else "COUNT_PARITY_UNWITNESSED"
+              else:
+                  case["status"]="CENSORED_COMPARISON"
+              save()
+          report["status"]="BOUNDED_DIAGNOSTIC_COMPLETE"
+          save()
+          print("DESCENDANT_UNITS_FINAL",json.dumps(report),flush=True)
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: rawmocs-descendant-units
+          path: .descendant-evidence/
           include-hidden-files: true
           if-no-files-found: warn

@@ -59,22 +59,22 @@ theorem column_decode {n : Nat} (one : Fin n → BitVec n)
           cases hp : p i with
           | false =>
               have hf : buildColumn one p (i :: js) = buildColumn one p js := by
-                simp only [buildColumn, hp, Bool.false_eq_true, if_false]
+                simp only [buildColumn, hp, Bool.false_eq_true, ite_false]
               rw [hf, ih, hp] <;> cases decide (i ∈ js) <;> rfl
           | true =>
               have hf : buildColumn one p (i :: js) = one i ||| buildColumn one p js := by
-                simp only [buildColumn, hp, if_true]
+                simp only [buildColumn, hp, ite_true]
               rw [hf, decode_or_word, hb] <;> rfl
       | false =>
           have hb : decode (one j) i = false := (hone j i).trans he
           cases hp : p j with
           | false =>
               have hf : buildColumn one p (j :: js) = buildColumn one p js := by
-                simp only [buildColumn, hp, Bool.false_eq_true, if_false]
+                simp only [buildColumn, hp, Bool.false_eq_true, ite_false]
               rw [hf, ih] <;> rfl
           | true =>
               have hf : buildColumn one p (j :: js) = one j ||| buildColumn one p js := by
-                simp only [buildColumn, hp, if_true]
+                simp only [buildColumn, hp, ite_true]
               rw [hf, decode_or_word, hb, ih] <;> rfl
 
 def fullColumn {n : Nat} (one : Fin n → BitVec n) (p : Fin n → Bool) : BitVec n :=

@@ -4882,7 +4882,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: PhysicsQoo/RaWMoCS
-          ref: fd887c149e60f487b3f0c4ff164f2c35bdbacac9
+          ref: b171dd204d2c9f6a55a2b120f7bc1cb9315aa48f
           path: .classes-candidate
           persist-credentials: false
       - uses: actions/download-artifact@v4
@@ -4900,7 +4900,7 @@ jobs:
       - name: Compile and test exact candidate
         run: |
           set -euo pipefail
-          test "$(git -C .classes-candidate rev-parse HEAD)" = fd887c149e60f487b3f0c4ff164f2c35bdbacac9
+          test "$(git -C .classes-candidate rev-parse HEAD)" = b171dd204d2c9f6a55a2b120f7bc1cb9315aa48f
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends libgmp-dev libmpfr-dev m4 make gcc time pkg-config
           mkdir -p .scoped-preindex-evidence
@@ -4936,7 +4936,7 @@ jobs:
           digits=int(os.environ["DIGITS"])
           target={30:30,130:100}[digits]
           lines=(root/"full.log").read_text().splitlines()
-          report={"source_sha256":expected,"witness_sha256":hashlib.sha256(witness.read_bytes()).hexdigest(),"candidate_sha":"fd887c149e60f487b3f0c4ff164f2c35bdbacac9","digits":digits,"target":target,"cases":{}}
+          report={"source_sha256":expected,"witness_sha256":hashlib.sha256(witness.read_bytes()).hexdigest(),"candidate_sha":"b171dd204d2c9f6a55a2b120f7bc1cb9315aa48f","digits":digits,"target":target,"cases":{}}
           modes={0,4,5}
           for case in ("split4096","vqe8"):
               traces={}

@@ -107,9 +107,24 @@ def parseCnf (s : String) : Option ParsedCnf := do
     if cs.length = m then some { vars := n, clauses := cs, weights := ws } else none
   | _ => none
 
-def bagEq {A : Type} [BEq A] : List A → List A → Bool
+-- Explicit comparator, no inferred equality instances. Remove one
+-- matching occurrence, preserving multiplicity.
+def removeOne {A : Type} (eq : A → A → Bool) (x : A) :
+    List A → Option (List A)
+  | [] => none
+  | y :: ys =>
+    if eq x y then some ys
+    else (removeOne eq x ys).map (fun rest => y :: rest)
+
+def bagEqBy {A : Type} (eq : A → A → Bool) :
+    List A → List A → Bool
   | [], ys => ys.isEmpty
-  | x :: xs, ys => ys.contains x && bagEq xs (ys.erase x)
+  | x :: xs, ys =>
+    match removeOne eq x ys with
+    | some rest => bagEqBy eq xs rest
+    | none => false
+
+def intEq (a b : Int) : Bool := @decide (a = b) (Int.decEq a b)
 
 def distinctNat : List Nat → Bool
   | [] => true
@@ -235,49 +250,60 @@ def satisfies (clauses : List (List Int)) (value : Int → Bool) : Prop :=
   ∀ c, c ∈ clauses → ∃ lit, lit ∈ c ∧ value lit = true
 
 def checkRows (generated actual : List (List Int)) : Bool :=
-  (bagEq generated actual && covers generated actual) && covers actual generated
+  (bagEqBy clauseEq generated actual && covers generated actual) && covers actual generated
 
 theorem check_rows_sound (generated actual : List (List Int))
     (h : checkRows generated actual = true) (value : Int → Bool) :
-    satisfies generated value ↔ satisfies actual value := by
-  unfold checkRows at h
-  have hc := and_true_parts h
-  have hg := (covers_iff generated actual).mp (and_true_parts hc.1).2
-  have ha := (covers_iff actual generated).mp hc.2
-  constructor
-  · intro hs c hm
-    exact hs c (ha c hm)
-  · intro hs c hm
-    exact hs c (hg c hm)
+    satisfies generated value ↔ satisfies actual value :=
+  let h' : ((bagEqBy clauseEq generated actual && covers generated actual) &&
+      covers actual generated) = true := h
+  let hc := and_true_parts h'
+  let hg := (covers_iff generated actual).mp (and_true_parts hc.1).2
+  let ha := (covers_iff actual generated).mp hc.2
+  Iff.intro (fun hs c hm => hs c (ha c hm))
+    (fun hs c hm => hs c (hg c hm))
 
 def weightIds (weighted : List Nat) : List Int :=
   weighted.flatMap (fun z => [pos z, -pos z])
 
+-- The acceptance function is shared by the executable path and
+-- proof, so the theorem does not rely on tactic unfolding or simp.
+def acceptResult (n : Nat) (p : ParsedCnf) :
+    Option (List (List Int) × List Nat) → Bool
+  | some (cs, ws) =>
+    ((@decide (n = p.vars) (Nat.decEq n p.vars)) &&
+      bagEqBy intEq (weightIds ws) p.weights) && checkRows cs p.clauses
+  | none => false
+
 def check (gate cnf : String) : Bool :=
   match parseGate gate, parseCnf cnf with
-  | some (n, rs), some p =>
-    match replayRows n rs with
-    | some (generated, weighted) =>
-      (n == p.vars && bagEq (weightIds weighted) p.weights) &&
-        checkRows generated p.clauses
-    | none => false
+  | some (n, rs), some p => acceptResult n p (replayRows n rs)
   | _, _ => false
 
 -- Typed replay boundary: acceptance implies clause satisfaction
--- equivalence for every literal valuation. Parser-to-gate semantics
--- and the topological unique-extension refinement are still separate.
+-- equivalence for every literal valuation. Use only explicit
+-- congruence/definitional equality, without rewrite automation.
 theorem accepted_rows_sound (n : Nat) (rs : List Record)
     (p : ParsedCnf) (generated : List (List Int)) (weighted : List Nat)
     (hr : replayRows n rs = some (generated, weighted))
-    (h : (match replayRows n rs with
-      | some (cs, ws) => (n == p.vars && bagEq (weightIds ws) p.weights) &&
-          checkRows cs p.clauses
-      | none => false) = true)
+    (h : acceptResult n p (replayRows n rs) = true)
     (value : Int → Bool) :
-    satisfies generated value ↔ satisfies p.clauses value := by
-  rw [hr] at h
-  exact check_rows_sound generated p.clauses (and_true_parts h).2 value
+    satisfies generated value ↔ satisfies p.clauses value :=
+  let h' : acceptResult n p (some (generated, weighted)) = true :=
+    (congrArg (acceptResult n p) hr).symm.trans h
+  let hc : (((@decide (n = p.vars) (Nat.decEq n p.vars)) &&
+    bagEqBy intEq (weightIds weighted) p.weights) &&
+    checkRows generated p.clauses) = true := h'
+  check_rows_sound generated p.clauses (and_true_parts hc).2 value
 
+-- Localize any unexpected dependency to a definition vs theorem.
+#print axioms bagEqBy
+#print axioms covers
+#print axioms satisfies
+#print axioms checkRows
+#print axioms replayRows
+#print axioms acceptResult
+#print axioms check
 #print axioms and_forward
 #print axioms and_nary
 #print axioms clause_eq_iff

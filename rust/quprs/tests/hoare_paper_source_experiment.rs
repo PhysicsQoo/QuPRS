@@ -1158,11 +1158,12 @@ fn plan_factor8(mut scopes:Vec<u64>,hidden:usize,boundary:u64,mut work:usize)
     if work>2_000_000{return Err("WORK_LIMIT");}
     Ok((order,peak,work))
 }
-enum FactorSpec8{Phase(u64,usize),Output(u64,Vec<u64>,Option<u64>,bool)}
-fn contract_boundary8(ps:&PathSum,fixed_mask:u64,z:u64,deadline:std::time::Instant)
-    ->Result<(Vec<Z8>,usize,usize),&'static str>{
+enum FactorSpec8{Phase(u64,usize),Output(u64,Vec<u64>,Option<u64>,usize)}
+struct BoundaryPlan8{specs:Vec<FactorSpec8>,order:Vec<usize>,free:u64,fixed:u64,peak:usize,work:usize}
+fn prepare_boundary8(ps:&PathSum,fixed_mask:u64,deadline:std::time::Instant)
+    ->Result<BoundaryPlan8,&'static str>{
     let n=ps.v.num_qubits;let hidden=h(ps);
-    if hidden>60||n>16||hidden+n>63||!admitted(ps)||fixed_mask>>n!=0||z&!fixed_mask!=0{return Err("UNSUPPORTED");}
+    if hidden>60||n>16||hidden+n>63||!admitted(ps)||fixed_mask>>n!=0{return Err("UNSUPPORTED");}
     if std::time::Instant::now()>=deadline{return Err("DEADLINE");}
     let free=(((1u64<<n)-1)&!fixed_mask)<<hidden;
     let mut ids:Vec<_>=ps.v.path_vars.iter().copied().filter(|&i|i as usize>=n).collect();
@@ -1189,27 +1190,34 @@ fn contract_boundary8(ps:&PathSum,fixed_mask:u64,z:u64,deadline:std::time::Insta
         let ms=p.iter().map(|m|mask(m)).collect::<Result<Vec<_>,_>>()?;
         let bit=if fixed_mask>>i&1==0{Some(1u64<<(hidden+i))}else{None};
         let scope=ms.iter().fold(bit.unwrap_or(0),|a,b|a|b);
-        charge(scope,ms.len())?;specs.push(FactorSpec8::Output(scope,ms,bit,z>>i&1==1));
+        charge(scope,ms.len())?;specs.push(FactorSpec8::Output(scope,ms,bit,i));
     }
     let (order,peak,work)=plan_factor8(scopes,hidden,free,initial_work)?;
+    Ok(BoundaryPlan8{specs,order,free,fixed:fixed_mask,peak,work})
+}
+fn execute_boundary8(plan:&BoundaryPlan8,z:u64,deadline:std::time::Instant)
+    ->Result<(Vec<Z8>,usize,usize),&'static str>{
+    if z&!plan.fixed!=0{return Err("UNSUPPORTED");}
+    let BoundaryPlan8{specs,order,free,peak,work,..}=plan;
+    let free=*free;
     // The work cap also upper-bounds the total number of allocated
     // table entries across this call (including discarded tables).
     let mut fs=Vec::<Factor8>::new();
     for spec in specs{
         if std::time::Instant::now()>=deadline{return Err("DEADLINE");}
         let f=match spec{
-            FactorSpec8::Phase(scope,k)=>factor8(scope,|a|{
-                if a&scope!=scope{return Z8_ONE;}
-                let mut r=[0;4];r[k%4]=if k<4{1}else{-1};r
+            FactorSpec8::Phase(scope,k)=>factor8(*scope,|a|{
+                if a&*scope!=*scope{return Z8_ONE;}
+                let mut r=[0;4];r[*k%4]=if *k<4{1}else{-1};r
             })?,
-            FactorSpec8::Output(scope,ms,bit,value)=>factor8(scope,|a|{
+            FactorSpec8::Output(scope,ms,bit,i)=>factor8(*scope,|a|{
                 let v=ms.iter().fold(false,|b,&m|b^(a&m==m));
-                let want=bit.map_or(value,|b|a&b!=0);
+                let want=bit.map_or(z>>*i&1==1,|b|a&b!=0);
                 if v==want{Z8_ONE}else{[0;4]}
             })?,
         };fs.push(f);
     }
-    for i in order{
+    for &i in order{
         if std::time::Instant::now()>=deadline{return Err("DEADLINE");}
         let b=1u64<<i;
         let (bucket,rest):(Vec<_>,Vec<_>)=fs.into_iter().partition(|f|f.scope&b!=0);
@@ -1241,7 +1249,12 @@ fn contract_boundary8(ps:&PathSum,fixed_mask:u64,z:u64,deadline:std::time::Insta
         }
         result.push(v);
     }
-    Ok((result,peak,work))
+    Ok((result,*peak,*work))
+}
+fn contract_boundary8(ps:&PathSum,fixed_mask:u64,z:u64,deadline:std::time::Instant)
+    ->Result<(Vec<Z8>,usize,usize),&'static str>{
+    let plan=prepare_boundary8(ps,fixed_mask,deadline)?;
+    execute_boundary8(&plan,z,deadline)
 }
 fn contract_fibre8(ps:&PathSum,z:u64,deadline:std::time::Instant)->Result<(Z8,usize,usize),&'static str>{
     if ps.v.num_qubits>16{return Err("UNSUPPORTED");}
@@ -1341,6 +1354,104 @@ fn native_boundary_plan_caps(){
     assert_eq!(contract_boundary8(&fixed,0,0,std::time::Instant::now()).unwrap_err(),"DEADLINE");
     println!("HOARE_NATIVE_BOUNDARY_CAPS width_work_free_deadline=true");
 }
+
+// Only nested masks are searched; actual execution uses the same immutable
+// structural plan for all assignments to the additional fixed output bits.
+const TILE_WORK_CAP:usize=2_000_000;
+struct TileReceipt8{
+    values:Vec<Option<Z8>>,fixed:u64,candidates:usize,rejected:usize,
+    calls:usize,fallback_calls:usize,peak:usize,work:usize,
+    failures:BTreeMap<&'static str,usize>,
+}
+fn tiled_boundary8(ps:&PathSum,sector:u64,value:u64,deadline:std::time::Instant)
+    ->Result<TileReceipt8,&'static str>{
+    let n=ps.v.num_qubits;
+    if n>16||sector>>n!=0||value&!sector!=0{return Err("UNSUPPORTED");}
+    let all=(1u64<<n)-1;let free=all&!sector;
+    if free.count_ones()>12{return Err("COVERAGE_LIMIT");}
+    let mut best:Option<(usize,usize,u64,BoundaryPlan8)>=None;
+    let mut fixed=sector;let mut candidates=0;let mut rejected=0;
+    let mut last="NO_ADMITTED_PLAN";
+    loop{
+        if std::time::Instant::now()>=deadline{return Err("DEADLINE");}
+        candidates+=1;
+        match prepare_boundary8(ps,fixed,deadline){
+            Ok(plan)=>{
+                let calls=1usize<<(fixed&free).count_ones();
+                let work=plan.work.checked_mul(calls).ok_or("WORK_LIMIT")?;
+                if work<=TILE_WORK_CAP{
+                    let key=(work,calls,fixed);
+                    if best.as_ref().is_none_or(|b|key<(b.0,b.1,b.2)){
+                        best=Some((work,calls,fixed,plan));
+                    }
+                }else{rejected+=1;last="WORK_LIMIT";}
+            }
+            Err("DEADLINE")=>return Err("DEADLINE"),
+            Err(reason)=>{rejected+=1;last=reason;}
+        }
+        if fixed==all{break;}
+        let rest=all&!fixed;fixed|=rest&rest.wrapping_neg();
+    }
+    let (_,tiles,fixed,plan)=best.ok_or(last)?;
+    let mut receipt=TileReceipt8{values:vec![None;1usize<<free.count_ones()],
+        fixed,candidates,rejected,calls:0,fallback_calls:0,peak:0,work:0,failures:BTreeMap::new()};
+    let added=fixed&free;let remaining=all&!fixed;
+    for tile in 0..tiles{
+        if std::time::Instant::now()>=deadline{*receipt.failures.entry("DEADLINE").or_default()+=1;break;}
+        if receipt.work.saturating_add(plan.work)>TILE_WORK_CAP{*receipt.failures.entry("WORK_LIMIT").or_default()+=1;break;}
+        let z=value|deposit8(tile,added);receipt.calls+=1;receipt.work+=plan.work;
+        match execute_boundary8(&plan,z,deadline){
+            Ok((a,w,_))=>{
+                receipt.peak=receipt.peak.max(w);
+                for (i,r) in a.into_iter().enumerate(){
+                    let output=z|deposit8(i,remaining);
+                    let idx=extract8(output,free);
+                    assert!(receipt.values[idx].replace(r).is_none(),"overlapping tile");
+                }
+            }
+            Err(reason)=>{
+                *receipt.failures.entry(reason).or_default()+=1;
+                if reason=="DEADLINE"{break;}
+            }
+        }
+    }
+    // Only unresolved outputs may be retried. No partial tile is credited,
+    // and the same deadline and aggregate estimated-work cap are retained.
+    if fixed!=all&&receipt.values.iter().any(Option::is_none)&&std::time::Instant::now()<deadline{
+        if let Ok(single)=prepare_boundary8(ps,all,deadline){
+            for (i,r) in receipt.values.iter_mut().enumerate(){
+                if r.is_some(){continue;}
+                if std::time::Instant::now()>=deadline{*receipt.failures.entry("DEADLINE").or_default()+=1;break;}
+                if receipt.work.saturating_add(single.work)>TILE_WORK_CAP{*receipt.failures.entry("WORK_LIMIT").or_default()+=1;break;}
+                receipt.fallback_calls+=1;receipt.work+=single.work;
+                match execute_boundary8(&single,value|deposit8(i,free),deadline){
+                    Ok((a,w,_))=>{assert_eq!(a.len(),1);*r=Some(a[0]);receipt.peak=receipt.peak.max(w);}
+                    Err(reason)=>{*receipt.failures.entry(reason).or_default()+=1;if reason=="DEADLINE"{break;}}
+                }
+            }
+        }
+    }
+    Ok(receipt)
+}
+#[test]
+fn native_tiling8_width_control(){
+    // A generated structural control, not a unitary circuit: all 13
+    // output bits equal one hidden bit. Full boundary needs width 13.
+    let n=13;let mut ps=PathSum::new(n);ps.set_auto_reduce(false);
+    let y=ps.v.get_fresh_var();
+    for f in &mut ps.f.functions{*f=Poly::from_iter([vec![y]]);}
+    let mask=1u64<<(n-1);let all=(1u64<<n)-1;
+    let deadline=std::time::Instant::now()+std::time::Duration::from_secs(30);
+    assert!(matches!(prepare_boundary8(&ps,mask,deadline),Err("WIDTH_LIMIT")));
+    let r=tiled_boundary8(&ps,mask,mask,deadline).unwrap();
+    assert!(r.fixed!=mask&&r.fixed!=all);
+    assert!(r.rejected>0&&r.peak<=12&&r.work<=TILE_WORK_CAP);
+    assert_eq!(r.values.len(),4096);
+    for (i,v) in r.values.iter().enumerate(){assert_eq!(*v,Some(if i==4095{Z8_ONE}else{[0;4]}));}
+    assert!(matches!(tiled_boundary8(&ps,mask,mask,std::time::Instant::now()),Err("DEADLINE")));
+    println!("HOARE_NATIVE_TILING8_CONTROL exact=4096 full_rejected=true fixed={} calls={} peak={} work={} fallback_calls={}",r.fixed,r.calls,r.peak,r.work,r.fallback_calls);
+}
+
 #[test]
 fn native_feynman_boundary8_pilot(){
     let sources=[
@@ -1400,6 +1511,37 @@ fn native_feynman_boundary8_pilot(){
             println!("HOARE_FEYNMAN_BOUNDARY8 name={name} boundary={boundary} exact={exact} planned={planned} positive={positive} verdict={verdict} calls={calls} h={} peak_width={peak} work={work} kernel_ns={kernel_ns} accounted_ns={} first_ns={first_ns:?} failures={failures:?}",h(&general),(common+start.elapsed()).as_nanos());
         }
         println!("HOARE_FEYNMAN_BOUNDARY8_PARITY name={name} paired={paired}");
+
+        let start=std::time::Instant::now();
+        let deadline=start+std::time::Duration::from_secs(30).saturating_sub(common);
+        let mut exact=0;let mut positive=0;let mut parity=0;let mut calls=0;let mut fallback=0;
+        let mut peak=0;let mut work=0;let mut candidates=0;let mut rejected=0;let mut kernel_ns=0u128;
+        let mut masks=Vec::new();let mut failures=BTreeMap::<&str,usize>::new();
+        for x in 0..4u64{
+            if std::time::Instant::now()>=deadline{break;}
+            let (prefix,pr)=reduce(fixed_input(general.clone(),x));let scale=gr.scale2+pr.scale2;
+            let t=std::time::Instant::now();let result=tiled_boundary8(&prefix,mask,mask,deadline);
+            kernel_ns+=t.elapsed().as_nanos();
+            match result{
+                Ok(r)=>{
+                    calls+=r.calls;fallback+=r.fallback_calls;peak=peak.max(r.peak);work+=r.work;
+                    candidates+=r.candidates;rejected+=r.rejected;masks.push(r.fixed);
+                    for (k,v) in r.failures{*failures.entry(k).or_default()+=v;}
+                    for (i,a) in r.values.into_iter().enumerate(){
+                        let Some(a)=a else{continue;};let out=mask|i as u64;
+                        let want=oracle[x as usize][out as usize].iter().map(|&v|i128::from(v)*i128::from(v)).sum::<i128>();
+                        assert_eq!(z8_norm(a).checked_shl(scale).unwrap(),want);
+                        if let Some(prev)=receipts.get(&(x,out)){assert_eq!(a,*prev);parity+=1;}
+                        exact+=1;positive+=usize::from(a!=[0;4]);
+                    }
+                }
+                Err(reason)=>{*failures.entry(reason).or_default()+=1;}
+            }
+        }
+        let planned=4*mask as usize;
+        let verdict=if positive>0{"REFUTED"}else if exact==planned{"PROVED"}else{"UNKNOWN"};
+        println!("HOARE_FEYNMAN_TILING8 name={name} exact={exact} planned={planned} positive={positive} verdict={verdict} parity={parity} calls={calls} fallback={fallback} candidates={candidates} rejected={rejected} masks={masks:?} peak={peak} work={work} kernel_ns={kernel_ns} accounted_ns={} failures={failures:?}",(common+start.elapsed()).as_nanos());
+
     }
 }
 

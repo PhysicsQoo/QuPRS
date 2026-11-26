@@ -1103,30 +1103,30 @@ fn native_feynman_router_pilot(){
 // Exact bounded factor elimination over Z[zeta_8], a separate
 // algebraic contraction route, NOT a WMC solver or dense statevector.
 type Z8=[i128;4];
-const Z8_ONE:Z8=[1,0,0,0];
-fn z8_add(a:Z8,b:Z8)->Option<Z8>{
-    let mut c=[0i128;4];for i in 0..4{c[i]=a[i].checked_add(b[i])?;}Some(c)
+fn cyclo_one<const N:usize>()->[i128;N]{let mut r=[0;N];r[0]=1;r}
+fn cyclo_add<const N:usize>(a:[i128;N],b:[i128;N])->Option<[i128;N]>{
+    let mut c=[0i128;N];for i in 0..N{c[i]=a[i].checked_add(b[i])?;}Some(c)
 }
-fn z8_mul(a:Z8,b:Z8)->Option<Z8>{
-    let mut c=[0i128;4];
-    for i in 0..4{for j in 0..4{
+fn cyclo_mul<const N:usize>(a:[i128;N],b:[i128;N])->Option<[i128;N]>{
+    let mut c=[0i128;N];
+    for i in 0..N{for j in 0..N{
         if a[i]==0||b[j]==0{continue;}
         let p=a[i].checked_mul(b[j])?;
         let k=i+j;
-        c[k%4]=if k<4{c[k%4].checked_add(p)?}else{c[k%4].checked_sub(p)?};
+        c[k%N]=if k<N{c[k%N].checked_add(p)?}else{c[k%N].checked_sub(p)?};
     }}Some(c)
 }
 #[derive(Clone)]
-struct Factor8{scope:u64,table:Vec<Z8>}
+struct Factor<const N:usize>{scope:u64,table:Vec<[i128;N]>}
 fn deposit8(mut i:usize,mut mask:u64)->u64{
     let mut a=0;while mask!=0{let b=mask&mask.wrapping_neg();mask^=b;if i&1!=0{a|=b;}i>>=1;}a
 }
 fn extract8(a:u64,mut mask:u64)->usize{
     let mut i=0;let mut bit=1;while mask!=0{let b=mask&mask.wrapping_neg();mask^=b;if a&b!=0{i|=bit;}bit<<=1;}i
 }
-fn factor8(scope:u64,mut f:impl FnMut(u64)->Z8)->Result<Factor8,&'static str>{
+fn factor<const N:usize>(scope:u64,mut f:impl FnMut(u64)->[i128;N])->Result<Factor<N>,&'static str>{
     if scope.count_ones()>12{return Err("WIDTH_LIMIT");}
-    Ok(Factor8{scope,table:(0..1usize<<scope.count_ones()).map(|i|f(deposit8(i,scope))).collect()})
+    Ok(Factor{scope,table:(0..1usize<<scope.count_ones()).map(|i|f(deposit8(i,scope))).collect()})
 }
 
 // Plan scopes before allocating any dense factor tables. The output
@@ -1159,9 +1159,10 @@ fn plan_factor8(mut scopes:Vec<u64>,hidden:usize,boundary:u64,mut work:usize)
     Ok((order,peak,work))
 }
 enum FactorSpec8{Phase(u64,usize),Output(u64,Vec<u64>,Option<u64>,usize)}
-struct BoundaryPlan8{specs:Vec<FactorSpec8>,order:Vec<usize>,free:u64,fixed:u64,peak:usize,work:usize}
-fn prepare_boundary8(ps:&PathSum,fixed_mask:u64,deadline:std::time::Instant)
+struct BoundaryPlan8{degree:usize,specs:Vec<FactorSpec8>,order:Vec<usize>,free:u64,fixed:u64,peak:usize,work:usize}
+fn prepare_cyclo_boundary(ps:&PathSum,fixed_mask:u64,degree:usize,deadline:std::time::Instant)
     ->Result<BoundaryPlan8,&'static str>{
+    if !matches!(degree,4|32){return Err("UNSUPPORTED_PHASE");}
     let n=ps.v.num_qubits;let hidden=h(ps);
     if hidden>60||n>16||hidden+n>63||!admitted(ps)||fixed_mask>>n!=0{return Err("UNSUPPORTED");}
     if std::time::Instant::now()>=deadline{return Err("DEADLINE");}
@@ -1181,9 +1182,9 @@ fn prepare_boundary8(ps:&PathSum,fixed_mask:u64,deadline:std::time::Instant)
         scopes.push(scope);Ok(())
     };
     for (m,c) in &ps.p.terms{
-        let den=c.constant.denom as i128;let num=8i128*c.constant.numer as i128;
+        let den=c.constant.denom as i128;let num=(2*degree) as i128*c.constant.numer as i128;
         if den<=0||num%den!=0{return Err("UNSUPPORTED_PHASE");}
-        let k=(num/den).rem_euclid(8) as usize;if k==0{continue;}
+        let k=(num/den).rem_euclid((2*degree) as i128) as usize;if k==0{continue;}
         let scope=mask(m)?;charge(scope,1)?;specs.push(FactorSpec8::Phase(scope,k));
     }
     for (i,p) in ps.f.functions.iter().enumerate(){
@@ -1193,27 +1194,31 @@ fn prepare_boundary8(ps:&PathSum,fixed_mask:u64,deadline:std::time::Instant)
         charge(scope,ms.len())?;specs.push(FactorSpec8::Output(scope,ms,bit,i));
     }
     let (order,peak,work)=plan_factor8(scopes,hidden,free,initial_work)?;
-    Ok(BoundaryPlan8{specs,order,free,fixed:fixed_mask,peak,work})
+    // Charge worst-case dense coefficient multiplication relative to D8.
+    let work=work.checked_mul((degree/4).pow(2)).ok_or("WORK_LIMIT")?;
+    if work>2_000_000{return Err("WORK_LIMIT");}
+    Ok(BoundaryPlan8{degree,specs,order,free,fixed:fixed_mask,peak,work})
 }
-fn execute_boundary8(plan:&BoundaryPlan8,z:u64,deadline:std::time::Instant)
-    ->Result<(Vec<Z8>,usize,usize),&'static str>{
+fn execute_cyclo_boundary<const N:usize>(plan:&BoundaryPlan8,z:u64,deadline:std::time::Instant)
+    ->Result<(Vec<[i128;N]>,usize,usize),&'static str>{
+    if plan.degree!=N{return Err("UNSUPPORTED_PHASE");}
     if z&!plan.fixed!=0{return Err("UNSUPPORTED");}
     let BoundaryPlan8{specs,order,free,peak,work,..}=plan;
     let free=*free;
     // The work cap also upper-bounds the total number of allocated
     // table entries across this call (including discarded tables).
-    let mut fs=Vec::<Factor8>::new();
+    let mut fs=Vec::<Factor<N>>::new();
     for spec in specs{
         if std::time::Instant::now()>=deadline{return Err("DEADLINE");}
         let f=match spec{
-            FactorSpec8::Phase(scope,k)=>factor8(*scope,|a|{
-                if a&*scope!=*scope{return Z8_ONE;}
-                let mut r=[0;4];r[*k%4]=if *k<4{1}else{-1};r
+            FactorSpec8::Phase(scope,k)=>factor::<N>(*scope,|a|{
+                if a&*scope!=*scope{return cyclo_one::<N>();}
+                let mut r=[0;N];r[*k%N]=if *k<N{1}else{-1};r
             })?,
-            FactorSpec8::Output(scope,ms,bit,i)=>factor8(*scope,|a|{
+            FactorSpec8::Output(scope,ms,bit,i)=>factor::<N>(*scope,|a|{
                 let v=ms.iter().fold(false,|b,&m|b^(a&m==m));
                 let want=bit.map_or(z>>*i&1==1,|b|a&b!=0);
-                if v==want{Z8_ONE}else{[0;4]}
+                if v==want{cyclo_one::<N>()}else{[0;N]}
             })?,
         };fs.push(f);
     }
@@ -1225,31 +1230,38 @@ fn execute_boundary8(plan:&BoundaryPlan8,z:u64,deadline:std::time::Instant)
         let count=1usize<<scope.count_ones();let mut table=Vec::with_capacity(count);
         for i in 0..count{
             if i%64==0&&std::time::Instant::now()>=deadline{return Err("DEADLINE");}
-            let a=deposit8(i,scope);let mut sum=[0;4];
+            let a=deposit8(i,scope);let mut sum=[0;N];
             for assignment in [a,a|b]{
-                let mut v=Z8_ONE;
+                let mut v=cyclo_one::<N>();
                 for f in &bucket{
-                    v=z8_mul(v,f.table[extract8(assignment,f.scope)]).ok_or("OVERFLOW")?;
-                    if v==[0;4]{break;}
+                    v=cyclo_mul(v,f.table[extract8(assignment,f.scope)]).ok_or("OVERFLOW")?;
+                    if v==[0;N]{break;}
                 }
-                sum=z8_add(sum,v).ok_or("OVERFLOW")?;
+                sum=cyclo_add(sum,v).ok_or("OVERFLOW")?;
             }
             table.push(sum);
         }
-        fs=rest;fs.push(Factor8{scope,table});
+        fs=rest;fs.push(Factor{scope,table});
     }
     let mut result=Vec::with_capacity(1usize<<free.count_ones());
     for i in 0..1usize<<free.count_ones(){
         if i%64==0&&std::time::Instant::now()>=deadline{return Err("DEADLINE");}
-        let a=deposit8(i,free);let mut v=Z8_ONE;
+        let a=deposit8(i,free);let mut v=cyclo_one::<N>();
         for f in &fs{
             assert_eq!(f.scope&!free,0);
-            v=z8_mul(v,f.table[extract8(a,f.scope)]).ok_or("OVERFLOW")?;
-            if v==[0;4]{break;}
+            v=cyclo_mul(v,f.table[extract8(a,f.scope)]).ok_or("OVERFLOW")?;
+            if v==[0;N]{break;}
         }
         result.push(v);
     }
     Ok((result,*peak,*work))
+}
+const Z8_ONE:Z8=[1,0,0,0];
+fn prepare_boundary8(ps:&PathSum,fixed_mask:u64,deadline:std::time::Instant)->Result<BoundaryPlan8,&'static str>{
+    prepare_cyclo_boundary(ps,fixed_mask,4,deadline)
+}
+fn execute_boundary8(plan:&BoundaryPlan8,z:u64,deadline:std::time::Instant)->Result<(Vec<Z8>,usize,usize),&'static str>{
+    execute_cyclo_boundary::<4>(plan,z,deadline)
 }
 fn contract_boundary8(ps:&PathSum,fixed_mask:u64,z:u64,deadline:std::time::Instant)
     ->Result<(Vec<Z8>,usize,usize),&'static str>{
@@ -1365,6 +1377,11 @@ struct TileReceipt8{
 }
 fn tiled_boundary8(ps:&PathSum,sector:u64,value:u64,deadline:std::time::Instant)
     ->Result<TileReceipt8,&'static str>{
+    tiled_boundary8_with(ps,sector,value,deadline,false,|plan,z,deadline|execute_boundary8(plan,z,deadline))
+}
+fn tiled_boundary8_with(ps:&PathSum,sector:u64,value:u64,deadline:std::time::Instant,fast:bool,
+    mut execute:impl FnMut(&BoundaryPlan8,u64,std::time::Instant)->Result<(Vec<Z8>,usize,usize),&'static str>)
+    ->Result<TileReceipt8,&'static str>{
     let n=ps.v.num_qubits;
     if n>16||sector>>n!=0||value&!sector!=0{return Err("UNSUPPORTED");}
     let all=(1u64<<n)-1;let free=all&!sector;
@@ -1382,7 +1399,9 @@ fn tiled_boundary8(ps:&PathSum,sector:u64,value:u64,deadline:std::time::Instant)
                 if work<=TILE_WORK_CAP{
                     let key=(work,calls,fixed);
                     if best.as_ref().is_none_or(|b|key<(b.0,b.1,b.2)){
+                        let cheap=fast&&fixed==sector&&(h(ps)==0||(plan.peak<=4&&work<=4096));
                         best=Some((work,calls,fixed,plan));
+                        if cheap{break;}
                     }
                 }else{rejected+=1;last="WORK_LIMIT";}
             }
@@ -1400,7 +1419,7 @@ fn tiled_boundary8(ps:&PathSum,sector:u64,value:u64,deadline:std::time::Instant)
         if std::time::Instant::now()>=deadline{*receipt.failures.entry("DEADLINE").or_default()+=1;break;}
         if receipt.work.saturating_add(plan.work)>TILE_WORK_CAP{*receipt.failures.entry("WORK_LIMIT").or_default()+=1;break;}
         let z=value|deposit8(tile,added);receipt.calls+=1;receipt.work+=plan.work;
-        match execute_boundary8(&plan,z,deadline){
+        match execute(&plan,z,deadline){
             Ok((a,w,_))=>{
                 receipt.peak=receipt.peak.max(w);
                 for (i,r) in a.into_iter().enumerate(){
@@ -1424,7 +1443,7 @@ fn tiled_boundary8(ps:&PathSum,sector:u64,value:u64,deadline:std::time::Instant)
                 if std::time::Instant::now()>=deadline{*receipt.failures.entry("DEADLINE").or_default()+=1;break;}
                 if receipt.work.saturating_add(single.work)>TILE_WORK_CAP{*receipt.failures.entry("WORK_LIMIT").or_default()+=1;break;}
                 receipt.fallback_calls+=1;receipt.work+=single.work;
-                match execute_boundary8(&single,value|deposit8(i,free),deadline){
+                match execute(&single,value|deposit8(i,free),deadline){
                     Ok((a,w,_))=>{assert_eq!(a.len(),1);*r=Some(a[0]);receipt.peak=receipt.peak.max(w);}
                     Err(reason)=>{*receipt.failures.entry(reason).or_default()+=1;if reason=="DEADLINE"{break;}}
                 }
@@ -1433,6 +1452,67 @@ fn tiled_boundary8(ps:&PathSum,sector:u64,value:u64,deadline:std::time::Instant)
     }
     Ok(receipt)
 }
+
+#[test]
+fn native_tiling8_failure_injection(){
+    let mut ps=PathSum::new(3);ps.set_auto_reduce(false);
+    for q in 0..3{QuantumOp::H(q).apply(&mut ps,false);}
+    let fixed=fixed_input(ps,0);
+    let deadline=std::time::Instant::now()+std::time::Duration::from_secs(5);
+    let mut attempted=Vec::new();
+    let r=tiled_boundary8_with(&fixed,4,4,deadline,false,|plan,z,d|{
+        attempted.push((plan.fixed,z));
+        if plan.fixed!=7{Err("INJECTED_TILE_FAILURE")}else{execute_boundary8(plan,z,d)}
+    }).unwrap();
+    assert_eq!(r.calls,1);assert_eq!(r.fallback_calls,4);
+    assert_eq!(attempted,vec![(4,4),(7,4),(7,5),(7,6),(7,7)]);
+    assert_eq!(r.values,vec![Some(Z8_ONE);4]);
+    assert_eq!(r.failures.get("INJECTED_TILE_FAILURE"),Some(&1));
+    let r=tiled_boundary8_with(&fixed,4,4,deadline,false,|plan,z,d|{
+        if plan.fixed!=7||z==6{Err("INJECTED_FAILURE")}else{execute_boundary8(plan,z,d)}
+    }).unwrap();
+    assert_eq!(r.values,vec![Some(Z8_ONE),Some(Z8_ONE),None,Some(Z8_ONE)]);
+    assert_eq!(r.fallback_calls,4);
+    // A partial all-zero result is not a proof. A retained nonzero still refutes.
+    let mut zero=PathSum::new(3);zero.set_auto_reduce(false);let zero=fixed_input(zero,0);
+    let r=tiled_boundary8_with(&zero,4,4,deadline,false,|plan,z,d|{
+        if plan.fixed!=7||z==6{Err("INJECTED_FAILURE")}else{execute_boundary8(plan,z,d)}
+    }).unwrap();
+    assert_eq!(r.values,vec![Some([0;4]),Some([0;4]),None,Some([0;4])]);
+    println!("HOARE_NATIVE_TILING8_FAILURE recovered=4 partial_positive=3 partial_zero=3 unresolved=1");
+}
+#[test]
+fn native_cyclo64_reference(){
+    use quprs::rational::Rational;
+    use quprs::{Rational,PhaseCoeff};
+    let mut checks=0;
+    for d in [2,4,8,16,32,64]{
+        let mut ps=PathSum::new(2);ps.set_auto_reduce(false);
+        let a=ps.v.get_fresh_var();let b=ps.v.get_fresh_var();
+        ps.f.functions[0]=Poly::from_iter([vec![a],vec![b]]);
+        ps.f.functions[1]=Poly::from_iter([vec![a,b]]);
+        ps.p.add_term(vec![a],PhaseCoeff::new_constant(Rational::new(1,d)));
+        ps.p.add_term(vec![b],PhaseCoeff::new_constant(Rational::new(-1,d)));
+        ps.p.add_term(vec![a,b],PhaseCoeff::new_constant(Rational::new(3,d)));
+        let expected=entries(&ps).unwrap();
+        let fixed=fixed_input(ps,0);
+        let deadline=std::time::Instant::now()+std::time::Duration::from_secs(5);
+        for mask in 0..4u64{for z in 0..4u64{
+            if z&!mask!=0{continue;}
+            let plan=prepare_cyclo_boundary(&fixed,mask,32,deadline).unwrap();
+            let (got,_,_)=execute_cyclo_boundary::<32>(&plan,z,deadline).unwrap();
+            for (i,r) in got.iter().enumerate(){
+                let out=z|deposit8(i,3&!mask);
+                assert_eq!(*r,expected[out as usize].map(i128::from));checks+=1;
+            }
+            assert!(matches!(execute_boundary8(&plan,z,deadline),Err("UNSUPPORTED_PHASE")));
+        }}
+        if d>8{assert!(matches!(prepare_boundary8(&fixed,0,deadline),Err("UNSUPPORTED_PHASE")));}
+    }
+    assert_eq!(checks,96);
+    println!("HOARE_NATIVE_CYCLO64_REFERENCE vectors={checks} orders=6 basis_mismatch_rejected=true");
+}
+
 #[test]
 fn native_tiling8_width_control(){
     // A generated structural control, not a unitary circuit: all 13
@@ -1541,7 +1621,73 @@ fn native_feynman_boundary8_pilot(){
         let planned=4*mask as usize;
         let verdict=if positive>0{"REFUTED"}else if exact==planned{"PROVED"}else{"UNKNOWN"};
         println!("HOARE_FEYNMAN_TILING8 name={name} exact={exact} planned={planned} positive={positive} verdict={verdict} parity={parity} calls={calls} fallback={fallback} candidates={candidates} rejected={rejected} masks={masks:?} peak={peak} work={work} kernel_ns={kernel_ns} accounted_ns={} failures={failures:?}",(common+start.elapsed()).as_nanos());
+        let start=std::time::Instant::now();
+        let deadline=start+std::time::Duration::from_secs(30).saturating_sub(common);
+        let mut exact=0;let mut positive=0;let mut parity=0;let mut calls=0;let mut fallback=0;
+        let mut peak=0;let mut work=0;let mut candidates=0;let mut rejected=0;let mut kernel_ns=0u128;
+        let mut masks=Vec::new();let mut failures=BTreeMap::<&str,usize>::new();
+        for x in 0..4u64{
+            if std::time::Instant::now()>=deadline{break;}
+            let (prefix,pr)=reduce(fixed_input(general.clone(),x));let scale=gr.scale2+pr.scale2;
+            let t=std::time::Instant::now();let result=tiled_boundary8_with(&prefix,mask,mask,deadline,true,|plan,z,d|execute_boundary8(plan,z,d));
+            kernel_ns+=t.elapsed().as_nanos();
+            match result{
+                Ok(r)=>{
+                    calls+=r.calls;fallback+=r.fallback_calls;peak=peak.max(r.peak);work+=r.work;
+                    candidates+=r.candidates;rejected+=r.rejected;masks.push(r.fixed);
+                    for (k,v) in r.failures{*failures.entry(k).or_default()+=v;}
+                    for (i,a) in r.values.into_iter().enumerate(){
+                        let Some(a)=a else{continue;};let out=mask|i as u64;
+                        let want=oracle[x as usize][out as usize].iter().map(|&v|i128::from(v)*i128::from(v)).sum::<i128>();
+                        assert_eq!(z8_norm(a).checked_shl(scale).unwrap(),want);
+                        if let Some(prev)=receipts.get(&(x,out)){assert_eq!(a,*prev);parity+=1;}
+                        exact+=1;positive+=usize::from(a!=[0;4]);
+                    }
+                }
+                Err(reason)=>{*failures.entry(reason).or_default()+=1;}
+            }
+        }
+        let planned=4*mask as usize;
+        let verdict=if positive>0{"REFUTED"}else if exact==planned{"PROVED"}else{"UNKNOWN"};
+        println!("HOARE_FEYNMAN_FAST_TILING8 name={name} exact={exact} planned={planned} positive={positive} verdict={verdict} parity={parity} calls={calls} fallback={fallback} candidates={candidates} rejected={rejected} masks={masks:?} peak={peak} work={work} kernel_ns={kernel_ns} accounted_ns={} failures={failures:?}",(common+start.elapsed()).as_nanos());
 
+    }
+}
+
+
+#[test]
+fn native_qwalk_cyclo64_pilot(){
+    let Some(dir)=std::env::var_os("HOARE_PAPER_QWALK_DIR") else{return;};
+    for name in ["vchain","noancilla"]{
+        let src=std::fs::read_to_string(std::path::Path::new(&dir).join(format!("{name}.qasm"))).unwrap();
+        let (ops,n,_)=source_ops(&src);assert_eq!(n,5);
+        let (native,width)=parse_qasm_str(&src).unwrap();assert_eq!((native,width),(ops.clone(),n));
+        let t=std::time::Instant::now();let deadline=t+std::time::Duration::from_secs(30);
+        let mut raw=PathSum::new(n);raw.set_auto_reduce(false);
+        for op in &ops{op.apply(&mut raw,false);}
+        let zero=Poly::default();raw.p.substitute_var_with_poly(4,&zero);raw.f.substitute_var_with_poly(4,&zero);
+        let (general,gr)=reduce(raw);
+        let mut exact=0;let mut positive=0;let mut calls=0;let mut peak=0;let mut work=0;
+        let mut failures=BTreeMap::<&str,usize>::new();
+        for x in 0..16u64{
+            if std::time::Instant::now()>=deadline{break;}
+            let (prefix,pr)=reduce(fixed_input(general.clone(),x));assert!(!pr.limit);
+            let got=prepare_cyclo_boundary(&prefix,16,32,deadline)
+                .and_then(|p|{calls+=1;execute_cyclo_boundary::<32>(&p,16,deadline)});
+            match got{
+                Ok((a,w,cost))=>{
+                    assert_eq!(a.len(),16);peak=peak.max(w);work+=cost;
+                    let nonzero:Vec<_>=a.iter().enumerate().filter(|(_,r)|**r!=[0;32]).map(|(i,_)|16+i).collect();
+                    if name=="vchain"{assert!(nonzero.is_empty());}
+                    else{assert!(!nonzero.is_empty());if x==0{assert_eq!(nonzero,vec![28,31]);}}
+                    exact+=a.len();positive+=nonzero.len();
+                    println!("HOARE_QWALK_CYCLO64_INPUT name={name} x={x} h={} width={w} scale2={} nonzero={nonzero:?}",h(&prefix),gr.scale2+pr.scale2);
+                }
+                Err(reason)=>{*failures.entry(reason).or_default()+=1;}
+            }
+        }
+        let verdict=if positive>0{"REFUTED"}else if exact==256{"PROVED"}else{"UNKNOWN"};
+        println!("HOARE_QWALK_CYCLO64_SUMMARY name={name} exact={exact} positive={positive} verdict={verdict} calls={calls} width={peak} work={work} elapsed_ns={} failures={failures:?}",t.elapsed().as_nanos());
     }
 }
 

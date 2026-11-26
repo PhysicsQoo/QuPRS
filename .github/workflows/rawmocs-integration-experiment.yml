@@ -10,7 +10,7 @@ on:
       suite:
         description: Experimental evidence suite
         type: choice
-        options: [legacy, cross-family, source-admission]
+        options: [legacy, cross-family, source-admission, root-profile]
         default: legacy
 permissions:
   contents: read
@@ -20,7 +20,7 @@ concurrency:
   cancel-in-progress: true
 jobs:
   comparison:
-    if: github.event_name == 'workflow_dispatch' && inputs.suite != 'source-admission'
+    if: github.event_name == 'workflow_dispatch' && (inputs.suite == 'legacy' || inputs.suite == 'cross-family')
     name: QuPRS / ${{ matrix.case }}
     runs-on: ubuntu-24.04
     timeout-minutes: 35
@@ -178,7 +178,7 @@ jobs:
           if-no-files-found: warn
 
   source-admission:
-    if: github.event_name == 'push' || inputs.suite == 'source-admission'
+    if: github.event_name == 'workflow_dispatch' && inputs.suite == 'source-admission'
     name: Source-locked Wstate16 admission replay
     runs-on: ubuntu-24.04
     timeout-minutes: 20
@@ -330,5 +330,240 @@ jobs:
         with:
           name: rawmocs-wstate16-source-admission
           path: .source-admission-evidence/
+          include-hidden-files: true
+          if-no-files-found: warn
+
+  root-profile:
+    if: github.event_name == 'push' || inputs.suite == 'root-profile'
+    name: Root structure / ${{ matrix.case }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - case: wstate16
+            sha: d7b8732b06552354e7e08e516fd858d2f9419b33ccb185e6d8c31ce96d5ba78c
+          - case: qnn12
+            sha: 2c74e555a8a8ea974cde02bcc5cc0823c5ed63b5fc7be8f628f777accd433204
+          - case: qaoa9
+            sha: 9b5bf2619c2c2dd0c16c80f372a33bb23fb0ca0f7feeb671c6fcfd1c80f15be4
+          - case: vqe8
+            sha: 55938d577be87d91dd520b7002de7ec886c6035405e5400f6f80392a385562ee
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/download-artifact@v4
+        with:
+          name: rawmocs-quprs-planner-gen-${{ matrix.case }}
+          run-id: 45734596083
+          github-token: ${{ github.token }}
+          path: .root-profile-input
+      - name: Source-locked structural profile (not a count)
+        env:
+          CASE: ${{ matrix.case }}
+          SOURCE_SHA: ${{ matrix.sha }}
+        run: |
+          set -euo pipefail
+          mkdir -p .root-profile-evidence
+          timeout -k 2s 90s prlimit --as=3221225472 -- python - <<'PY'
+          import hashlib
+          import heapq
+          import json
+          import os
+          from collections import Counter
+          from pathlib import Path
+          cnf, = Path(".root-profile-input").rglob("gpmc-capture.cnf")
+          raw = cnf.read_bytes()
+          sha = hashlib.sha256(raw).hexdigest()
+          assert sha == os.environ["SOURCE_SHA"]
+          lines = iter(line.split() for line in raw.splitlines() if line.strip())
+          p, kind, nv, nc = next(lines)
+          assert (p, kind) == (b"p", b"cnf")
+          n, declared = int(nv), int(nc)
+          assert next(lines) == [b"c", b"t", b"wmc"]
+          original, seen, weights, tautologies = 0, set(), 0, 0
+          for row in lines:
+              if row[0] == b"c":
+                  assert row[1:3] == [b"p", b"weight"]
+                  weights += 1
+                  continue
+              assert row[-1] == b"0"
+              original += 1
+              c = tuple(sorted(set(map(int, row[:-1]))))
+              assert all(0 < abs(v) <= n for v in c)
+              if any(-v in c for v in c):
+                  tautologies += 1
+              else:
+                  seen.add(c)
+          assert original == declared
+          clauses = sorted(seen)
+          del seen, raw
+          def slot(v):
+              return 2*(abs(v)-1) + int(v < 0)
+          occ = [[] for _ in range(2*n)]
+          lengths = list(map(len, clauses))
+          initial_units = lengths.count(1)
+          heap = [i for i, size in enumerate(lengths) if size == 1]
+          heapq.heapify(heap)
+          for i, c in enumerate(clauses):
+              for lit in c:
+                  occ[slot(lit)].append(i)
+          assigned = [0]*(n+1)
+          forced, touches, scan_clause_visits = 0, 0, 0
+          live = len(clauses)
+          conflict = 0 in lengths
+          while heap and not conflict:
+              i = heapq.heappop(heap)
+              if lengths[i] != 1:
+                  continue
+              lit, = (v for v in clauses[i] if not assigned[abs(v)])
+              assigned[abs(lit)] = 1 if lit > 0 else -1
+              forced += 1
+              scan_clause_visits += live
+              for j in occ[slot(lit)]:
+                  touches += 1
+                  if lengths[j] >= 0:
+                      live -= 1
+                      lengths[j] = -1
+              for j in occ[slot(-lit)]:
+                  touches += 1
+                  if lengths[j] < 0:
+                      continue
+                  lengths[j] -= 1
+                  if lengths[j] == 0:
+                      conflict = True
+                  elif lengths[j] == 1:
+                      heapq.heappush(heap, j)
+          report = {
+              "case": os.environ["CASE"], "source_sha256": sha,
+              "status": "STRUCTURAL_PROFILE_ONLY", "variables": n,
+              "source_clauses": declared, "weight_records": weights,
+              "normalized_clauses": len(clauses), "tautologies": tautologies,
+              "duplicate_clauses": declared-tautologies-len(clauses),
+              "initial_units": initial_units, "forced": forced,
+              "occurrence_touches": touches, "scan_assign_clause_visits_lower_bound": scan_clause_visits,
+              "root_conflict": conflict,
+          }
+          if not conflict:
+              parent = list(range(n+1))
+              active = set()
+              def root(v):
+                  while parent[v] != v:
+                      parent[v] = parent[parent[v]]
+                      v = parent[v]
+                  return v
+              count, lits, width = 0, 0, 0
+              for i, c in enumerate(clauses):
+                  if lengths[i] < 0:
+                      continue
+                  rem = [abs(v) for v in c if not assigned[abs(v)]]
+                  assert len(rem) == lengths[i] and len(rem) >= 2
+                  active.update(rem)
+                  count += 1
+                  lits += len(rem)
+                  width = max(width, len(rem))
+                  first = root(rem[0])
+                  for v in rem[1:]:
+                      parent[root(v)] = first
+              sizes = Counter(root(v) for v in active)
+              report.update(residual_clauses=count, residual_literals=lits,
+                            residual_max_clause_width=width, active_variables=len(active),
+                            free_variables=n-forced-len(active), components=len(sizes),
+                            largest_component=max(sizes.values(), default=0))
+          Path(".root-profile-evidence/profile.json").write_text(json.dumps(report, indent=2)+"\n")
+          print("ROOT_PROFILE_FINAL", json.dumps(report), flush=True)
+          PY
+      - uses: actions/checkout@v4
+        if: matrix.case == 'qaoa9' || matrix.case == 'vqe8'
+        with:
+          repository: PhysicsQoo/RaWMoCS
+          ref: e99bb8fce774f3b21e1a0b61b2a81e6efdac288d
+          path: .indexed-root
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+        if: matrix.case == 'qaoa9' || matrix.case == 'vqe8'
+      - name: Build candidate and run bounded paired general controls
+        if: matrix.case == 'qaoa9' || matrix.case == 'vqe8'
+        run: |
+          set -euo pipefail
+          test "$(git -C .indexed-root rev-parse HEAD)" = e99bb8fce774f3b21e1a0b61b2a81e6efdac288d
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libgmp-dev libmpfr-dev m4 make gcc time pkg-config
+          cargo test --locked --release --manifest-path .indexed-root/crates/rawmocs-cli/Cargo.toml
+          cargo build --locked --release --manifest-path .indexed-root/crates/rawmocs-cli/Cargo.toml
+          python - <<'PY'
+          import hashlib
+          import json
+          import os
+          import subprocess
+          import time
+          from fractions import Fraction
+          from pathlib import Path
+          root = Path(".root-profile-evidence")
+          source, = Path(".root-profile-input").rglob("gpmc-capture.cnf")
+          profile = json.loads((root / "profile.json").read_text())
+          assert hashlib.sha256(source.read_bytes()).hexdigest() == profile["source_sha256"]
+          binary = Path(".indexed-root/crates/rawmocs-cli/target/release/rawmocs")
+          chain = root / "chain.cnf"
+          chain.write_text("p cnf 2048 2048\nc t wmc\nc p weight 1 -0.5 0.25 0\n1 0\n" +
+                           "".join(f"-{i} {i+1} 0\n" for i in range(1,2048)))
+          report = {"candidate": "e99bb8fce774f3b21e1a0b61b2a81e6efdac288d",
+                    "binary_sha256": hashlib.sha256(binary.read_bytes()).hexdigest(),
+                    "bits": 100, "rows": [], "source_sha256": profile["source_sha256"]}
+          def persist():
+              (root / "native.json").write_text(json.dumps(report, indent=2)+"\n")
+          def trial(case, path, arm, index):
+              env = os.environ.copy()
+              env.pop("RAWMOCS_RESEARCH_INDEXED_ROOT", None)
+              if arm == "indexed":
+                  env["RAWMOCS_RESEARCH_INDEXED_ROOT"] = "1"
+              label = f"{case}-{arm}-{index}"
+              rss = root / (label+".rss")
+              cmd = ["timeout", "-k", "2s", "95s", "prlimit", "--as=3221225472", "--",
+                     "/usr/bin/time", "-f", "%M", "-o", str(rss), str(binary),
+                     "--digits", "30", "--solver", "general", "--timeout-ms", "90000", str(path)]
+              t = time.monotonic()
+              p = subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=100)
+              row = {"case":case, "arm":arm, "exit":p.returncode, "wall_s":time.monotonic()-t,
+                     "stderr_tail":p.stderr[-2000:]}
+              if rss.exists():
+                  row["rss_raw"] = rss.read_text()
+              (root / (label+".stdout")).write_text(p.stdout)
+              (root / (label+".stderr")).write_text(p.stderr)
+              if p.returncode == 0:
+                  sat, count = p.stdout.splitlines()
+                  f = count.split()
+                  assert sat in ("s SATISFIABLE", "s UNSATISFIABLE") and f[:3] == ["c","r","mpfr"] and len(f)==5
+                  row.update(status="COMPLETED", sat=sat, real=f[3], imag=f[4])
+              else:
+                  assert not p.stdout.strip() and p.returncode in (4,124), row
+                  row["status"] = "CENSORED_TIMEOUT"
+              report["rows"].append(row)
+              persist()
+              return row
+          def value(row):
+              return row["sat"], Fraction(row["real"]), Fraction(row["imag"])
+          for case, path in (("chain", chain), ("original", source)):
+              a = trial(case, path, "scan", 0)
+              b = trial(case, path, "indexed", 1)
+              if case == "chain":
+                  assert a["status"] == b["status"] == "COMPLETED"
+                  assert value(a) == value(b) == ("s SATISFIABLE", Fraction(-1,2), Fraction(1,4))
+              if a["status"] == b["status"] == "COMPLETED":
+                  c = trial(case, path, "indexed", 2)
+                  d = trial(case, path, "scan", 3)
+                  assert c["status"] == d["status"] == "COMPLETED"
+                  assert value(a) == value(b) == value(c) == value(d)
+          report["status"] = "NATIVE_DIAGNOSTIC_COMPLETE"
+          persist()
+          print("ROOT_NATIVE_FINAL", json.dumps(report), flush=True)
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: rawmocs-root-profile-${{ matrix.case }}
+          path: .root-profile-evidence/
           include-hidden-files: true
           if-no-files-found: warn

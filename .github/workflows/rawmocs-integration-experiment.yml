@@ -10,7 +10,7 @@ on:
       suite:
         description: Experimental evidence suite
         type: choice
-        options: [legacy, cross-family, source-admission, root-profile, factor-classes, sparse-anchor, prefix-memo, axis-profile, direct-binary, operand-profile, pool-profile, last-use-donor, masked-donor, descendant-units, inplace-scan, inplace-branch, move-components, borrowed-cache, general-cumulative]
+        options: [legacy, cross-family, source-admission, root-profile, factor-classes, sparse-anchor, prefix-memo, axis-profile, direct-binary, operand-profile, pool-profile, last-use-donor, masked-donor, descendant-units, inplace-scan, inplace-branch, move-components, borrowed-cache, general-cumulative, general-simulation-repair, general-native-gpmc]
         default: legacy
 permissions:
   contents: read
@@ -981,14 +981,21 @@ jobs:
           if-no-files-found: warn
 
   descendant-units:
-    if: github.event_name == 'push' || (inputs.suite == 'descendant-units' || inputs.suite == 'inplace-scan' || inputs.suite == 'inplace-branch' || inputs.suite == 'move-components' || inputs.suite == 'borrowed-cache' || inputs.suite == 'general-cumulative')
+    if: github.event_name == 'push' || (inputs.suite == 'descendant-units' || inputs.suite == 'inplace-scan' || inputs.suite == 'inplace-branch' || inputs.suite == 'move-components' || inputs.suite == 'borrowed-cache' || inputs.suite == 'general-cumulative' || inputs.suite == 'general-simulation-repair')
     name: General fallback descendant unit closure
     runs-on: ubuntu-24.04
     timeout-minutes: 8
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
     env:
-      EXPERIMENT: ${{ inputs.suite == 'descendant-units' && 'descendant-units' || inputs.suite == 'inplace-scan' && 'inplace-scan' || inputs.suite == 'inplace-branch' && 'inplace-branch' || inputs.suite == 'move-components' && 'move-components' || inputs.suite == 'borrowed-cache' && 'borrowed-cache' || 'general-cumulative' }}
+      EXPERIMENT: ${{ inputs.suite == 'descendant-units' && 'descendant-units' || inputs.suite == 'inplace-scan' && 'inplace-scan' || inputs.suite == 'inplace-branch' && 'inplace-branch' || inputs.suite == 'move-components' && 'move-components' || inputs.suite == 'borrowed-cache' && 'borrowed-cache' || inputs.suite == 'general-cumulative' && 'general-cumulative' || 'general-simulation-repair' }}
       CANDIDATE_SHA: ${{ inputs.suite == 'descendant-units' && '762a1da60c70000134b31dd41aee7e0c78068209' || inputs.suite == 'inplace-scan' && '9b10e04b02637db0eede7e5811f3cd54d054b191' || inputs.suite == 'inplace-branch' && '14cd70cae44cf116ba7014da1a446f30eec4a48b' || inputs.suite == 'move-components' && '0d7c3d482c6d45f6c5b1eeaf718d7b79a96572f8' || '5d74b2649639db3372fcc5ea5155ed0a50233fea' }}
     steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: actions/checkout@v4
         with:
           repository: PhysicsQoo/RaWMoCS
@@ -1031,14 +1038,16 @@ jobs:
           def digest(p):
               return hashlib.sha256(p.read_bytes()).hexdigest()
           chain = root/"branch-chain.cnf"
-          n=2048
+          repair=os.environ['EXPERIMENT']=='general-simulation-repair'
+          n=512 if repair else 2048
           chain.write_text(f"p cnf {n} {2*(n-1)}\nc t wmc\nc p weight 1 -0.5 0.25 0\nc p weight -1 0.25 -0.125 0\n" +
               "".join(f"-{i} {i+1} 0\n{i} -{i+1} 0\n" for i in range(1,n)))
           cases=[("chain",chain,digest(chain),5,None)]
-          for name,sha,limit in (
+          source_cases=(("qpeinexact20","9dca661e1a9cfecbfe325970cded1bcb5c3664f7983fa1628473bd42f2ba3fcb",2),) if repair else (
               ("vqe8","55938d577be87d91dd520b7002de7ec886c6035405e5400f6f80392a385562ee",5),
               ("qaoa9","9b5bf2619c2c2dd0c16c80f372a33bb23fb0ca0f7feeb671c6fcfd1c80f15be4",15),
-              ("qnn12","2c74e555a8a8ea974cde02bcc5cc0823c5ed63b5fc7be8f628f777accd433204",15)):
+              ("qnn12","2c74e555a8a8ea974cde02bcc5cc0823c5ed63b5fc7be8f628f777accd433204",15))
+          for name,sha,limit in source_cases:
               src=Path(".descendant-input")/("rawmocs-quprs-planner-gen-"+name)
               cnf,=src.rglob("gpmc-capture.cnf")
               assert digest(cnf)==sha
@@ -1053,11 +1062,11 @@ jobs:
                       if obj["status"]=="INDEPENDENT_FIXED_INTERVAL_COMPLETE":
                           assert obj["order_policy"] in ("fill-reverse","degree-reverse")
                       ref=obj
-              if name in ("vqe8","qaoa9"):
+              if name in ("vqe8","qaoa9","qpeinexact20"):
                   assert ref is not None
               cases.append((name,cnf.resolve(),sha,limit,ref))
           experiment=os.environ["EXPERIMENT"]
-          candidate_arm={"descendant-units":"adaptive","inplace-scan":"inplace","inplace-branch":"branch","move-components":"components","borrowed-cache":"borrowed","general-cumulative":"borrowed"}[experiment]
+          candidate_arm={"descendant-units":"adaptive","inplace-scan":"inplace","inplace-branch":"branch","move-components":"components","borrowed-cache":"borrowed","general-cumulative":"borrowed","general-simulation-repair":"borrowed"}[experiment]
           baseline_arm="components" if experiment=="borrowed-cache" else "branch" if experiment=="move-components" else "inplace" if experiment=="inplace-branch" else "scan"
           cumulative=experiment=="general-cumulative"
           if cumulative:
@@ -1161,7 +1170,40 @@ jobs:
                   case["status"]="CENSORED_COMPARISON"
               save()
           report["status"]="BOUNDED_DIAGNOSTIC_COMPLETE"
-          # Restrict Simulation to two arms on a completed, source-locked
+          # Restrict Simulation to completed, bounded samples; never simulate censored cases.
+          if repair:
+              config=["options:",'  max-time: "5s"',"benchmarks:"]
+              admitted=[]
+              for name,cnf,sha,limit,ref in cases:
+                  case=report["cases"][name]
+                  if case["status"]!="PAIRED_COUNT_PARITY":
+                      case["simulation"]="NOT_ADMITTED_NATIVE_INCOMPLETE"
+                      continue
+                  med={arm:statistics.median(r["wall_s"] for r in case["rows"] if r["arm"]==arm) for arm in ("scan","borrowed")}
+                  case["native_median_s"]=med
+                  if max(med.values())>0.05:
+                      case["simulation"]="NOT_ADMITTED_NATIVE_LIMIT"
+                      continue
+                  flags=["RAWMOCS_RESEARCH_DESCENDANT_UNITS","RAWMOCS_RESEARCH_INPLACE_SCAN","RAWMOCS_RESEARCH_INPLACE_BRANCH","RAWMOCS_RESEARCH_MOVE_COMPONENTS","RAWMOCS_RESEARCH_BORROWED_CACHE","RAWMOCS_RESEARCH_GENERAL_STATS"]
+                  for arm in ("scan","borrowed"):
+                      wrapper=root/f"{name}-{arm}.simulation.sh"
+                      out=root/f"{name}-{arm}.simulation.stdout"
+                      cmd=["env"]+[x for flag in flags for x in ("-u",flag)]
+                      if arm=="borrowed":
+                          cmd += [flag+"=1" for flag in flags[1:5]]
+                      cmd += [str(solver),"--digits","30","--solver","general","--timeout-ms","30000",str(cnf)]
+                      wrapper.write_text("#!/bin/sh\nset -eu\nexec "+shlex.join(cmd)+" >"+shlex.quote(str(out))+"\n")
+                      wrapper.chmod(0o755)
+                      config.extend([f'  - name: "rawmocs_general_short/{name}/{arm}_mpfr100"',f'    exec: "{wrapper}"'])
+                  (root/f"{name}.expected").write_bytes((root/f"{name}-scan-0.stdout").read_bytes())
+                  admitted.append(name)
+                  case["simulation"]="ADMITTED"
+              assert "chain" in admitted, "short analytic control failed admission"
+              report["simulation_cases"]=admitted
+              Path("codspeed-general.generated.yml").write_text("\n".join(config)+"\n")
+              with open(os.environ["GITHUB_OUTPUT"],"a") as stream:
+                  stream.write("simulation=true\n")
+          # Restrict historical Simulation to two arms on a completed, source-locked
           # VQE8 case. Never simulate censored long cases.
           sim=False
           if cumulative:
@@ -1194,7 +1236,7 @@ jobs:
               with open(os.environ["GITHUB_OUTPUT"],"a") as stream:
                   stream.write("simulation="+str(sim).lower()+"\n")
           save()
-          print({"descendant-units":"DESCENDANT_UNITS_FINAL","inplace-scan":"INPLACE_SCAN_FINAL","inplace-branch":"INPLACE_BRANCH_FINAL","move-components":"MOVE_COMPONENTS_FINAL","borrowed-cache":"BORROWED_CACHE_FINAL","general-cumulative":"GENERAL_CUMULATIVE_NATIVE_FINAL"}[experiment],json.dumps(report),flush=True)
+          print({"descendant-units":"DESCENDANT_UNITS_FINAL","inplace-scan":"INPLACE_SCAN_FINAL","inplace-branch":"INPLACE_BRANCH_FINAL","move-components":"MOVE_COMPONENTS_FINAL","borrowed-cache":"BORROWED_CACHE_FINAL","general-cumulative":"GENERAL_CUMULATIVE_NATIVE_FINAL","general-simulation-repair":"GENERAL_SHORT_NATIVE_FINAL"}[experiment],json.dumps(report),flush=True)
           PY
       - name: Compare bounded general solver Simulation and flamegraphs
         if: steps.general-native.outputs.simulation == 'true'
@@ -1214,12 +1256,13 @@ jobs:
           from pathlib import Path
           root=Path(".descendant-evidence")
           report=json.loads((root/"report.json").read_text())
-          assert report["experiment"]=="general-cumulative"
-          for arm in ("scan","borrowed"):
-              assert (root/f"vqe8-{arm}.simulation.stdout").read_bytes()==(root/"vqe8.expected").read_bytes()
-          report["cases"]["vqe8"]["simulation"]="COUNT_PARITY_PASS"
+          assert report["experiment"] in ("general-cumulative","general-simulation-repair")
+          for name in report.get("simulation_cases",["vqe8"]):
+              for arm in ("scan","borrowed"):
+                  assert (root/f"{name}-{arm}.simulation.stdout").read_bytes()==(root/f"{name}.expected").read_bytes()
+              report["cases"][name]["simulation"]="COUNT_PARITY_PASS"
           (root/"report.json").write_text(json.dumps(report,indent=2)+"\n")
-          print("GENERAL_CUMULATIVE_SIMULATION_FINAL",json.dumps(report),flush=True)
+          print("GENERAL_SHORT_SIMULATION_FINAL" if report["experiment"]=="general-simulation-repair" else "GENERAL_CUMULATIVE_SIMULATION_FINAL",json.dumps(report),flush=True)
           PY
       - uses: actions/upload-artifact@v4
         if: always()
@@ -1228,5 +1271,127 @@ jobs:
           path: |
             .descendant-evidence/
             codspeed-general.generated.yml
+          include-hidden-files: true
+          if-no-files-found: warn
+
+  general-native-gpmc:
+    if: github.event_name == 'push' || inputs.suite == 'general-native-gpmc'
+    name: Source-locked long native GPMC / auto route
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: PhysicsQoo/RaWMoCS
+          ref: 5d74b2649639db3372fcc5ea5155ed0a50233fea
+          path: .classes-candidate
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: PhysicsQoo/GPMC
+          ref: 89bbc89d0de918e7a5385740355df55765039230
+          path: .gpmc
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: rawmocs-quprs-planner-q*
+          run-id: 45733766561
+          github-token: ${{ github.token }}
+          path: .long-input
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: .classes-candidate/crates/rawmocs-cli -> target
+          shared-key: rawmocs-general-dependencies
+          cache-workspace-crates: 'false'
+      - name: Build source-pinned native binaries
+        run: |
+          set -euo pipefail
+          test "$(git -C .classes-candidate rev-parse HEAD)" = 5d74b2649639db3372fcc5ea5155ed0a50233fea
+          test "$(git -C .gpmc rev-parse HEAD)" = 89bbc89d0de918e7a5385740355df55765039230
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends cmake ninja-build libgmp-dev libmpfr-dev zlib1g-dev m4 make gcc time pkg-config
+          cargo build --locked --release --manifest-path .classes-candidate/crates/rawmocs-cli/Cargo.toml
+          cmake -S .gpmc -B .gpmc/build -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake --build .gpmc/build --target gpmc-bin --parallel 2
+      - name: Compare witnessed long native source cohorts
+        run: |
+          set -euo pipefail
+          mkdir -p .long-evidence
+          python3 - <<'PY'
+          import hashlib, json, os, re, statistics, subprocess, sys, time
+          from pathlib import Path
+          root=Path(".long-evidence").resolve()
+          raw=Path(".classes-candidate/crates/rawmocs-cli/target/release/rawmocs").resolve()
+          gpmc=Path(".gpmc/build/gpmc").resolve()
+          sys.path.insert(0,str(Path(".classes-candidate/crates/rawmocs-cli/tools").resolve()))
+          from release_native_paired import parse
+          from release_transfer import check_count
+          def digest(p): return hashlib.sha256(p.read_bytes()).hexdigest()
+          flags=["RAWMOCS_RESEARCH_INPLACE_SCAN","RAWMOCS_RESEARCH_INPLACE_BRANCH","RAWMOCS_RESEARCH_MOVE_COMPONENTS","RAWMOCS_RESEARCH_BORROWED_CACHE"]
+          report={"status":"RUNNING","scope":"Native auto route, not forced-general speedup","bits":100,"digits":30,"limit_s":45,"as_bytes":3221225472,"binary_sha256":{"raw":digest(raw),"gpmc":digest(gpmc)},"candidate_sha":"5d74b2649639db3372fcc5ea5155ed0a50233fea","gpmc_sha":"89bbc89d0de918e7a5385740355df55765039230","cases":{}}
+          def save(): (root/"report.json").write_text(json.dumps(report,indent=2)+"\n")
+          for name,sha in (("qft20","29fea8d65f63dd282cc740e8cac5439b071f618780b04541e4412bfbd39462c5"),("qnn8","24dbcd5b6f270fd39f92b739e55446da7c14e7e2c28ed5032b70cf34bc0f786c")):
+              src=Path(".long-input")/("rawmocs-quprs-planner-"+name)
+              cnf,=src.rglob("gpmc-capture.cnf")
+              witness,=src.rglob("witness.json")
+              ref=json.loads(witness.read_text())
+              assert digest(cnf)==ref["source_sha256"]==sha and ref["bits"]==550
+              assert ref["status"] in ("INDEPENDENT_INTERVAL_COMPLETE","INDEPENDENT_FIXED_INTERVAL_COMPLETE")
+              assert ref["width"]<=19 and ref["work"]<=40000000 and ref["peak"]<=2000000
+              if ref["status"]=="INDEPENDENT_FIXED_INTERVAL_COMPLETE":
+                  assert ref["order_policy"] in ("fill-reverse","degree-reverse")
+              case={"source_sha256":sha,"witness_sha256":digest(witness),"rows":[]}
+              report["cases"][name]=case
+              for i,arm in enumerate(("gpmc","off","on","on","off","gpmc")):
+                  if i>=3 and any(r["status"]!="WITNESSED_PASS" for r in case["rows"]): break
+                  env={k:v for k,v in os.environ.items() if not k.startswith("RAWMOCS_RESEARCH_")}
+                  if arm=="on": env.update({k:"1" for k in flags})
+                  cmd=[str(gpmc),"-mode=1","-prec=30",str(cnf.resolve())] if arm=="gpmc" else [str(raw),"--digits","30","--timeout-ms","45000",str(cnf.resolve())]
+                  label=f"{name}-{i}-{arm}"
+                  rss=root/(label+".rss")
+                  start=time.monotonic()
+                  p=subprocess.run(["timeout","-k","2s","45s","prlimit","--as=3221225472","--","/usr/bin/time","-f","%M","-o",str(rss),*cmd],env=env,capture_output=True,text=True,timeout=52)
+                  row={"arm":arm,"exit":p.returncode,"wall_s":time.monotonic()-start}
+                  case["rows"].append(row)
+                  (root/(label+".stdout")).write_text(p.stdout)
+                  (root/(label+".stderr")).write_text(p.stderr)
+                  if rss.exists():
+                      vals=[s for s in rss.read_text().splitlines() if s.strip().isdigit()]
+                      if len(vals)==1: row["rss_kib"]=int(vals[0])
+                  if p.returncode:
+                      row["status"]="CENSORED_TIMEOUT" if p.returncode==124 or (arm!="gpmc" and p.returncode==4 and "RAWMOCS_FAILURE kind=TIMEOUT" in p.stderr) else "EXECUTION_ERROR"
+                      save()
+                      assert row["status"]=="CENSORED_TIMEOUT",(label,p.returncode,p.stderr[-1000:])
+                  else:
+                      row.update(parse(p.stdout,"gpmc" if arm=="gpmc" else "rawmocs"))
+                      if arm=="gpmc":
+                          assert re.findall(r"^c o precision (\d+)\s*$",p.stdout,re.M)==["30"]
+                      else:
+                          route,=re.findall(r"^RAWMOCS_COMPLETE route=(\w+) digits=30 bits=100 ",p.stderr,re.M)
+                          row["route"]=route
+                      row["witness_upper"]=check_count(row,ref,30)
+                      row["stdout_sha256"]=hashlib.sha256(p.stdout.encode()).hexdigest()
+                      row["status"]="WITNESSED_PASS"
+                      save()
+                  print("GENERAL_GPMC_ROW",name,arm,row["status"],row["wall_s"],flush=True)
+              rows=case["rows"]
+              if len(rows)==6 and all(r["status"]=="WITNESSED_PASS" for r in rows):
+                  assert len({r["sat"] for r in rows})==1
+                  assert len({r["stdout_sha256"] for r in rows if r["arm"]!="gpmc"})==1
+                  assert len({r["route"] for r in rows if r["arm"]!="gpmc"})==1
+                  med={a:statistics.median(r["wall_s"] for r in rows if r["arm"]==a) for a in ("gpmc","off","on")}
+                  case.update(status="TWO_MATCHED_TRIPLES_PASS",median_s=med,gpmc_over_on=med["gpmc"]/med["on"],off_over_on=med["off"]/med["on"])
+              else: case["status"]="CENSORED_NO_RATIO"
+              save()
+          report["status"]="NATIVE_DIAGNOSTIC_COMPLETE"
+          save()
+          print("GENERAL_GPMC_NATIVE_FINAL",json.dumps(report),flush=True)
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: rawmocs-general-native-gpmc
+          path: .long-evidence/
           include-hidden-files: true
           if-no-files-found: warn

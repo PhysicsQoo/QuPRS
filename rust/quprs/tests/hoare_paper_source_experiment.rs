@@ -1281,6 +1281,40 @@ fn deposit8(mut i:usize,mut mask:u64)->u64{
 fn extract8(a:u64,mut mask:u64)->usize{
     let mut i=0;let mut bit=1;while mask!=0{let b=mask&mask.wrapping_neg();mask^=b;if a&b!=0{i|=bit;}bit<<=1;}i
 }
+#[test]
+fn native_factor_scope_reference(){
+    let positions=[0u32,2,7,15,24,39,58,62];
+    let mut checks=0usize;
+    for subset in 0..256usize {
+        let selected:Vec<_>=positions.iter().copied().enumerate()
+            .filter_map(|(i,p)|((subset>>i)&1!=0).then_some(p)).collect();
+        let mask=selected.iter().fold(0u64,|m,&p|m|(1u64<<p));
+        for idx in 0..(1usize<<selected.len()){
+            let expected=selected.iter().enumerate().fold(0u64,|a,(i,&p)|
+                a|(((idx>>i)&1) as u64)<<p);
+            assert_eq!(deposit8(idx,mask),expected);
+            assert_eq!(extract8(expected,mask),idx);
+            assert_eq!(extract8(expected|!mask,mask),idx);
+            checks+=1;
+        }
+        let f=factor::<1>(mask,|a|[a as i128]).unwrap();
+        for (i,&v) in f.table.iter().enumerate(){
+            assert_eq!(v,[deposit8(i,mask) as i128]);
+        }
+    }
+    assert_eq!(checks,6561);
+    let wide=(0..12).fold(0u64,|m,i|m|(1u64<<(i*5)));
+    for i in 0..4096{
+        assert_eq!(extract8(deposit8(i,wide),wide),i);
+    }
+    assert!(matches!(factor::<1>(wide|(1u64<<63), |_|[1]),Err("WIDTH_LIMIT")));
+    let plan=BoundaryPlan8{degree:4,specs:vec![],order:vec![0,1,2],
+        free:1u64<<5,fixed:0,peak:1,work:8};
+    let (result,_,_)=execute_cyclo_boundary::<4>(&plan,0,
+        std::time::Instant::now()+std::time::Duration::from_secs(5)).unwrap();
+    assert_eq!(result,vec![[8,0,0,0];2]);
+    println!("HOARE_NATIVE_FACTOR_SCOPE sparse_checks=6561 width12_checks=4096 width_reject=true empty_bucket=true");
+}
 fn factor<const N:usize>(scope:u64,mut f:impl FnMut(u64)->[i128;N])->Result<Factor<N>,&'static str>{
     if scope.count_ones()>12{return Err("WIDTH_LIMIT");}
     Ok(Factor{scope,table:(0..1usize<<scope.count_ones()).map(|i|f(deposit8(i,scope))).collect()})

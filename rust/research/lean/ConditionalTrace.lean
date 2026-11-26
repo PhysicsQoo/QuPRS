@@ -41,8 +41,8 @@ theorem substitution_sum {X A : Type} [Zero A] [Add A]
     (xs : List X) (rhs : X → Bool) (g : X → Bool → Bool)
     (a : X → Bool → A) :
     sumPaths xs (fun x =>
-      mask (!(false.xor rhs x) && g x false) (a x false) +
-      mask (!(true.xor rhs x) && g x true) (a x true)) =
+      mask (!(false.xor (rhs x)) && g x false) (a x false) +
+      mask (!(true.xor (rhs x)) && g x true) (a x true)) =
     sumPaths xs (fun x => mask (g x (rhs x)) (a x (rhs x))) := by
   apply sum_congr
   intro x
@@ -93,8 +93,8 @@ theorem hh_point {A : Type} [Zero A] [Add A] [Neg A]
       if z = q then mask (g z) (a z) + mask (g z) (a z) else 0 := by
   by_cases h : z = q
   · simp [hhAt, h]
-  · simp only [hhAt, h, if_false]
-    cases hg : g z <;> simp [mask, hg, h0, hn]
+  · simp only [hhAt, h, ite_false]
+    cases hg : g z <;> simp [mask, h0, hn]
 
 theorem hh_fiber {A : Type} [Zero A] [Add A] [Neg A]
     (h0 : (0 : A)+0 = 0) (hn : ∀ a : A, a + -a = 0)

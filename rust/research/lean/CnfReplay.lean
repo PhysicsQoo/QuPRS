@@ -3520,6 +3520,199 @@ theorem replay_ledger_canonical_scale_from_zero {A : Type} (scale : Nat → A �
   rw [hm]
   exact replay_ledger_canonical_scale scale h0 ha value current {} steps final out hc hs stepSound h
 
+
+-- Canonicality for the actual list parser, using the pinned core
+-- mapM_cons equation rather than a new certificate parser.
+theorem parse_ledger_steps_canonical (tokens : List (List Token))
+    (steps : List LedgerStep) (h : tokens.mapM parseLedgerStep = some steps) :
+    ∀ s, s ∈ steps → canonicalLedgerSnap s.before ∧ canonicalLedgerSnap s.trial := by
+  induction tokens generalizing steps with
+  | nil =>
+    change some [] = some steps at h
+    cases h
+    intro s hm
+    cases hm
+  | cons row rest ih =>
+    rw [List.mapM_cons] at h
+    obtain ⟨first, hf, ht⟩ := ledger_bind_some _ _ _ h
+    obtain ⟨tail, hr, he⟩ := ledger_bind_some _ _ _ ht
+    have he' : some (first :: tail) = some steps := he
+    have hs := Option.some.inj he'
+    intro s hm
+    rw [← hs] at hm
+    rcases List.mem_cons.mp hm with hh | hh
+    · subst s
+      exact parse_ledger_step_canonical row first hf
+    · exact ih tail hr s hh
+
+-- Preserve the exact token origin of each witness, including the
+-- header and both endpoints. No external parser correctness assumed.
+def LedgerByteWitness (bytes : List Nat) : Prop :=
+  ∃ tag norm k counts st start rest et last rev
+    (n mult : Nat) (expected : List Nat) (initial : LedgerSnap)
+    (steps : List LedgerStep) (final : LedgerSnap) (t : LedgerTally),
+    ascii bytes = true ∧
+    rows bytes = (tag :: norm :: k :: counts) :: [st,start] :: rest ∧
+    (tag == [99,114,114,45,108,101,100,103,101,114,45,118,50] &&
+      st == [115,116,97,114,116] && counts.length == 7) = true ∧
+    parseNatToken norm = some n ∧ parseNatToken k = some mult ∧
+    counts.mapM parseNatToken = some expected ∧
+    parseLedgerSnap start = some initial ∧ rest.reverse = [et,last] :: rev ∧
+    (et == [101,110,100]) = true ∧ n = initial.n + initial.live.length ∧
+    rev.reverse.mapM parseLedgerStep = some steps ∧
+    parseLedgerSnap last = some final ∧
+    replayLedger initial {} steps = some (final,t) ∧
+    ledgerTallyList t = expected ∧ ledgerMultiplier t = mult
+
+-- Once the executable checker accepts its final Boolean tests,
+-- raw equality is upgraded to typed equality using canonicality.
+theorem ledger_accepted_endpoint (initial actual final : LedgerSnap)
+    (steps : List LedgerStep) (t : LedgerTally) (expected : List Nat) (mult : Nat)
+    (hc : canonicalLedgerSnap initial) (hf : canonicalLedgerSnap final)
+    (hs : ∀ s, s ∈ steps → canonicalLedgerSnap s.before ∧ canonicalLedgerSnap s.trial)
+    (hr : replayLedger initial {} steps = some (actual,t))
+    (h : (natListEq actual.raw final.raw &&
+      natListEq (ledgerTallyList t) expected && ledgerMultiplier t == mult) = true) :
+    replayLedger initial {} steps = some (final,t) ∧
+      ledgerTallyList t = expected ∧ ledgerMultiplier t = mult := by
+  have hp := and_true_parts h
+  have hq := and_true_parts hp.1
+  have ha := replay_ledger_canonical initial {} steps actual t hc hs hr
+  have he := canonical_ledger_snap_eq actual final ha hf
+    ((nat_list_eq_iff _ _).mp hq.1)
+  rw [he] at hr
+  exact ⟨hr, (nat_list_eq_iff _ _).mp hq.2, ledger_kind_eq _ _ hp.2⟩
+
+-- Extract witnesses from checkLedger itself, not from an independently
+-- asserted successful parse. Generalization isolates actual match
+-- scrutinees before constructive case analysis.
+theorem check_ledger_byte_witness (bytes : List Nat)
+    (h : checkLedger bytes = true) : LedgerByteWitness bytes := by
+  unfold checkLedger at h
+  generalize ha : ascii bytes = aok at h
+  cases aok with
+  | false => cases h
+  | true =>
+    dsimp only at h
+    generalize hrows : rows bytes = records at h
+    cases records with
+    | nil => cases h
+    | cons header restRows =>
+      cases header with
+      | nil => cases h
+      | cons tag tail =>
+        cases tail with
+        | nil => cases h
+        | cons norm tail =>
+          cases tail with
+          | nil => cases h
+          | cons k counts =>
+            cases restRows with
+            | nil => cases h
+            | cons startRow rest =>
+              cases startRow with
+              | nil => cases h
+              | cons st tail =>
+                cases tail with
+                | nil => cases h
+                | cons start tail =>
+                  cases tail with
+                  | cons extra more => cases h
+                  | nil =>
+                    dsimp only at h
+                    generalize hg : (tag == [99,114,114,45,108,101,100,103,101,114,45,118,50] &&
+                      st == [115,116,97,114,116] && counts.length == 7) = gok at h
+                    cases gok with
+                    | false => cases h
+                    | true =>
+                      dsimp only at h
+                      generalize hn : parseNatToken norm = pn at h
+                      cases pn with
+                      | none => cases h
+                      | some n =>
+                        generalize hm : parseNatToken k = pm at h
+                        cases pm with
+                        | none => cases h
+                        | some mult =>
+                          generalize hcounts : counts.mapM parseNatToken = pc at h
+                          cases pc with
+                          | none => cases h
+                          | some expected =>
+                            generalize hi : parseLedgerSnap start = pi at h
+                            cases pi with
+                            | none => cases h
+                            | some initial =>
+                              generalize hrev : rest.reverse = reversed at h
+                              cases reversed with
+                              | nil => cases h
+                              | cons endRow rev =>
+                                cases endRow with
+                                | nil => cases h
+                                | cons et tail =>
+                                  cases tail with
+                                  | nil => cases h
+                                  | cons last tail =>
+                                    cases tail with
+                                    | cons extra more => cases h
+                                    | nil =>
+                                      dsimp only at h
+                                      generalize he : (et == [101,110,100] &&
+                                        n == initial.n+initial.live.length) = eok at h
+                                      cases eok with
+                                      | false => cases h
+                                      | true =>
+                                        dsimp only at h
+                                        generalize hs : rev.reverse.mapM parseLedgerStep = ps at h
+                                        cases ps with
+                                        | none => cases h
+                                        | some steps =>
+                                          generalize hf : parseLedgerSnap last = pf at h
+                                          cases pf with
+                                          | none => cases h
+                                          | some final =>
+                                            generalize hr : replayLedger initial {} steps = pr at h
+                                            cases pr with
+                                            | none => cases h
+                                            | some result =>
+                                              cases result with
+                                              | mk actual t =>
+                                                have hhead := and_true_parts he
+                                                have hc := parsed_ledger_snap_canonical start initial hi
+                                                have hfinal := parsed_ledger_snap_canonical last final hf
+                                                have hsteps := parse_ledger_steps_canonical _ steps hs
+                                                have hend := ledger_accepted_endpoint initial actual final steps t
+                                                  expected mult hc hfinal hsteps hr h
+                                                exact ⟨tag,norm,k,counts,st,start,rest,et,last,rev,n,mult,
+                                                  expected,initial,steps,final,t,ha,hrows,hg,hn,hm,hcounts,hi,hrev,
+                                                  hhead.1,ledger_kind_eq _ _ hhead.2,hs,hf,hend.1,hend.2.1,hend.2.2⟩
+
+-- A certificate-level semantic corollary with local committed-rule
+-- semantics still explicit. The accepted byte witness supplies
+-- canonicality, typed endpoint equality and multiplier binding.
+theorem check_ledger_witness_scale {A : Type} (scale : Nat → A → A)
+    (h0 : ∀ a, scale 0 a = a)
+    (ha : ∀ i j a, scale i (scale j a) = scale (i+j) a)
+    (value : LedgerSnap → A) (bytes : List Nat)
+    (h : checkLedger bytes = true)
+    (localSound : ∀ s : LedgerStep, canonicalLedgerSnap s.before →
+      canonicalLedgerSnap s.trial → s.commit = true →
+      value s.before = scale (ledgerStepExponent s) (value s.trial)) :
+    ∃ (initial final : LedgerSnap) (steps : List LedgerStep) (t : LedgerTally)
+      (n mult : Nat) (start last : Token),
+      parseLedgerSnap start = some initial ∧ parseLedgerSnap last = some final ∧
+      n = initial.n + initial.live.length ∧
+      replayLedger initial {} steps = some (final,t) ∧
+      ledgerMultiplier t = mult ∧ value initial = scale mult (value final) := by
+  obtain ⟨_tag,_norm,_k,_counts,_st,start,_rest,_et,last,rev,n,mult,_expected,
+    initial,steps,final,t,_ascii,_rows,_head,_hn,_hm,_hcounts,hi,_rev,_end,hnorm,hs,hf,hr,_ht,hmult⟩ :=
+    check_ledger_byte_witness bytes h
+  have hc := parsed_ledger_snap_canonical start initial hi
+  have hsteps := parse_ledger_steps_canonical rev.reverse steps hs
+  have hv := replay_ledger_canonical_scale_from_zero scale h0 ha value initial steps final t
+    hc hsteps (fun s hm hcommit => localSound s (hsteps s hm).1 (hsteps s hm).2 hcommit) hr
+  rw [hmult] at hv
+  exact ⟨initial,final,steps,t,n,mult,start,last,hi,hf,hnorm,hr,hmult,hv⟩
+
 -- Localize any unexpected dependency to a definition vs theorem.
 #print axioms splitBytes
 #print axioms digits
@@ -3798,6 +3991,11 @@ theorem replay_ledger_canonical_scale_from_zero {A : Type} (scale : Nat → A �
 #print axioms replay_ledger_canonical
 #print axioms replay_ledger_canonical_scale
 #print axioms replay_ledger_canonical_scale_from_zero
+#print axioms parse_ledger_steps_canonical
+#print axioms LedgerByteWitness
+#print axioms ledger_accepted_endpoint
+#print axioms check_ledger_byte_witness
+#print axioms check_ledger_witness_scale
 end QuPRS.CnfReplay
 
 def main (args : List String) : IO Unit := do

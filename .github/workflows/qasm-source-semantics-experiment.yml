@@ -941,6 +941,21 @@ jobs:
           done
           echo 'LEAN4_AFFINE_WORD_CERTIFICATE_PASS theorem_axiom_reports=8 supported_basis=true word_certificate=true coefficient_fibres=true native_incidence_refinement=false'
 
+          normalization_status=0
+          lean AffineRRNormalization.lean 2>&1 | tee /tmp/qasm-lean-affine-normalization.log || normalization_status=$?
+          if grep -E 'sorryAx|Lean[.]trustCompiler|Classical[.]choice' /tmp/qasm-lean-affine-normalization.log; then
+            normalization_status=1
+          fi
+          test "$(grep -Ec 'does not depend on any axioms|depends on axioms' /tmp/qasm-lean-affine-normalization.log)" -eq 6 || normalization_status=1
+          for theorem in scale2_counts scale2_append factor_add factor_nonzero trace_scale trace_zero_iff; do
+            test "$(grep -Ec "^'QuPRS[.]AffineRRNormalization[.]$theorem' (does not depend on any axioms|depends on axioms)" /tmp/qasm-lean-affine-normalization.log)" -eq 1 || normalization_status=1
+          done
+          if test "$normalization_status" -eq 0; then
+            echo 'LEAN4_AFFINE_RR_NORMALIZATION_PASS theorem_axiom_reports=6 receipt_counts=true scale_composition=true conditional_trace_zero=true local_rule_semantics=false'
+          else
+            echo 'LEAN4_AFFINE_RR_NORMALIZATION_FAIL' >&2
+          fi
+
           lift_status=0
           lean AffineCyclotomicLift.lean 2>&1 | tee /tmp/qasm-lean-affine-lift.log || lift_status=$?
           if grep -E 'sorryAx|Lean[.]trustCompiler|Classical[.]choice' /tmp/qasm-lean-affine-lift.log; then
@@ -972,7 +987,7 @@ jobs:
           else
             echo 'LEAN4_AFFINE_NATIVE_INCIDENCE_FAIL' >&2
           fi
-          test "$lift_status" -eq 0 && test "$incidence_status" -eq 0
+          test "$normalization_status" -eq 0 && test "$lift_status" -eq 0 && test "$incidence_status" -eq 0
 
       - name: Build and test std-only independent verifier
         run: |

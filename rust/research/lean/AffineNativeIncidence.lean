@@ -25,21 +25,10 @@ theorem decode_or_word {n : Nat} (a b : BitVec n) (i : Fin n) :
   simp [decode]
 
 /-- Audit the Boolean membership step independently of the OR fold. -/
-theorem mem_cons_bit {n : Nat} (i j : Fin n) (js : List (Fin n)) :
+theorem mem_cons_bit {X : Type} [DecidableEq X] (i j : X) (js : List X) :
     decide (i ∈ j :: js) = (decide (i = j) || decide (i ∈ js)) := by
-  cases he : decide (i = j) with
-  | true =>
-      have hm : i ∈ j :: js := List.mem_cons.mpr (Or.inl (of_decide_eq_true he))
-      rw [decide_eq_true hm] <;> rfl
-  | false =>
-      cases ht : decide (i ∈ js) with
-      | true =>
-          have hm : i ∈ j :: js := List.mem_cons.mpr (Or.inr (of_decide_eq_true ht))
-          rw [decide_eq_true hm] <;> rfl
-      | false =>
-          have hn : i ∉ j :: js := fun hm =>
-            (List.mem_cons.mp hm).elim (of_decide_eq_false he) (of_decide_eq_false ht)
-          rw [decide_eq_false hn] <;> rfl
+  apply Bool.eq_iff_iff.mpr
+  simp only [Bool.or_eq_true_iff, decide_eq_true_eq, List.mem_cons]
 
 theorem column_decode {n : Nat} (one : Fin n → BitVec n)
     (p : Fin n → Bool) (js : List (Fin n)) (i : Fin n)

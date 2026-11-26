@@ -104,6 +104,64 @@ fn reduce_until(mut ps:PathSum,deadline:std::time::Instant)->(PathSum,Receipt,us
     r.limit=true;(ps,r,attempts,false)
 }
 
+fn reduce_indexed(mut ps:PathSum,deadline:std::time::Instant,indexed:bool)->(PathSum,Receipt,usize,usize,bool,Vec<(u32,usize,Option<u32>)>){
+    let mut skipped=0usize;let mut trace=Vec::new();
+    let mut attempts=0usize;
+    let mut r=Receipt::default();
+    for _ in 0..512{
+        if std::time::Instant::now()>=deadline{return (ps,r,attempts,skipped,true,trace);}
+        if !admitted(&ps){r.limit=true;return (ps,r,attempts,skipped,false,trace);}
+        let mut ids=ps.get_reducible_vars();ids.sort_unstable();
+        let mut chosen=None;
+        // Index is rebuilt after every accepted rewrite, never reused stale.
+        let mut used=FxHashSet::default();
+        let mut nonhalf=FxHashSet::default();
+        if indexed{
+            for (mono,c) in &ps.p.terms{
+                for &v in mono{
+                    used.insert(v);
+                    if mono.len()>1&&c.constant!=quprs::Rational::HALF{nonhalf.insert(v);}
+                }
+            }
+        }
+        for &y in &ids{
+            for rule in 0..3{
+                let target=if rule==2{hh_target(&ps,y)}else{None};
+                if rule==2&&target.is_none(){continue;}
+                // Necessary conditions only, derived from exact native matcher.
+                // admitted() has excluded symbolic/approximate/radian inputs.
+                if indexed{
+                    let impossible=match rule{
+                        0=>used.contains(&y),
+                        1=>nonhalf.contains(&y)||!ps.p.terms.get(&vec![y]).is_some_and(|c|
+                            c.constant==quprs::Rational::QUARTER||c.constant==quprs::Rational::THREE_QUARTERS),
+                        _=>false,
+                    };
+                    if impossible{skipped+=1;continue;}
+                }
+                if std::time::Instant::now()>=deadline{return (ps,r,attempts,skipped,true,trace);}
+                attempts+=1;
+                let mut t=ps.clone();
+                let ok=match rule{0=>t.try_reduce_elim(&[y]),1=>t.try_reduce_omega(&[y]),_=>t.try_reduce_hh(&[y])};
+                if !ok{continue;}
+                let mut removed:Vec<_>=ps.v.path_vars.difference(&t.v.path_vars).copied().collect();
+                removed.sort_unstable();
+                let mut expected=vec![y];if let Some(v)=target{expected.push(v);}expected.sort_unstable();
+                assert_eq!(removed,expected);
+                assert!(t.v.path_vars.is_subset(&ps.v.path_vars));
+                if !admitted(&t){r.limit=true;continue;}
+                trace.push((y,rule,target));chosen=Some((t,rule));break;
+            }
+            if chosen.is_some(){break;}
+        }
+        let Some((next,rule))=chosen else{return (ps,r,attempts,skipped,false,trace);};
+        match rule{0=>{r.elim+=1;r.scale2+=2;},1=>{r.omega+=1;r.scale2+=1;},_=>{r.hh+=1;r.scale2+=2;}}
+        ps=next;
+    }
+    r.limit=true;(ps,r,attempts,skipped,false,trace)
+}
+
+
 // Strict narrow independent parser for these immutable source files.
 // All lines are accounted for. Compare operation-by-operation against
 // the native compatibility parser; do not silently flatten registers.
@@ -1983,6 +2041,97 @@ fn native_qwalk_early_witness(){
             }
             let verdict=sector_verdict(&values);
             println!("HOARE_QWALK_EARLY name={name} arm={arm} exact={exact} positive={positive} verdict={verdict} calls={calls} attempts={attempts} build_ns={} general_ns={general_ns} input_ns={input_ns} probe_ns={probe_ns} solve_ns={solve_ns} first_ns={first:?} paired_support={paired} accounted_ns={} failures={failures:?}",build.as_nanos(),(build+start.elapsed()).as_nanos());
+        }
+    }
+}
+
+
+fn assert_rr_index_parity(a:&PathSum,b:&PathSum,ar:&Receipt,br:&Receipt,
+    at:&[(u32,usize,Option<u32>)],bt:&[(u32,usize,Option<u32>)]){
+    assert_eq!(at,bt);
+    assert_eq!(a.p.terms,b.p.terms);
+    assert_eq!(a.f.functions,b.f.functions);
+    assert_eq!(a.v.path_vars,b.v.path_vars);
+    assert_eq!((ar.scale2,ar.limit),(br.scale2,br.limit));
+}
+#[test]
+fn native_indexed_rr_parity(){
+    use QuantumOp as G;
+    let mut seed=20261126u64;
+    let mut attempts=0;let mut skipped=0;let mut accepted=0;
+    for _ in 0..128{
+        let mut ps=PathSum::new(3);ps.set_auto_reduce(false);
+        for _ in 0..16{
+            seed=seed.wrapping_mul(6364136223846793005).wrapping_add(1);
+            let q=(seed>>32) as usize%3;
+            let op=match (seed>>40)%6{
+                0=>G::H(q),1=>G::T(q),2=>G::S(q),3=>G::TDG(q),
+                4=>G::CX(q,(q+1)%3),_=>G::X(q),
+            };op.apply(&mut ps,false);
+        }
+        for x in 0..8u64{
+            let raw=fixed_input(ps.clone(),x);
+            let deadline=std::time::Instant::now()+std::time::Duration::from_secs(5);
+            let (a,ar,aa,_,ae,at)=reduce_indexed(raw.clone(),deadline,false);
+            let (b,br,ba,bs,be,bt)=reduce_indexed(raw,deadline,true);
+            assert!(!ae&&!be);assert_rr_index_parity(&a,&b,&ar,&br,&at,&bt);
+            assert_eq!(aa,ba+bs);attempts+=aa;skipped+=bs;accepted+=at.len();
+        }
+    }
+    assert!(skipped>0&&accepted>0);
+    println!("HOARE_NATIVE_INDEXED_RR cases=1024 baseline_attempts={attempts} skipped={skipped} accepted={accepted} trace_exact=true");
+}
+#[test]
+fn native_qwalk_indexed_rr(){
+    let Some(dir)=std::env::var_os("HOARE_PAPER_QWALK_DIR") else{return;};
+    for name in ["vchain","noancilla"]{
+        let src=std::fs::read_to_string(std::path::Path::new(&dir).join(format!("{name}.qasm"))).unwrap();
+        let (ops,n,_)=source_ops(&src);assert_eq!(n,5);
+        let (native,width)=parse_qasm_str(&src).unwrap();assert_eq!((native,width),(ops.clone(),n));
+        let t=std::time::Instant::now();let mut raw=PathSum::new(n);raw.set_auto_reduce(false);
+        for op in &ops{op.apply(&mut raw,false);}
+        let zero=Poly::default();raw.p.substitute_var_with_poly(4,&zero);raw.f.substitute_var_with_poly(4,&zero);
+        let build=t.elapsed();
+        let mut prior=None;
+        let mut reference=BTreeMap::<u64,Vec<Z64>>::new();
+        for indexed in [false,true]{
+            let start=std::time::Instant::now();
+            let deadline=start+std::time::Duration::from_secs(30).saturating_sub(build);
+            let t=std::time::Instant::now();
+            let (general,gr,mut attempts,mut skipped,expired,trace)=reduce_indexed(raw.clone(),deadline,indexed);
+            let rr_ns=t.elapsed().as_nanos();
+            assert!(!expired&&!gr.limit);
+            if let Some((a,ar,at))=&prior{assert_rr_index_parity(a,&general,ar,&gr,at,&trace);}
+            else{prior=Some((general.clone(),gr,trace));}
+            let mut values=vec![None;256];let mut input_ns=0;let mut solve_ns=0;let mut paired=0;
+            let mut failures=BTreeMap::<&str,usize>::new();let mut first=None;
+            for x in 0..16u64{
+                if std::time::Instant::now()>=deadline||sector_verdict(&values)=="REFUTED"{break;}
+                let t=std::time::Instant::now();
+                let (p,r,a,k,e,_)=reduce_indexed(fixed_input(general.clone(),x),deadline,indexed);
+                attempts+=a;skipped+=k;input_ns+=t.elapsed().as_nanos();
+                if e||r.limit{*failures.entry(if e{"DEADLINE"}else{"RR_LIMIT"}).or_default()+=1;continue;}
+                let t=std::time::Instant::now();
+                let result=early_sector_minimum(&p,16,16,deadline);solve_ns+=t.elapsed().as_nanos();
+                match result{
+                    Ok(v)=>{
+                        assert_eq!(v.len(),16);
+                        if indexed{if let Some(w)=reference.get(&x){assert_eq!(&v,w);paired+=16;}}
+                        else{reference.insert(x,v.clone());}
+                        if name=="vchain"{assert!(v.iter().all(|a|*a==[0;32]));}
+                        else if x==0{
+                            let support:Vec<_>=v.iter().enumerate().filter(|(_,a)|**a!=[0;32]).map(|(i,_)|16+i).collect();
+                            assert_eq!(support,vec![28,31]);
+                        }
+                        let nonzero=v.iter().any(|a|*a!=[0;32]);
+                        for (i,a) in v.into_iter().enumerate(){values[x as usize*16+i]=Some(a);}
+                        if nonzero{first=Some((build+start.elapsed()).as_nanos());}
+                    }
+                    Err(e)=>{*failures.entry(e).or_default()+=1;}
+                }
+            }
+            let exact=values.iter().flatten().count();let positive=values.iter().flatten().filter(|a|**a!=[0;32]).count();
+            println!("HOARE_QWALK_INDEXED_RR name={name} indexed={indexed} exact={exact} positive={positive} verdict={} attempts={attempts} skipped={skipped} paired={paired} general_ns={rr_ns} input_ns={input_ns} solve_ns={solve_ns} first_ns={first:?} accounted_ns={} failures={failures:?}",sector_verdict(&values),(build+start.elapsed()).as_nanos());
         }
     }
 }

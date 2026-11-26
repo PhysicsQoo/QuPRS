@@ -97,7 +97,7 @@ fn reduce_until(mut ps:PathSum,deadline:std::time::Instant)->(PathSum,Receipt,us
             }
             if chosen.is_some(){break;}
         }
-        let Some((next,rule))=chosen else{return (ps,r);};
+        let Some((next,rule))=chosen else{return (ps,r,attempts,false);};
         match rule{0=>{r.elim+=1;r.scale2+=2;},1=>{r.omega+=1;r.scale2+=1;},_=>{r.hh+=1;r.scale2+=2;}}
         ps=next;
     }

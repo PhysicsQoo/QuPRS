@@ -130,14 +130,26 @@ def pos (n : Nat) : Int := Int.ofNat n
 def clauseSort (xs : List Int) : List Int :=
   xs.mergeSort (fun a b => decide (a ≤ b))
 
-def parseClause (n : Nat) (xs : List Token) : Option (List Int) := do
-  let ints ← xs.mapM parseIntToken
-  match ints.reverse with
-  | 0 :: rev =>
-    if rev.all (fun x => x != 0 && natLE x.natAbs n) then
+def intEq (a b : Int) : Bool := @decide (a = b) (Int.decEq a b)
+
+def literalValid (n : Nat) (x : Int) : Bool :=
+  !intEq x 0 && natLE x.natAbs n
+
+-- Avoid the overloaded Int numeral pattern (0 :: rest): the
+-- equation compiler may introduce a classical equality decision.
+-- Match only List constructors and compare the last literal using
+-- the same explicit integer equality as the checked multiset.
+def finishClause (n : Nat) (reversed : List Int) : Option (List Int) :=
+  match reversed with
+  | last :: rev =>
+    if intEq last 0 && rev.all (literalValid n) then
       some (clauseSort rev)
     else none
-  | _ => none
+  | [] => none
+
+def parseClause (n : Nat) (xs : List Token) : Option (List Int) := do
+  let ints ← xs.mapM parseIntToken
+  finishClause n ints.reverse
 
 -- Recognize the precise GPMC weight grammar structurally. Decimal
 -- magnitude and ideal-phase accuracy remain a separate Rust check.
@@ -155,7 +167,7 @@ def parseCnfRows (n : Nat) :
     | [c, p, tag, id, re, im, zero] =>
       if c == [99] && p == [112] && tag == [119, 101, 105, 103, 104, 116] && zero == [48] then do
         let v ← parseIntToken id
-        if inClauses || v == 0 || !natLE v.natAbs n || ws.contains v ||
+        if inClauses || !literalValid n v || ws.any (intEq v) ||
             (negative v && (re != [49, 46, 48] || im != [48, 46, 48])) then none
         else parseCnfRows n rest false cs (v :: ws)
       else do
@@ -193,8 +205,6 @@ def bagEqBy {A : Type} (eq : A → A → Bool) :
     match removeOne eq x ys with
     | some rest => bagEqBy eq xs rest
     | none => false
-
-def intEq (a b : Int) : Bool := @decide (a = b) (Int.decEq a b)
 
 def distinctNat : List Nat → Bool
   | [] => true
@@ -380,6 +390,10 @@ theorem accepted_rows_sound (n : Nat) (rs : List Record)
 #print axioms parseIntToken
 #print axioms parseRecord
 #print axioms parseGate
+#print axioms intEq
+#print axioms literalValid
+#print axioms clauseSort
+#print axioms finishClause
 #print axioms parseClause
 #print axioms parseCnfRows
 #print axioms parseCnf
@@ -413,6 +427,18 @@ def main (args : List String) : IO Unit := do
       QuPRS.CnfReplay.ascii [128] then
     throw (IO.userError "portable parser grammar regression")
   IO.println "CRR_LEAN_PARSER_GRAMMAR_PASS controls=8"
+  -- Exercise exactly the DIMACS termination/admission path, including
+  -- a legal empty clause (unsatisfiable), not an empty input row.
+  if QuPRS.CnfReplay.parseClause 2 [[50], [45,49], [48]] != some [-1,2] ||
+      QuPRS.CnfReplay.parseClause 2 [[48]] != some [] ||
+      QuPRS.CnfReplay.parseClause 2 [] != none ||
+      QuPRS.CnfReplay.parseClause 2 [[49]] != none ||
+      QuPRS.CnfReplay.parseClause 2 [[48], [49], [48]] != none ||
+      QuPRS.CnfReplay.parseClause 2 [[51], [48]] != none ||
+      QuPRS.CnfReplay.parseClause 2 [[45,51], [48]] != none ||
+      QuPRS.CnfReplay.parseClause 2 [[120], [48]] != none then
+    throw (IO.userError "DIMACS clause grammar regression")
+  IO.println "CRR_LEAN_CLAUSE_GRAMMAR_PASS controls=8"
   let mode :: paths := args | throw (IO.userError "usage: CnfReplay accept|reject files")
   if (mode != "accept" && mode != "reject") || paths.isEmpty then
     throw (IO.userError "bad replay mode or empty cohort")

@@ -1024,8 +1024,8 @@ jobs:
           if grep -E 'sorryAx|Lean[.]trustCompiler|Classical[.]choice' ../../../evidence/conditional-lean-cnf-replay.log; then
             exit 1
           fi
-          test "$(grep -Ec 'does not depend on any axioms|depends on axioms' ../../../evidence/conditional-lean-cnf-replay.log)" -eq 26
-          for theorem in splitBytes digits ascii rows parseNatToken parseIntToken parseRecord parseGate parseClause parseCnfRows parseCnf bagEqBy covers satisfies checkRows replayRows acceptResult check and_forward and_nary clause_eq_iff clause_mem_iff and_true_parts covers_iff check_rows_sound accepted_rows_sound; do
+          test "$(grep -Ec 'does not depend on any axioms|depends on axioms' ../../../evidence/conditional-lean-cnf-replay.log)" -eq 30
+          for theorem in splitBytes digits ascii rows parseNatToken parseIntToken parseRecord parseGate intEq literalValid clauseSort finishClause parseClause parseCnfRows parseCnf bagEqBy covers satisfies checkRows replayRows acceptResult check and_forward and_nary clause_eq_iff clause_mem_iff and_true_parts covers_iff check_rows_sound accepted_rows_sound; do
             test "$(grep -Ec "^'QuPRS[.]CnfReplay[.]$theorem' (does not depend on any axioms|depends on axioms)" ../../../evidence/conditional-lean-cnf-replay.log)" -eq 1
           done
           gates=(../../../evidence/portable-gates/accept/*.gate)
@@ -1035,9 +1035,11 @@ jobs:
           sha256sum "${gates[@]}" "${rejected[@]}" ../../../evidence/portable-gates/{accept,reject}/*.cnf > ../../../evidence/conditional-portable-sha256.txt
           LEAN_PATH=. lean --run CnfReplay.lean accept "${gates[@]}" 2>&1 | tee ../../../evidence/conditional-lean-portable-accept.log
           LEAN_PATH=. lean --run CnfReplay.lean reject "${rejected[@]}" 2>&1 | tee ../../../evidence/conditional-lean-portable-reject.log
+          grep -Fx 'CRR_LEAN_PARSER_GRAMMAR_PASS controls=8' ../../../evidence/conditional-lean-portable-accept.log
+          grep -Fx 'CRR_LEAN_CLAUSE_GRAMMAR_PASS controls=8' ../../../evidence/conditional-lean-portable-accept.log
           grep -Fx 'CRR_LEAN_PORTABLE_SUMMARY mode=accept count=19' ../../../evidence/conditional-lean-portable-accept.log
           grep -Fx 'CRR_LEAN_PORTABLE_SUMMARY mode=reject count=11' ../../../evidence/conditional-lean-portable-reject.log
-          echo 'CRR_LEAN_CNF_REPLAY_PASS theorem_axiom_reports=8 definition_axiom_reports=18 executable_boolean_replay=true clause_semantics=true phase_weight_coverage=true parser_refinement=false rust_refinement=false'
+          echo 'CRR_LEAN_CNF_REPLAY_PASS theorem_axiom_reports=8 definition_axiom_reports=22 executable_boolean_replay=true clause_semantics=true phase_weight_coverage=true parser_refinement=false rust_refinement=false'
       - name: Prepare bounded native Conditional RR CodSpeed target
         if: env.CRR_PERF_STAGE == 'simulation'
         run: |

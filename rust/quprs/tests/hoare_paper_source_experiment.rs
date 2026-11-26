@@ -1337,6 +1337,45 @@ fn native_factor_scope_reference(){
     assert_eq!(result,vec![[8,0,0,0];2]);
     println!("HOARE_NATIVE_FACTOR_SCOPE sparse_checks=6561 width12_checks=4096 width_reject=true empty_bucket=true");
 }
+// Source-admitted widths and sparse positions; use direct positional
+// shifts as the oracle, independent of the native lowest-set-bit loop.
+#[test]
+fn native_packed_index_numeric_reference(){
+    fn check(mut positions:Vec<u32>)->usize{
+        positions.sort_unstable();
+        assert!(positions.windows(2).all(|w|w[0]<w[1]));
+        let mask=positions.iter().fold(0u64,|m,&p|m|(1u64<<p));
+        let direct=|a:u64|->usize{
+            positions.iter().enumerate().fold(0usize,|v,(j,&p)|v|((((a>>p)&1) as usize)<<j))
+        };
+        let count=1usize<<positions.len();
+        let table=factor::<1>(mask,|a|[direct(a) as i128]).unwrap();
+        assert_eq!(table.table.len(),count);
+        for i in 0..count{
+            let expected=positions.iter().enumerate().fold(0u64,|a,(j,&p)|a|((((i>>j)&1) as u64)<<p));
+            assert_eq!(deposit8(i,mask),expected);
+            assert_eq!(extract8(expected,mask),i);
+            let noisy=expected|!mask;
+            assert_eq!(extract8(noisy,mask),i);
+            assert_eq!(table.table[extract8(noisy,mask)],[i as i128]);
+        }
+        // Primitive truncation is not an admitted row index.
+        assert_eq!(deposit8(count,mask),deposit8(0,mask));
+        count
+    }
+    let strides=[5u32,11,13,17,19,23,25,29];
+    let mut rows=0usize;
+    for width in 0..=12u32{
+        for (j,&stride) in strides.iter().enumerate(){
+            rows+=check((0..width).map(|k|((j as u32)*7+k*stride)%63).collect());
+        }
+    }
+    for p in 0..63u32{rows+=check(vec![p]);}
+    assert_eq!(rows,65654);
+    // Bit 63 is excluded by source admission; primitive-only control.
+    assert_eq!(check(vec![63]),2);
+    println!("HOARE_NATIVE_PACKED_INDEX admitted_rows=65654 high_bit_primitive_rows=2 invalid_index_alias_controls=168 numeric_table=true");
+}
 fn factor<const N:usize>(scope:u64,mut f:impl FnMut(u64)->[i128;N])->Result<Factor<N>,&'static str>{
     if scope.count_ones()>12{return Err("WIDTH_LIMIT");}
     Ok(Factor{scope,table:(0..1usize<<scope.count_ones()).map(|i|f(deposit8(i,scope))).collect()})

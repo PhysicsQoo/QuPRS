@@ -147,6 +147,7 @@ jobs:
           grep -Fx 'HOARE_NATIVE_CYCLO_CHECKED cases=6561 boundary_cases=6 min_subtract=true overflow_reject=true' evidence/hoare-paper-source.log
           grep -Fx 'HOARE_NATIVE_CYCLO_BASIS_ASSOC cases=37449 degrees=1,2,4,8,16,32 double_wrap=true' evidence/hoare-paper-source.log
           grep -Fx 'HOARE_NATIVE_FACTOR_SCOPE sparse_checks=6561 width12_checks=4096 width_reject=true empty_bucket=true' evidence/hoare-paper-source.log
+          grep -Fx 'HOARE_NATIVE_PACKED_INDEX admitted_rows=65654 high_bit_primitive_rows=2 invalid_index_alias_controls=168 numeric_table=true' evidence/hoare-paper-source.log
           grep -Fx 'HOARE_NATIVE_TILING8_FAILURE recovered=4 partial_positive=3 partial_zero=3 unresolved=1' evidence/hoare-paper-source.log
           grep -Fx 'HOARE_NATIVE_TILING8_PARTIAL_RECOVERY retained=2048 recovered=2048 duplicate=0' evidence/hoare-paper-source.log
           for source in vchain noancilla; do
@@ -1176,6 +1177,25 @@ jobs:
             echo 'LEAN4_AFFINE_FULL_ASSIGNMENT_FAIL' >&2
           fi
 
+          packed_index_status=0
+          if test "$checked_order_status" -eq 0; then
+            LEAN_PATH=. lean AffinePackedIndex.lean 2>&1 | tee /tmp/qasm-lean-affine-packed-index.log || packed_index_status=$?
+            if grep -E 'sorryAx|Lean[.]trustCompiler|Classical[.]choice' /tmp/qasm-lean-affine-packed-index.log; then
+              packed_index_status=1
+            fi
+            test "$(grep -Ec 'does not depend on any axioms|depends on axioms' /tmp/qasm-lean-affine-packed-index.log)" -eq 10 || packed_index_status=1
+            for theorem in encode_bound decode_length decode_encode encode_decode decode_mem_rows expand_at_even expand_at_odd rows_at rows_at_encode materialized_numeric_lookup; do
+              test "$(grep -Ec "^'QuPRS[.]AffinePackedIndex[.]$theorem' (does not depend on any axioms|depends on axioms)" /tmp/qasm-lean-affine-packed-index.log)" -eq 1 || packed_index_status=1
+            done
+          else
+            packed_index_status=1
+          fi
+          if test "$packed_index_status" -eq 0; then
+            echo 'LEAN4_AFFINE_PACKED_INDEX_PASS theorem_axiom_reports=10 natural_index=true row_order=true numeric_table_lookup=true machine_word_refinement=false rust_refinement=false'
+          else
+            echo 'LEAN4_AFFINE_PACKED_INDEX_FAIL' >&2
+          fi
+
           incidence_status=0
           LEAN_PATH=. lean AffineNativeIncidence.lean 2>&1 | tee /tmp/qasm-lean-affine-incidence.log || incidence_status=$?
           if grep -E 'sorryAx|Lean[.]trustCompiler|Classical[.]choice' /tmp/qasm-lean-affine-incidence.log; then
@@ -1191,7 +1211,7 @@ jobs:
           else
             echo 'LEAN4_AFFINE_NATIVE_INCIDENCE_FAIL' >&2
           fi
-          test "$normalization_status" -eq 0 && test "$lift_status" -eq 0 && test "$incidence_status" -eq 0 && test "$negacyclic_status" -eq 0 && test "$checked_status" -eq 0 && test "$schedule_status" -eq 0 && test "$factor_scope_status" -eq 0 && test "$elimination_status" -eq 0 && test "$algebra_status" -eq 0 && test "$checked_factor_status" -eq 0 && test "$canonical_scope_status" -eq 0 && test "$checked_order_status" -eq 0 && test "$hidden_order_status" -eq 0 && test "$full_assignment_status" -eq 0
+          test "$normalization_status" -eq 0 && test "$lift_status" -eq 0 && test "$incidence_status" -eq 0 && test "$negacyclic_status" -eq 0 && test "$checked_status" -eq 0 && test "$schedule_status" -eq 0 && test "$factor_scope_status" -eq 0 && test "$elimination_status" -eq 0 && test "$algebra_status" -eq 0 && test "$checked_factor_status" -eq 0 && test "$canonical_scope_status" -eq 0 && test "$checked_order_status" -eq 0 && test "$hidden_order_status" -eq 0 && test "$full_assignment_status" -eq 0 && test "$packed_index_status" -eq 0
 
       - name: Build and test std-only independent verifier
         run: |

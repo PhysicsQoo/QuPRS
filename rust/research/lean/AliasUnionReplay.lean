@@ -36,22 +36,22 @@ def linkForest (f : Forest) (child par : Nat)
     intro v p h
     cases Nat.decEq v child with
     | isTrue he =>
-        rw [if_pos he] at h
+        rw [ite_eq_left he] at h
         have hpe := Option.some.inj h
         rw [he, ← hpe]
         exact ho
     | isFalse he =>
-        rw [if_neg he] at h
+        rw [ite_eq_right he] at h
         exact f.ordered v p h
   closed := by
     intro v p hv h
     cases Nat.decEq v child with
     | isTrue he =>
-        rw [if_pos he] at h
+        rw [ite_eq_left he] at h
         rw [← Option.some.inj h]
         exact hp
     | isFalse he =>
-        rw [if_neg he] at h
+        rw [ite_eq_right he] at h
         exact f.closed v p hv h
   input_live := f.input_live
   input_root := by
@@ -60,7 +60,7 @@ def linkForest (f : Forest) (child par : Nat)
       intro he
       rw [he] at hv
       exact (Nat.not_lt_of_ge hi) hv
-    rw [if_neg hn]
+    rw [ite_eq_right hn]
     exact f.input_root v hv
 
 /-- The child argument's live membership is retained explicitly in the
@@ -133,12 +133,12 @@ theorem step_preserves_entailment (qs : List ANF) (f g : Forest)
   rw [s.parent_update] at he
   cases Nat.decEq v s.child with
   | isTrue hvchild =>
-      rw [if_pos hvchild] at he
+      rw [ite_eq_left hvchild] at he
       have hpe := Option.some.inj he
       rw [hvchild, ← hpe]
       exact hr
   | isFalse hvchild =>
-      rw [if_neg hvchild] at he
+      rw [ite_eq_right hvchild] at he
       exact hf v p ((s.live_same v).mp hv) he
 
 /-- A replay begins with an empty parent map. Each accepted step carries

@@ -1242,6 +1242,28 @@ fn cyclo_mul<const N:usize>(a:[i128;N],b:[i128;N])->Option<[i128;N]>{
     }}Some(c)
 }
 #[test]
+fn native_cyclo_basis_associativity(){
+    fn check<const D:usize>()->usize{
+        let basis=|i:usize|{let mut v=[0i128;D];v[i]=1;v};
+        let mut checks=0;
+        for i in 0..D {for j in 0..D {for k in 0..D {
+            let a=basis(i);let b=basis(j);let c=basis(k);
+            let lhs=cyclo_mul(cyclo_mul(a,b).unwrap(),c).unwrap();
+            let rhs=cyclo_mul(a,cyclo_mul(b,c).unwrap()).unwrap();
+            let p=i+j+k;
+            let mut expected=[0i128;D];
+            expected[p%D]=if (p/D)%2==0{1}else{-1};
+            assert_eq!(lhs,expected);
+            assert_eq!(rhs,expected);
+            checks+=1;
+        }}}
+        checks
+    }
+    let checks=check::<1>()+check::<2>()+check::<4>()+check::<8>()+check::<16>()+check::<32>();
+    assert_eq!(checks,37449);
+    println!("HOARE_NATIVE_CYCLO_BASIS_ASSOC cases=37449 degrees=1,2,4,8,16,32 double_wrap=true");
+}
+#[test]
 fn native_cyclo_checked_boundaries(){
     // Direct subtraction can succeed even when negating the product cannot.
     assert_eq!(cyclo_mul::<4>([-1,0,0,i128::MIN],[1,1,0,0]),

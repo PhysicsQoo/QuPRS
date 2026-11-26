@@ -11,6 +11,7 @@ open QuPRS.AffineNegacyclic
 open QuPRS.AffineCyclotomicLift
 
 local instance (priority := 2000) : DecidableEq Nat := Nat.decEq
+local instance (priority := 2000) (a b : Nat) : Decidable (a < b) := Nat.decLt a b
 
 def total {X : Type} (f : X → Int) : List X → Int
   | [] => 0
@@ -31,7 +32,7 @@ theorem total_zero {X : Type} (xs : List X) :
   | nil => rfl
   | cons x xs ih =>
       change 0 + total (fun _ : X => 0) xs = 0
-      rw [ih]
+      rw [ih, Int.zero_add]
 
 theorem total_add {X : Type} (f g : X → Int) (xs : List X) :
     total (fun x => f x + g x) xs = total f xs + total g xs := by
@@ -201,11 +202,127 @@ theorem mul_one_coordinate (d k : Nat) (hk : k < d) (a : Nat → Int) :
       unfold coordinate
       rw [Nat.mod_eq_of_lt h2, ite_eq_right hnwrap]
       by_cases he : i = k
-      · rw [ite_eq_left he, Int.one_mul]
-      · rw [ite_eq_right he, Int.zero_mul]
+      · simp only [ite_eq_left he, Int.one_mul]
+      · simp only [ite_eq_right he, Int.zero_mul]
     _ = a k := by
       rw [total_delta a _ k hn, ite_eq_left hkMem]
 
+
+/-- Scalar multiplication can pass through exact finite sums. -/
+theorem total_mul_left {X : Type} (c : Int) (f : X → Int) (xs : List X) :
+    total (fun x => c * f x) xs = c * total f xs := by
+  induction xs with
+  | nil => exact (Int.mul_zero c).symm
+  | cons x xs ih =>
+      change c * f x + total (fun y => c * f y) xs = c * (f x + total f xs)
+      rw [ih, Int.mul_add]
+
+theorem total_mul_right {X : Type} (c : Int) (f : X → Int) (xs : List X) :
+    total (fun x => f x * c) xs = total f xs * c := by
+  induction xs with
+  | nil => exact (Int.zero_mul c).symm
+  | cons x xs ih =>
+      change f x * c + total (fun y => f y * c) xs = (f x + total f xs) * c
+      rw [ih, Int.add_mul]
+
+/-- Multiplying a basis exponent by X^d negates its signed coordinate,
+    including the double-wrap case. -/
+theorem coordinate_shift (d k p : Nat) (hk : k < d) :
+    coordinate d k (p+d) = -coordinate d k p := by
+  have hd : 0 < d := Nat.lt_of_le_of_lt (Nat.zero_le k) hk
+  let r := p % (2*d)
+  have hr : r < 2*d := Nat.mod_lt p (by omega)
+  have hdmod : d % (2*d) = d := Nat.mod_eq_of_lt (by omega)
+  have hm : (p+d) % (2*d) = (r+d) % (2*d) := by
+    rw [Nat.add_mod, hdmod]
+  unfold coordinate
+  rw [hm]
+  change (if (r+d) % (2*d) = k then 1 else
+      if (r+d) % (2*d) = k+d then -1 else 0) =
+    -(if r = k then 1 else if r = k+d then -1 else 0 : Int)
+  by_cases h : r < d
+  · have hlt : r+d < 2*d := by omega
+    have hne : r+d ≠ k := by omega
+    have hne' : r ≠ k+d := by omega
+    rw [Nat.mod_eq_of_lt hlt, ite_eq_right hne, ite_eq_right hne']
+    by_cases he : r = k
+    · have he' : r+d = k+d := congrArg (fun t => t+d) he
+      simp only [ite_eq_left he, ite_eq_left he']
+    · have he' : r+d ≠ k+d := by omega
+      simp only [ite_eq_right he, ite_eq_right he']
+  · have hge : 2*d ≤ r+d := by omega
+    have hlt : r+d-2*d < 2*d := by omega
+    have hdiff : r+d-2*d = r-d := by omega
+    have hw : (r+d) % (2*d) = (r+d-2*d) % (2*d) :=
+      (Nat.mod_eq_ite (r+d) (2*d)).trans (ite_eq_left ⟨by omega, hge⟩)
+    rw [hw, Nat.mod_eq_of_lt hlt, hdiff]
+    have hne : r ≠ k := by omega
+    have hne' : r-d ≠ k+d := by omega
+    rw [ite_eq_right hne, ite_eq_right hne']
+    by_cases he : r = k+d
+    · have he' : r-d = k := by omega
+      simp only [ite_eq_left he, ite_eq_left he']
+    · have he' : r-d ≠ k := by omega
+      simp only [ite_eq_right he, ite_eq_right he']
+
+/-- A bounded sum of two input exponents can be reduced before adding
+    the next exponent, with the wrap sign retained. -/
+theorem coordinate_reduce (d k p q : Nat) (hk : k < d) (hp : p < 2*d) :
+    coordinate d k (p+q) =
+      (if p < d then 1 else -1) * coordinate d k (p%d+q) := by
+  by_cases h : p < d
+  · rw [Nat.mod_eq_of_lt h, ite_eq_left h, Int.one_mul]
+  · have hd : d ≤ p := Nat.le_of_not_lt h
+    have hpos : 0 < d := Nat.lt_of_le_of_lt (Nat.zero_le k) hk
+    have hs : p-d < d := by omega
+    have hm : p % d = (p-d) % d :=
+      (Nat.mod_eq_ite p d).trans (ite_eq_left ⟨hpos, hd⟩)
+    rw [hm, Nat.mod_eq_of_lt hs, ite_eq_right h, Int.neg_mul, Int.one_mul]
+    have he : p+q = (p-d+q)+d := by omega
+    rw [he, coordinate_shift d k (p-d+q) hk]
+
+theorem coordinate_basis_delta (d l p : Nat) (hl : l < d) (hp : p < 2*d) :
+    coordinate d l p = if l = p%d then (if p < d then 1 else -1) else 0 := by
+  unfold coordinate
+  rw [Nat.mod_eq_of_lt hp]
+  have he := signed_select (P := p%d = l) (Q := p < d)
+    (R := p = l) (S := p = l+d) (1 : Int)
+    (wrap_positive d l p hl) (wrap_negative d l p hl hp)
+  rw [Int.mul_one] at he
+  calc
+    _ = (if p%d = l then (if p < d then 1 else -1) else 0) := he.symm
+    _ = _ := by
+      by_cases h : l = p%d
+      · simp only [ite_eq_left h, ite_eq_left h.symm]
+      · have hn : p%d ≠ l := fun hh => h hh.symm
+        simp only [ite_eq_right h, ite_eq_right hn]
+
+/-- The intermediate coefficient index can be summed out of a product
+    of two signed basis kernels. This is the associativity pivot. -/
+theorem basis_composition (d k p q : Nat) (hk : k < d) (hp : p < 2*d) :
+    total (fun l => coordinate d l p * coordinate d k (l+q)) (List.range d) =
+      coordinate d k (p+q) := by
+  have hd : 0 < d := Nat.lt_of_le_of_lt (Nat.zero_le k) hk
+  have hm : p%d ∈ List.range d := List.mem_range.mpr (Nat.mod_lt p hd)
+  calc
+    _ = total (fun l => if l = p%d then
+          (if p < d then 1 else -1) * coordinate d k (l+q) else 0) (List.range d) := by
+      apply total_congr
+      intro l hl
+      rw [coordinate_basis_delta d l p (List.mem_range.mp hl) hp]
+      by_cases he : l = p%d
+      · simp only [ite_eq_left he]
+      · simp only [ite_eq_right he, Int.zero_mul]
+    _ = (if p < d then 1 else -1) * coordinate d k (p%d+q) := by
+      rw [total_delta _ _ _ (range_nodup_constructive d), ite_eq_left hm]
+    _ = coordinate d k (p+q) := (coordinate_reduce d k p q hk hp).symm
+
+#print axioms total_mul_left
+#print axioms total_mul_right
+#print axioms coordinate_shift
+#print axioms coordinate_reduce
+#print axioms coordinate_basis_delta
+#print axioms basis_composition
 #print axioms total_congr
 #print axioms total_zero
 #print axioms total_add

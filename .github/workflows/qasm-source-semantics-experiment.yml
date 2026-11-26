@@ -145,6 +145,7 @@ jobs:
           grep -Fx 'HOARE_NATIVE_AFFINE_WORD_PARITY checks=262144 width=16 storage=64 high_bits=true' evidence/hoare-paper-source.log
           grep -Fx 'HOARE_NATIVE_AFFINE_INCIDENCE cases=256 checks=65536 sparse_ids=true constants=true empty=true deadline=true row_diversity=true one_hot=true' evidence/hoare-paper-source.log
           grep -Fx 'HOARE_NATIVE_CYCLO_CHECKED cases=6561 boundary_cases=6 min_subtract=true overflow_reject=true' evidence/hoare-paper-source.log
+          grep -Fx 'HOARE_NATIVE_CYCLO_BASIS_ASSOC cases=37449 degrees=1,2,4,8,16,32 double_wrap=true' evidence/hoare-paper-source.log
           grep -Fx 'HOARE_NATIVE_FACTOR_SCOPE sparse_checks=6561 width12_checks=4096 width_reject=true empty_bucket=true' evidence/hoare-paper-source.log
           grep -Fx 'HOARE_NATIVE_TILING8_FAILURE recovered=4 partial_positive=3 partial_zero=3 unresolved=1' evidence/hoare-paper-source.log
           grep -Fx 'HOARE_NATIVE_TILING8_PARTIAL_RECOVERY retained=2048 recovered=2048 duplicate=0' evidence/hoare-paper-source.log
@@ -1067,15 +1068,15 @@ jobs:
             if grep -E 'sorryAx|Lean[.]trustCompiler|Classical[.]choice' /tmp/qasm-lean-affine-cyclotomic-algebra.log; then
               algebra_status=1
             fi
-            test "$(grep -Ec 'does not depend on any axioms|depends on axioms' /tmp/qasm-lean-affine-cyclotomic-algebra.log)" -eq 14 || algebra_status=1
-            for theorem in total_congr total_zero total_add total_append total_map total_flatMap total_swap pair_sum_total mul_nested mul_comm mul_add mul_zero total_delta mul_one_coordinate; do
+            test "$(grep -Ec 'does not depend on any axioms|depends on axioms' /tmp/qasm-lean-affine-cyclotomic-algebra.log)" -eq 20 || algebra_status=1
+            for theorem in total_mul_left total_mul_right coordinate_shift coordinate_reduce coordinate_basis_delta basis_composition total_congr total_zero total_add total_append total_map total_flatMap total_swap pair_sum_total mul_nested mul_comm mul_add mul_zero total_delta mul_one_coordinate; do
               test "$(grep -Ec "^'QuPRS[.]AffineCyclotomicAlgebra[.]$theorem' (does not depend on any axioms|depends on axioms)" /tmp/qasm-lean-affine-cyclotomic-algebra.log)" -eq 1 || algebra_status=1
             done
           else
             algebra_status=1
           fi
           if test "$algebra_status" -eq 0; then
-            echo 'LEAN4_AFFINE_CYCLOTOMIC_ALGEBRA_PASS theorem_axiom_reports=14 native_pair_sum=true commutative=true distributive=true zero=true bounded_unit=true associative=false checked_reassociation=false'
+            echo 'LEAN4_AFFINE_CYCLOTOMIC_ALGEBRA_PASS theorem_axiom_reports=20 native_pair_sum=true commutative=true distributive=true zero=true bounded_unit=true basis_composition=true associative=false checked_reassociation=false'
           else
             echo 'LEAN4_AFFINE_CYCLOTOMIC_ALGEBRA_FAIL' >&2
           fi

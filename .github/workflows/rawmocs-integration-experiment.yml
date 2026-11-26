@@ -10,7 +10,7 @@ on:
       suite:
         description: Experimental evidence suite
         type: choice
-        options: [legacy, cross-family, source-admission, root-profile, factor-classes, sparse-anchor, prefix-memo, axis-profile, direct-binary, operand-profile, pool-profile, last-use-donor, masked-donor, descendant-units, inplace-scan, inplace-branch, move-components, borrowed-cache, general-cumulative, general-simulation-repair, general-native-gpmc, scope-scratch, streaming-large-general, large-root-closure, large-descendant-closure, fixed-work-descendant, large-general-candidate, long-native-candidate]
+        options: [legacy, cross-family, source-admission, root-profile, factor-classes, sparse-anchor, prefix-memo, axis-profile, direct-binary, operand-profile, pool-profile, last-use-donor, masked-donor, descendant-units, inplace-scan, inplace-branch, move-components, borrowed-cache, general-cumulative, general-simulation-repair, general-native-gpmc, scope-scratch, streaming-large-general, large-root-closure, large-descendant-closure, fixed-work-descendant, large-general-candidate, long-native-candidate, default-parser-isolation]
         default: legacy
 permissions:
   contents: read
@@ -2019,7 +2019,7 @@ jobs:
           if-no-files-found: warn
 
   large-general-candidate:
-    if: github.event_name == 'push' || inputs.suite == 'large-general-candidate'
+    if: github.event_name == 'workflow_dispatch' && inputs.suite == 'large-general-candidate'
     name: Clean large General candidate / original source admission
     runs-on: ubuntu-24.04
     timeout-minutes: 8
@@ -2147,7 +2147,7 @@ jobs:
           if-no-files-found: warn
 
   long-native-candidate:
-    if: github.event_name == 'push' || inputs.suite == 'long-native-candidate'
+    if: github.event_name == 'workflow_dispatch' && inputs.suite == 'long-native-candidate'
     name: Candidate native auto / GPMC / ${{ matrix.case }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
@@ -2284,5 +2284,143 @@ jobs:
         with:
           name: rawmocs-long-native-candidate-${{ matrix.case }}
           path: .candidate-native/
+          include-hidden-files: true
+          if-no-files-found: warn
+
+  default-parser-isolation:
+    if: github.event_name == 'push' || inputs.suite == 'default-parser-isolation'
+    name: Default parser isolation / ${{ matrix.case }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    strategy:
+      fail-fast: false
+      matrix:
+        case: [qpeinexact22-432, grover6-432, gf2-7-333]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: PhysicsQoo/RaWMoCS
+          ref: a2499049b83d6e2860c6a9382f3981942f14106b
+          path: .classes-candidate
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: PhysicsQoo/RaWMoCS
+          ref: 92a28a2c621cdd98a9593664e5a1cc83c8519b25
+          path: .long-baseline
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: PhysicsQoo/RaWMoCS
+          ref: f75b525a54d5656c990b109318d4a8a0a454420a
+          path: .parser-isolated
+          persist-credentials: false
+      - name: Retrieve exact original independently regenerated corpus
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          zip="$RUNNER_TEMP/rawmocs-corpus.zip"
+          gh api repos/PhysicsQoo/RaWMoCS/actions/artifacts/15084476883/zip > "$zip"
+          echo '6ad6683a489057deffb6537c60600e13e38e0586f1dc4e40aa87a4e1da1c8e72  '"$zip" | sha256sum -c -
+          unzip -q "$zip" -d .release-rebuild
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            .classes-candidate/crates/rawmocs-cli -> target
+            .long-baseline/crates/rawmocs-cli -> target
+            .parser-isolated/crates/rawmocs-cli -> target
+          shared-key: rawmocs-parser-ablation
+          cache-workspace-crates: 'false'
+      - name: Build three exact locked binaries
+        run: |
+          set -euo pipefail
+          test "$(git -C .classes-candidate rev-parse HEAD)" = a2499049b83d6e2860c6a9382f3981942f14106b
+          test "$(git -C .long-baseline rev-parse HEAD)" = 92a28a2c621cdd98a9593664e5a1cc83c8519b25
+          test "$(git -C .parser-isolated rev-parse HEAD)" = f75b525a54d5656c990b109318d4a8a0a454420a
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libgmp-dev libmpfr-dev m4 make gcc time pkg-config
+          for repo in .long-baseline .classes-candidate .parser-isolated; do
+            cargo build --locked --release --manifest-path "$repo/crates/rawmocs-cli/Cargo.toml"
+          done
+          cargo test --locked --release --manifest-path .parser-isolated/crates/rawmocs-cli/Cargo.toml
+      - name: Six balanced matched triples and internal solve timing
+        env:
+          CASE: ${{ matrix.case }}
+        run: |
+          set -euo pipefail
+          mkdir -p .parser-evidence
+          python3 - <<'PY'
+          import hashlib,itertools,json,os,re,statistics,subprocess,sys,time
+          from pathlib import Path
+          root=Path(".parser-evidence").resolve()
+          sys.path.insert(0,str(Path(".classes-candidate/crates/rawmocs-cli/tools").resolve()))
+          from release_transfer import CASES,check_count
+          from release_native_paired import parse
+          from regenerate_release import PIN,DIGITS
+          def digest(p): return hashlib.sha256(p.read_bytes()).hexdigest()
+          label=os.environ["CASE"]
+          _,_,_,expected,bits=next(c for c in CASES if c[0]==label)
+          digits,target=DIGITS[bits]
+          corpus=Path(".release-rebuild")
+          src=corpus/label.rsplit("-",1)[0]
+          cnf,=src.glob("*-gpmc.cnf")
+          refpath=src/"independent-reference.json"
+          ref=json.loads(refpath.read_text())
+          regen=json.loads((corpus/"regeneration.json").read_text())
+          assert regen["status"]=="REGENERATION_COMPLETE" and regen["quprs_revision"]==PIN
+          certified,=[x for x in regen["cohorts"] if x["label"]==label]
+          assert certified["status"]=="PASS" and certified["bits"]==bits and certified["target"]==target
+          assert certified["reference_sha256"]==digest(refpath) and digest(cnf)==expected==ref["source_sha256"]
+          assert ref["status"] in ("INDEPENDENT_INTERVAL_COMPLETE","INDEPENDENT_FIXED_INTERVAL_COMPLETE") and ref["bits"]==550
+          assert ref["width"]<=19 and ref["work"]<=40000000 and ref["peak"]<=2000000
+          if ref["status"]=="INDEPENDENT_FIXED_INTERVAL_COMPLETE": assert ref["order_policy"] in ("fill-reverse","degree-reverse")
+          arms={"main":(".long-baseline","92a28a2c621cdd98a9593664e5a1cc83c8519b25"),"shared":(".classes-candidate","a2499049b83d6e2860c6a9382f3981942f14106b"),"isolated":(".parser-isolated","f75b525a54d5656c990b109318d4a8a0a454420a")}
+          binaries={a:Path(p+"/crates/rawmocs-cli/target/release/rawmocs").resolve() for a,(p,sha) in arms.items()}
+          report={"case":label,"scope":"Default auto mode parser isolation; wall minus solve is a proxy including startup, parsing and process teardown, not measured parsing alone","digits":digits,"bits":bits,"target":target,"source_sha256":expected,"witness_sha256":digest(refpath),"revisions":{a:sha for a,(p,sha) in arms.items()},"binaries":{a:digest(p) for a,p in binaries.items()},"rows":[]}
+          def save(): (root/"report.json").write_text(json.dumps(report,indent=2)+"\n")
+          save()
+          for i,order in enumerate(itertools.permutations(arms)):
+              for arm in order:
+                  assert digest(cnf)==expected and digest(refpath)==report["witness_sha256"]
+                  prefix=root/f"{i}-{arm}"
+                  start=time.monotonic_ns()
+                  p=subprocess.run(["timeout","-k","2s","30s","prlimit","--as=3221225472","--","/usr/bin/time","-f","%M","-o",str(prefix.with_suffix(".rss")),str(binaries[arm]),"--digits",str(digits),"--timeout-ms","30000",str(cnf.resolve())],env={k:v for k,v in os.environ.items() if not k.startswith("RAWMOCS_RESEARCH_")},capture_output=True,text=True,timeout=37)
+                  row={"trial":i,"arm":arm,"exit":p.returncode,"wall_ns":time.monotonic_ns()-start}
+                  report["rows"].append(row)
+                  prefix.with_suffix(".stdout").write_text(p.stdout)
+                  prefix.with_suffix(".stderr").write_text(p.stderr)
+                  rss=prefix.with_suffix(".rss")
+                  if rss.exists():
+                      vals=[v for v in rss.read_text().splitlines() if v.strip().isdigit()]
+                      if len(vals)==1: row["rss_kib"]=int(vals[0])
+                  save()
+                  assert p.returncode==0,(label,arm,p.returncode,p.stderr[-1000:])
+                  row.update(parse(p.stdout,"rawmocs"))
+                  route,solve_ns=re.findall(r"^RAWMOCS_COMPLETE route=(\w+) digits="+str(digits)+r" bits="+str(bits)+r" solve_ns=(\d+)$",p.stderr,re.M)[0]
+                  row["route"]=route
+                  row["solve_ns"]=int(solve_ns)
+                  assert 0<row["solve_ns"]<=row["wall_ns"]
+                  row["outside_solve_ns"]=row["wall_ns"]-row["solve_ns"]
+                  row["witness_upper"]=check_count(row,ref,target)
+                  row["stdout_sha256"]=hashlib.sha256(p.stdout.encode()).hexdigest()
+                  row["status"]="WITNESSED_PASS"
+                  save()
+              assert len({r["stdout_sha256"] for r in report["rows"]})==1
+              assert len({r["route"] for r in report["rows"]})==1
+          rows=report["rows"]
+          assert len(rows)==18
+          report["median"]={a:{k:statistics.median(r[k] for r in rows if r["arm"]==a) for k in ("wall_ns","solve_ns","outside_solve_ns","rss_kib")} for a in arms}
+          report["paired_wall_ratio"]={a:[next(r["wall_ns"] for r in rows if r["arm"]==a and r["trial"]==i)/next(r["wall_ns"] for r in rows if r["arm"]=="main" and r["trial"]==i) for i in range(6)] for a in ("shared","isolated")}
+          report["status"]="SIX_BALANCED_TRIPLES_PASS"
+          save()
+          print("DEFAULT_PARSER_FINAL",json.dumps(report),flush=True)
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: rawmocs-default-parser-isolation-${{ matrix.case }}
+          path: .parser-evidence/
           include-hidden-files: true
           if-no-files-found: warn

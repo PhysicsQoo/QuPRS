@@ -907,7 +907,7 @@ jobs:
           done
           echo 'LEAN4_AFFINE_OUTPUT_QUOTIENT_PASS theorem_axiom_reports=9 conditional_certificate=true fixed_first=true fibre_preservation=true rust_refinement=false'
 
-          LEAN_PATH=. lean AffineOutputChecker.lean 2>&1 | tee /tmp/qasm-lean-affine-checker.log
+          LEAN_PATH=. lean -o AffineOutputChecker.olean AffineOutputChecker.lean 2>&1 | tee /tmp/qasm-lean-affine-checker.log
           if grep -E 'sorryAx|Lean[.]trustCompiler|Classical[.]choice' /tmp/qasm-lean-affine-checker.log; then
             echo 'Unexpected affine certificate checker theorem axiom dependency' >&2
             exit 1
@@ -918,7 +918,7 @@ jobs:
           done
           echo 'LEAN4_AFFINE_OUTPUT_CHECKER_PASS theorem_axiom_reports=10 coefficient_columns=true reconstruction_all_valuations=true fixed_support=true target_consistency=true rust_mask_refinement=false'
 
-          LEAN_PATH=. lean AffineOutputMask.lean 2>&1 | tee /tmp/qasm-lean-affine-mask.log
+          LEAN_PATH=. lean -o AffineOutputMask.olean AffineOutputMask.lean 2>&1 | tee /tmp/qasm-lean-affine-mask.log
           if grep -E 'sorryAx|Lean[.]trustCompiler|Classical[.]choice' /tmp/qasm-lean-affine-mask.log; then
             echo 'Unexpected affine output mask theorem axiom dependency' >&2
             exit 1
@@ -928,6 +928,17 @@ jobs:
             test "$(grep -Ec "^'QuPRS[.]AffineOutputMask[.]$theorem' (does not depend on any axioms|depends on axioms)" /tmp/qasm-lean-affine-mask.log)" -eq 1
           done
           echo 'LEAN4_AFFINE_OUTPUT_MASK_PASS theorem_axiom_reports=14 lsb_decode=true word_dot=true support_subset=true modeled_popcount=true rust_intrinsic_refinement=false'
+
+          LEAN_PATH=. lean AffineOutputWordCertificate.lean 2>&1 | tee /tmp/qasm-lean-affine-word-cert.log
+          if grep -E 'sorryAx|Lean[.]trustCompiler|Classical[.]choice' /tmp/qasm-lean-affine-word-cert.log; then
+            echo 'Unexpected affine word certificate theorem axiom dependency' >&2
+            exit 1
+          fi
+          test "$(grep -Ec 'does not depend on any axioms|depends on axioms' /tmp/qasm-lean-affine-word-cert.log)" -eq 8
+          for theorem in word_row_premises project_parity restore_project restore_left_inverse restore_injective target_word_iff word_certificate_sound word_fibre_preserved; do
+            test "$(grep -Ec "^'QuPRS[.]AffineOutputWordCertificate[.]$theorem' (does not depend on any axioms|depends on axioms)" /tmp/qasm-lean-affine-word-cert.log)" -eq 1
+          done
+          echo 'LEAN4_AFFINE_WORD_CERTIFICATE_PASS theorem_axiom_reports=8 supported_basis=true word_certificate=true coefficient_fibres=true native_incidence_refinement=false'
 
       - name: Build and test std-only independent verifier
         run: |

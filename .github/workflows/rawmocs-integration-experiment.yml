@@ -10,7 +10,7 @@ on:
       suite:
         description: Experimental evidence suite
         type: choice
-        options: [legacy, cross-family, source-admission, root-profile, factor-classes, sparse-anchor, prefix-memo, axis-profile, direct-binary, operand-profile, pool-profile, last-use-donor, masked-donor, descendant-units, inplace-scan, inplace-branch, move-components, borrowed-cache, general-cumulative, general-simulation-repair, general-native-gpmc, scope-scratch, streaming-large-general, large-root-closure, large-descendant-closure, fixed-work-descendant, large-general-candidate, long-native-candidate, default-parser-isolation, scope-scratch-fair, scope-scratch-candidate, large-root-ownership, root-ownership-port, packed-index-scratch, owned-entry-isolation, root-long-regression, reversible-index-state, reversible-canonical-boundary, historical-gap-baseline, reversible-frontier-transitions, reversible-ordered-frontier, historical-grover5, grover5-precision-audit, grover5-seven-pairs, reversible-rank-generation, reversible-single-unit-queue, component-scoped-trail-wmc, scoped-complete-ablation, scoped-adaptive-ablation, scoped-local-allocation, scoped-canonical-reuse, scoped-preindex-cache, general-pivot-scout, general-separator-scout, general-separator-paired, general-separator-transfer, general-separator-cli, general-separator-admission, general-separator-prehash]
+        options: [legacy, cross-family, source-admission, root-profile, factor-classes, sparse-anchor, prefix-memo, axis-profile, direct-binary, operand-profile, pool-profile, last-use-donor, masked-donor, descendant-units, inplace-scan, inplace-branch, move-components, borrowed-cache, general-cumulative, general-simulation-repair, general-native-gpmc, scope-scratch, streaming-large-general, large-root-closure, large-descendant-closure, fixed-work-descendant, large-general-candidate, long-native-candidate, default-parser-isolation, scope-scratch-fair, scope-scratch-candidate, large-root-ownership, root-ownership-port, packed-index-scratch, owned-entry-isolation, root-long-regression, reversible-index-state, reversible-canonical-boundary, historical-gap-baseline, reversible-frontier-transitions, reversible-ordered-frontier, historical-grover5, grover5-precision-audit, grover5-seven-pairs, reversible-rank-generation, reversible-single-unit-queue, component-scoped-trail-wmc, scoped-complete-ablation, scoped-adaptive-ablation, scoped-local-allocation, scoped-canonical-reuse, scoped-preindex-cache, general-pivot-scout, general-separator-scout, general-separator-paired, general-separator-transfer, general-separator-cli, general-separator-admission, general-separator-prehash, general-auto-fallback-scout]
         default: legacy
 permissions:
   contents: read
@@ -6274,7 +6274,7 @@ jobs:
           if-no-files-found: warn
 
   general-separator-prehash:
-    if: github.event_name == 'push' || inputs.suite == 'general-separator-prehash'
+    if: github.event_name == 'workflow_dispatch' && inputs.suite == 'general-separator-prehash'
     name: General separator prehash / ${{ matrix.case }} / ${{ matrix.digits }} digits
     runs-on: ubuntu-24.04
     timeout-minutes: 12
@@ -6522,5 +6522,223 @@ jobs:
           path: |
             .separator-prehash-evidence/
             codspeed-separator-prehash.generated.yml
+          include-hidden-files: true
+          if-no-files-found: warn
+
+  general-auto-fallback-scout:
+    if: github.event_name == 'push' || inputs.suite == 'general-auto-fallback-scout'
+    name: Actual auto fallback scout / ${{ matrix.case }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - case: qft24
+            source: benchmarks/MQTBench/qiskit-2.6.1-opt0/Random_Rotation/qft_nativegates_ibm_qiskit_opt0_24.qasm
+            blob: 9f297e561a68eda2e77a6351b13792b0ca884ea4
+          - case: qpeexact24
+            source: benchmarks/MQTBench/qiskit-2.6.1-opt0/Random_Rotation/qpeexact_nativegates_ibm_qiskit_opt0_24.qasm
+            blob: 256536ec773db467601ea892bb18391b784701db
+          - case: qpeinexact24
+            source: benchmarks/MQTBench/qiskit-2.6.1-opt0/Random_Rotation/qpeinexact_nativegates_ibm_qiskit_opt0_24.qasm
+            blob: c68de53000f2cfb85725da80afebe0232a7a8654
+          - case: qaoa11
+            source: benchmarks/MQTBench/qiskit-2.6.1-opt0/Random_Rotation/qaoa_nativegates_ibm_qiskit_opt0_11.qasm
+            blob: e53f544db14d6dc1b81e91b7a04b087c4da54dcc
+          - case: qcla_mod_7
+            source: benchmarks/Feynman/qcla_mod_7.qasm
+            blob: f362382c10a7bce6180a60a052a6546dc8857337
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: PhysicsQoo/RaWMoCS
+          ref: 48693d6a8e767170cce6e942add2fb6371e27fe7
+          path: .classes-candidate
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: PhysicsQoo/QuPRS
+          ref: 0b28736651b3740ed3b201edd2efdef3da541e0d
+          path: .upstream/quprs
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: PhysicsQoo/GPMC
+          ref: 89bbc89d0de918e7a5385740355df55765039230
+          path: .gpmc
+          submodules: recursive
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            .classes-candidate/crates/rawmocs-cli -> target
+            .upstream/quprs/rust -> target
+          shared-key: rawmocs-auto-fallback-scout
+          cache-workspace-crates: 'false'
+      - name: Build pinned exporter and native solvers
+        env:
+          SOURCE: ${{ matrix.source }}
+          BLOB: ${{ matrix.blob }}
+        run: |
+          set -euo pipefail
+          test "$(git -C .classes-candidate rev-parse HEAD)" = 48693d6a8e767170cce6e942add2fb6371e27fe7
+          test "$(git -C .upstream/quprs rev-parse HEAD)" = 0b28736651b3740ed3b201edd2efdef3da541e0d
+          test "$(git -C .gpmc rev-parse HEAD)" = 89bbc89d0de918e7a5385740355df55765039230
+          test "$(git -C .upstream/quprs rev-parse "HEAD:$SOURCE")" = "$BLOB"
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends cmake ninja-build libgmp-dev libmpfr-dev zlib1g-dev m4 make gcc time pkg-config
+          mkdir -p .auto-fallback-evidence
+          repro=.classes-candidate/crates/rawmocs-cli/tools/repro
+          test "$(git -C .classes-candidate hash-object crates/rawmocs-cli/tools/repro/quprs_long_tail_source_bridge.rs)" = fc32f4e8b0a2f34386b86e08ddf147469275c245
+          cp "$repro/quprs_long_tail_source_bridge.rs" .upstream/quprs/rust/quprs/examples/
+          cargo build --locked --release --no-default-features --manifest-path .upstream/quprs/rust/Cargo.toml -p quprs --example quprs_long_tail_source_bridge
+          cargo test --locked --release --manifest-path .classes-candidate/crates/rawmocs-cli/Cargo.toml 2>&1 | tee .auto-fallback-evidence/science.log
+          cargo build --locked --release --manifest-path .classes-candidate/crates/rawmocs-cli/Cargo.toml
+          cmake -S .gpmc -B .gpmc/build -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake --build .gpmc/build --target gpmc-bin --parallel 2
+      - name: One bounded original-CNF scout; gate on actual fallback
+        env:
+          CASE: ${{ matrix.case }}
+          SOURCE: ${{ matrix.source }}
+          BLOB: ${{ matrix.blob }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib,json,os,re,subprocess,sys,time
+          from fractions import Fraction
+          from pathlib import Path
+          root=Path(".auto-fallback-evidence").resolve()
+          q=Path(".upstream/quprs").resolve()
+          cli=Path(".classes-candidate/crates/rawmocs-cli").resolve()
+          sys.path.insert(0,str(cli/"tools"))
+          from release_transfer import check_count
+          from release_native_paired import parse
+          case=os.environ["CASE"]
+          rel=os.environ["SOURCE"]
+          label="extended_"+case
+          bins={"rawmocs":cli/"target/release/rawmocs","gpmc":Path(".gpmc/build/gpmc").resolve()}
+          def sha(p): return hashlib.sha256(p.read_bytes()).hexdigest()
+          report={"case":case,"source_path":rel,"qasm_blob":os.environ["BLOB"],"qasm_sha256":sha(q/rel),"quprs_sha":"0b28736651b3740ed3b201edd2efdef3da541e0d","rawmocs_sha":"48693d6a8e767170cce6e942add2fb6371e27fe7","gpmc_sha":"89bbc89d0de918e7a5385740355df55765039230","binary_sha256":{k:sha(v) for k,v in bins.items()},"digits":130,"bits":432,"target":100,"status":"IN_PROGRESS","rows":{},"scope":"single scout, never a speed ratio; actual auto fallback only"}
+          def save(): (root/"report.json").write_text(json.dumps(report,indent=2)+"\n")
+          def finish(status):
+              report["status"]=status
+              save()
+              print("AUTO_FALLBACK_SCOUT_REPORT",json.dumps(report),flush=True)
+          def bounded(cmd,seconds,tag):
+              start=time.monotonic_ns()
+              p=subprocess.run(["timeout","-k","2s",str(seconds),"prlimit","--as=3221225472","--",*map(str,cmd)],capture_output=True,text=True,timeout=seconds+7)
+              (root/f"{tag}.stdout").write_text(p.stdout)
+              (root/f"{tag}.stderr").write_text(p.stderr)
+              return p,(time.monotonic_ns()-start)/1e9
+          save()
+          exporter=q/"rust/target/release/examples/quprs_long_tail_source_bridge"
+          p,elapsed=bounded([exporter,label,q,root,rel],30,"export")
+          if p.returncode:
+              report["export"]={"exit":p.returncode,"wall_s":elapsed}
+              finish("EXPORT_NOT_ADMITTED")
+              sys.exit(0)
+          cnf=root/(label+"-gpmc.cnf")
+          assert (root/(label+".qasm")).read_bytes()==(q/rel).read_bytes()
+          expected=sha(cnf)
+          report["cnf_sha256"]=expected
+          header=cnf.open().readline().split()
+          assert header[:2]==["p","cnf"] and len(header)==4
+          report["variables"],report["clauses"]=map(int,header[2:])
+          report["cnf_bytes"]=cnf.stat().st_size
+          save()
+          def solve(arm,seconds):
+              assert sha(cnf)==expected
+              rss=root/f"{arm}.rss"
+              cmd=[bins["gpmc"],"-mode=1","-prec=130",cnf] if arm=="gpmc" else [bins["rawmocs"],"--digits","130","--solver",arm,"--timeout-ms",str((seconds-2)*1000),cnf]
+              p,elapsed=bounded(["/usr/bin/time","-f","%M","-o",rss,*cmd],seconds,arm)
+              row={"exit":p.returncode,"wall_s":elapsed}
+              if rss.exists():
+                  values=[int(x) for x in rss.read_text().splitlines() if x.isdigit()]
+                  if len(values)==1: row["rss_kib"]=values[0]
+              if arm!="gpmc":
+                  row["fallback_reasons"]=re.findall(r"^RAWMOCS_FALLBACK reason=(.+)$",p.stderr,re.M)
+                  assert len(row["fallback_reasons"])<=1
+              if p.returncode==0:
+                  row.update(parse(p.stdout,"gpmc" if arm=="gpmc" else "rawmocs"))
+                  if arm=="gpmc":
+                      assert re.findall(r"^c o precision (\d+)\s*$",p.stdout,re.M)==["130"]
+                  else:
+                      route,=re.findall(r"^RAWMOCS_COMPLETE route=([a-z-]+) digits=130 bits=432 ",p.stderr,re.M)
+                      row["route"]=route
+                      stats=re.findall(r"^RAWMOCS_SEPARATOR_COMPLETE checks=(\d+) overrides=(\d+)$",p.stderr,re.M)
+                      if route=="general-separator":
+                          assert len(stats)==1
+                          row["separator_checks"],row["separator_overrides"]=map(int,stats[0])
+                      else: assert not stats
+                  row["status"]="COMPLETE_UNWITNESSED"
+              elif p.returncode==124 or (arm!="gpmc" and p.returncode==4 and "RAWMOCS_FAILURE kind=TIMEOUT" in p.stderr):
+                  if arm!="gpmc": assert not p.stdout
+                  row["status"]="CENSORED_TIMEOUT"
+              else:
+                  if arm!="gpmc": assert not p.stdout
+                  row["status"]="EXECUTION_ERROR"
+              assert sha(cnf)==expected
+              report["rows"][arm]=row
+              save()
+              return row
+          auto=solve("auto",90)
+          if auto.get("route")=="prejoin":
+              assert not auto["fallback_reasons"]
+              finish("AUTO_PREJOIN_NO_GENERAL_STUDY")
+              sys.exit(0)
+          if not auto.get("fallback_reasons") and auto.get("route")!="general":
+              finish("AUTO_NO_PROVEN_FALLBACK")
+              sys.exit(0)
+          gpmc=solve("gpmc",120)
+          if gpmc["status"]!="COMPLETE_UNWITNESSED":
+              finish("GPMC_NOT_COMPLETED_NO_SEPARATOR_REPEAT")
+              sys.exit(0)
+          if gpmc["wall_s"]<10:
+              finish("SHORT_GPMC_COMPLETER_NOT_LONG_COHORT")
+              sys.exit(0)
+          ref=None
+          for name in ("original_exact_prejoin.py","original_fixed_interval.py"):
+              p,_=bounded([sys.executable,cli/"tools/repro"/name,cnf,expected],45,name)
+              if p.returncode: continue
+              candidate=json.loads(p.stdout)
+              if name=="original_fixed_interval.py":
+                  assert "FIXED_INTERVAL_SELF_TEST PASS" in p.stderr
+                  candidate["status"]="INDEPENDENT_FIXED_INTERVAL_COMPLETE"
+              if candidate.get("status") not in ("INDEPENDENT_INTERVAL_COMPLETE","INDEPENDENT_FIXED_INTERVAL_COMPLETE"): continue
+              assert candidate["source_sha256"]==expected and candidate["bits"]==550 and type(candidate["sat"]) is bool
+              assert candidate["width"]<=19 and candidate["work"]<=40000000 and candidate["peak"]<=2000000
+              for k in ("real","imag"):
+                  a,b=map(Fraction,candidate[k]); assert a<=b
+              ref=candidate
+              break
+          if ref is None:
+              finish("LONG_GPMC_COMPLETER_WITNESS_UNAVAILABLE")
+              sys.exit(0)
+          (root/"independent-reference.json").write_text(json.dumps(ref,indent=2)+"\n")
+          report["witness_sha256"]=sha(root/"independent-reference.json")
+          for row in report["rows"].values():
+              if row["status"]=="COMPLETE_UNWITNESSED":
+                  row["witness_upper"]=check_count(row,ref,100)
+                  row["status"]="WITNESSED_PASS"
+          save()
+          sep=solve("auto-separator",90)
+          if sep["status"]=="COMPLETE_UNWITNESSED":
+              assert sep["route"]=="general-separator"
+              assert sep["fallback_reasons"]==auto["fallback_reasons"]
+              sep["witness_upper"]=check_count(sep,ref,100)
+              sep["status"]="WITNESSED_PASS"
+              finish("LONG_GPMC_FALLBACK_SEPARATOR_WITNESSED")
+          else:
+              finish("LONG_GPMC_FALLBACK_SEPARATOR_NOT_COMPLETE")
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: rawmocs-auto-fallback-scout-${{ matrix.case }}
+          path: .auto-fallback-evidence/
           include-hidden-files: true
           if-no-files-found: warn

@@ -4853,7 +4853,7 @@ jobs:
                   assert len({p["source_clauses"] for p in c["phases"].values()})==1
                   assert len({p["slots"] for p in c["phases"].values()})==1
                   for mode,p in c["phases"].items():
-                      assert p["fresh_shortcuts"]==(int(c["traces"][mode]["indexes"]) if mode in ("2","4") else 0)
+                      assert p["fresh_shortcuts"]==(int(c["traces"][int(mode)]["indexes"]) if mode in ("2","4") else 0)
                       assert 0<=p["unchanged_residuals"]<=p["reused_residuals"]
                       if mode in ("1","2"): assert p["reused_residuals"]==0
                       else: assert p["reused_residuals"]>0

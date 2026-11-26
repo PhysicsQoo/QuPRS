@@ -29,7 +29,9 @@ theorem column_decode {n : Nat} (one : Fin n → BitVec n)
     (hone : ∀ j k, decode (one j) k = decide (k = j)) :
     decode (buildColumn one p js) i = (decide (i ∈ js) && p i) := by
   induction js with
-  | nil => simp [buildColumn, decode_zero]
+  | nil =>
+      change decode (0 : BitVec n) i = false
+      exact decode_zero i
   | cons j js ih =>
       by_cases he : i = j
       · subst j
@@ -147,8 +149,12 @@ theorem native_incidence_eval {n : Nat} {M : Type} [DecidableEq M]
   apply congrArg (bx (constant i))
   apply parity_congr
   intro m _
-  rw [rowColumn, full_column_decode one _ i hone]
-  cases ha : active m <;> cases hm : decide (m ∈ terms i) <;> rfl
+  have hcol : decode (rowColumn one terms m) i = decide (m ∈ terms i) := by
+    exact full_column_decode one (fun j => decide (m ∈ terms j)) i hone
+  change (if decide (m ∈ terms i) then active m else false) =
+    (if active m then decode (rowColumn one terms m) i else false)
+  rw [hcol]
+  cases active m <;> cases decide (m ∈ terms i) <;> rfl
 
 theorem native_word_reconstruction {n : Nat} {M : Type} [DecidableEq M]
     (keys : List M) (one : Fin n → BitVec n) (terms : Fin n → List M)

@@ -2742,6 +2742,237 @@ theorem accepted_constrained_phase_sum {P A : Type} [Zero P] [Add P]
   rw [accepted_residual_guard n rs cs ws hr gs hgs v,
     accepted_source_phase_sum n rs cs ws hr es hs interpret v]
 
+
+-- Portable reduction ledger v2. Structural replay is independent of
+-- the Rust ledger observer. Local alias/substitution/HH/omega
+-- semantic certificates are deliberately NOT inferred by this gate.
+structure LedgerSnap where
+  raw : Token
+  n : Nat
+  live : List Nat
+  phaseText : Token
+  rowText : Token
+  phaseSupport : List (List Nat)
+  constraints : List (List (List Nat))
+
+def parseLedgerPhase (s : Token) : Option (List Nat) :=
+  match splitBytes 58 s with
+  | [m,tn,td,rn,rd] => do
+    let ids ← parseGuardMono m
+    let e ← parsePhaseEntry ([99,111,101,102] :: [48] :: tn :: td :: rn :: rd ::
+      (if m == [45] then [] else splitBytes 44 m))
+    if natListEq ids e.source then some ids else none
+  | _ => none
+
+def parseLedgerPoly (s : Token) : Option (List (List Nat)) :=
+  if s == [126] then some [] else (splitBytes 58 s).mapM parseGuardMono
+
+def parseLedgerSnap (s : Token) : Option LedgerSnap :=
+  match splitBytes 59 s with
+  | [n,live,phase,cs] => do
+    let n ← parseNatToken n
+    let ids ← parseGuardMono live
+    let ps ← if phase == [126] then some [] else (splitBytes 124 phase).mapM parseLedgerPhase
+    let rows ← if cs == [33] then some [] else (splitBytes 124 cs).mapM parseLedgerPoly
+    if natLE n 4096 && uniqueIds ids && inputsKnown ids (List.range n) &&
+        ps.all (fun m => uniqueIds m && inputsKnown ids m) &&
+        rows.all (fun p => p.all (fun m => uniqueIds m && inputsKnown ids m)) then
+      some (LedgerSnap.mk s n ids phase cs ps rows)
+    else none
+  | _ => none
+
+def snapCost (s : LedgerSnap) : Nat × Nat :=
+  let p := s.phaseSupport.foldl (fun a m => a+1+m.length) 0
+  let c := s.constraints.foldl (fun a row => row.foldl (fun b m => b+1+m.length) a) 0
+  (p,p+c+s.live.length)
+
+def removedIds (a b : LedgerSnap) : List Nat :=
+  a.live.filter (fun x => !natMem x b.live)
+
+def freeSnapOK (a b : LedgerSnap) : Bool :=
+  natListEq a.phaseText b.phaseText && natListEq a.rowText b.rowText &&
+    (removedIds a b).all (fun x =>
+      !(a.phaseSupport.any (natMem x)) &&
+      !(a.constraints.any (fun row => row.any (natMem x))))
+
+structure LedgerStep where
+  kind : Nat
+  commit : Bool
+  witness : Token
+  before : LedgerSnap
+  trial : LedgerSnap
+
+structure LedgerTally where
+  sub : Nat := 0
+  free : Nat := 0
+  hh : Nat := 0
+  omega : Nat := 0
+  rejected : Nat := 0
+  alias : Nat := 0
+  batchFree : Nat := 0
+  stage : Nat := 0
+
+def ledgerTallyList (t : LedgerTally) : List Nat :=
+  [t.sub,t.free,t.hh,t.omega,t.rejected,t.alias,t.batchFree]
+
+def ledgerFuel (t : LedgerTally) : Nat := t.sub+t.free+t.hh+t.omega
+
+def ledgerMultiplier (t : LedgerTally) : Nat := 2*(t.free+t.hh)+t.omega
+
+def parseLedgerStep : List Token → Option LedgerStep
+  | [tag,k,c,wi,b,a] =>
+    if tag == [115,116,101,112] then do
+      let kind ← parseNatToken k
+      let commit ← parseNatToken c
+      let before ← parseLedgerSnap b
+      let trial ← parseLedgerSnap a
+      if natLE kind 5 && natLE commit 1 then
+        some (LedgerStep.mk kind (commit == 1) wi before trial)
+      else none
+    else none
+  | _ => none
+
+def ledgerWitnessOK (s : LedgerStep) : Bool :=
+  let removed := removedIds s.before s.trial
+  if s.kind == 0 then
+    match splitBytes 58 s.witness with
+    | [links,parent] =>
+      let ls := (splitBytes 124 links).mapM (fun t => (splitBytes 44 t).mapM parseNatToken)
+      let ps := (splitBytes 124 parent).mapM (fun t => (splitBytes 44 t).mapM parseNatToken)
+      match ls,ps with
+      | some ll,some pp => !ll.isEmpty && ll.length == pp.length &&
+          pp.length == removed.length &&
+          ll.all (fun p => p.length == 4) &&
+          pp.all (fun p => match p with
+            | [child,par] => natMem child removed && natMem par s.before.live
+            | _ => false)
+      | _,_ => false
+    | _ => false
+  else if s.kind == 1 then s.witness == [45]
+  else if s.kind == 2 then
+    match (splitBytes 44 s.witness).mapM parseNatToken with
+    | some [y,row] => natMem y removed && natLE (row+1) s.before.constraints.length
+    | _ => false
+  else
+    match parseNatToken s.witness with
+    | some y => natMem y removed
+    | none => false
+
+-- Rejected trials are recorded but do not change the committed
+-- state. Their local rule witness is not certified by this check.
+def ledgerAdvance (t : LedgerTally) (s : LedgerStep) : Option LedgerTally :=
+  let a := snapCost s.before
+  let b := snapCost s.trial
+  let improves := natLE b.1 a.1 && natLE (b.2+1) a.2
+  let d := (removedIds s.before s.trial).length
+  if !natLE (ledgerFuel t+1) 64 then none
+  else if !s.commit then
+    if natLE 2 s.kind && !improves then
+      some { t with rejected := t.rejected+1, stage := 2 }
+    else none
+  else if !improves || s.before.n != s.trial.n ||
+      !inputsKnown s.before.live s.trial.live || !ledgerWitnessOK s then none
+  else if s.kind == 0 then
+    if t.stage == 0 && d != 0 then
+      some { t with sub := t.sub+d, alias := d, stage := 1 }
+    else none
+  else if s.kind == 1 then
+    if natLE t.stage 1 && d != 0 && freeSnapOK s.before s.trial then
+      some { t with free := t.free+d, batchFree := d, stage := 2 }
+    else none
+  else if s.kind == 2 then
+    if d == 1 then some { t with sub := t.sub+1, stage := 2 } else none
+  else if s.kind == 3 then
+    if d == 1 && freeSnapOK s.before s.trial then
+      some { t with free := t.free+1, stage := 2 }
+    else none
+  else if s.kind == 4 then
+    if d == 2 then some { t with hh := t.hh+1, stage := 2 } else none
+  else if s.kind == 5 then
+    if d == 1 then some { t with omega := t.omega+1, stage := 2 } else none
+  else none
+
+def ledgerNext (current : LedgerSnap) (s : LedgerStep) : LedgerSnap :=
+  if s.commit then s.trial else current
+
+def replayLedger (current : LedgerSnap) (t : LedgerTally) :
+    List LedgerStep → Option (LedgerSnap × LedgerTally)
+  | [] => some (current,t)
+  | s :: ss =>
+    if natListEq current.raw s.before.raw then
+      match ledgerAdvance t s with
+      | some next =>
+        if natLE (ledgerFuel next) 64 then replayLedger (ledgerNext current s) next ss
+        else none
+      | none => none
+    else none
+
+def checkLedger (bytes : List Nat) : Bool :=
+  if !ascii bytes then false else
+  match rows bytes with
+  | (tag :: norm :: k :: counts) :: [st,start] :: rest =>
+    if tag == [99,114,114,45,108,101,100,103,101,114,45,118,50] &&
+        st == [115,116,97,114,116] && counts.length == 7 then
+      match parseNatToken norm, parseNatToken k, counts.mapM parseNatToken,
+          parseLedgerSnap start, rest.reverse with
+      | some n, some mult, some expected, some initial, [et,last] :: rev =>
+        if et == [101,110,100] && n == initial.n+initial.live.length then
+          match rev.reverse.mapM parseLedgerStep, parseLedgerSnap last with
+          | some steps, some final =>
+            match replayLedger initial {} steps with
+            | some (actual,t) => natListEq actual.raw final.raw &&
+                natListEq (ledgerTallyList t) expected && ledgerMultiplier t == mult
+            | none => false
+          | _,_ => false
+        else false
+      | _,_,_,_,_ => false
+    else false
+  | _ => false
+
+theorem free_snapshot_payload (a b : LedgerSnap) (h : freeSnapOK a b = true) :
+    a.phaseText = b.phaseText ∧ a.rowText = b.rowText := by
+  have hh : ((natListEq a.phaseText b.phaseText && natListEq a.rowText b.rowText) &&
+    (removedIds a b).all (fun x => !(a.phaseSupport.any (natMem x)) &&
+      !(a.constraints.any (fun row => row.any (natMem x))))) = true := h
+  have hp := and_true_parts (and_true_parts hh).1
+  exact ⟨(nat_list_eq_iff _ _).mp hp.1,(nat_list_eq_iff _ _).mp hp.2⟩
+
+theorem rejected_ledger_next (current : LedgerSnap) (s : LedgerStep)
+    (h : s.commit = false) : ledgerNext current s = current := by
+  unfold ledgerNext
+  rw [h]
+  rfl
+
+theorem committed_ledger_next (current : LedgerSnap) (s : LedgerStep)
+    (h : s.commit = true) : ledgerNext current s = s.trial := by
+  unfold ledgerNext
+  rw [h]
+  rfl
+
+-- Independent composition theorem over a list of local semantic
+-- obligations. This does not discharge the Rust step obligations.
+theorem ledger_scale_compose {A : Type} (scale : Nat → A → A)
+    (h0 : ∀ a, scale 0 a = a)
+    (ha : ∀ i j a, scale i (scale j a) = scale (i+j) a)
+    (value : LedgerSnap → A) (current final : LedgerSnap)
+    (steps : List (LedgerStep × Nat))
+    (chain : ∀ a b : LedgerSnap, a.raw = b.raw → value a = value b)
+    (stepSound : ∀ e, e ∈ steps → value e.1.before = scale e.2 (value e.1.trial))
+    (ordered : List (LedgerStep × Nat) → LedgerSnap → LedgerSnap → Prop)
+    (hnil : ∀ a b, ordered [] a b → a.raw = b.raw)
+    (hcons : ∀ e es a b, ordered (e :: es) a b →
+      a.raw = e.1.before.raw ∧ ordered es e.1.trial b)
+    (h : ordered steps current final) :
+    value current = scale (steps.map Prod.snd).sum (value final) := by
+  induction steps generalizing current with
+  | nil => exact (chain current final (hnil current final h)).trans (h0 (value final)).symm
+  | cons e es ih =>
+    have hh := hcons e es current final h
+    have he := stepSound e (List.mem_cons.mpr (Or.inl rfl))
+    have ht := ih e.1.trial (fun q hm => stepSound q (List.mem_cons.mpr (Or.inr hm))) hh.2
+    exact (chain current e.1.before hh.1).trans (he.trans
+      ((congrArg (scale e.2) ht).trans (ha e.2 (es.map Prod.snd).sum (value final))))
+
 -- Localize any unexpected dependency to a definition vs theorem.
 #print axioms splitBytes
 #print axioms digits
@@ -2971,6 +3202,25 @@ theorem accepted_constrained_phase_sum {P A : Type} [Zero P] [Add P]
 #print axioms guard_rows_sound
 #print axioms accepted_residual_guard
 #print axioms accepted_constrained_phase_sum
+#print axioms parseLedgerPhase
+#print axioms parseLedgerPoly
+#print axioms parseLedgerSnap
+#print axioms snapCost
+#print axioms removedIds
+#print axioms freeSnapOK
+#print axioms ledgerTallyList
+#print axioms ledgerFuel
+#print axioms ledgerMultiplier
+#print axioms parseLedgerStep
+#print axioms ledgerWitnessOK
+#print axioms ledgerAdvance
+#print axioms ledgerNext
+#print axioms replayLedger
+#print axioms checkLedger
+#print axioms free_snapshot_payload
+#print axioms rejected_ledger_next
+#print axioms committed_ledger_next
+#print axioms ledger_scale_compose
 end QuPRS.CnfReplay
 
 def main (args : List String) : IO Unit := do
@@ -3067,7 +3317,25 @@ def main (args : List String) : IO Unit := do
       QuPRS.CnfReplay.parseGuardMono [49,44,50] != some [1,2] then
     throw (IO.userError "residual guard sidecar regression")
   IO.println "CRR_LEAN_GUARD_SIDECAR_PASS controls=8"
+  if !(QuPRS.CnfReplay.checkLedger [99,114,114,45,108,101,100,103,101,114,45,118,50,32,51,32,50,32,48,32,49,32,48,32,48,32,48,32,48,32,49,10,115,116,97,114,116,32,49,59,48,44,49,59,126,59,126,10,115,116,101,112,32,49,32,49,32,45,32,49,59,48,44,49,59,126,59,126,32,49,59,48,59,126,59,126,10,101,110,100,32,49,59,48,59,126,59,126,10]) ||
+      QuPRS.CnfReplay.checkLedger [99,114,114,45,108,101,100,103,101,114,45,118,50,32,51,32,49,32,48,32,49,32,48,32,48,32,48,32,48,32,49,10,115,116,97,114,116,32,49,59,48,44,49,59,126,59,126,10,115,116,101,112,32,49,32,49,32,45,32,49,59,48,44,49,59,126,59,126,32,49,59,48,59,126,59,126,10,101,110,100,32,49,59,48,59,126,59,126,10] ||
+      QuPRS.CnfReplay.checkLedger [99,114,114,45,108,101,100,103,101,114,45,118,50,32,51,32,50,32,48,32,49,32,48,32,48,32,48,32,48,32,49,10,115,116,97,114,116,32,49,59,48,44,50,59,126,59,126,10,115,116,101,112,32,49,32,49,32,45,32,49,59,48,44,49,59,126,59,126,32,49,59,48,59,126,59,126,10,101,110,100,32,49,59,48,59,126,59,126,10] ||
+      QuPRS.CnfReplay.checkLedger [99,114,114,45,108,101,100,103,101,114,45,118,50,32,51,32,50,32,48,32,49,32,48,32,48,32,48,32,48,32,49,10,115,116,97,114,116,32,49,59,48,44,49,59,126,59,126,10,115,116,101,112,32,49,32,49,32,45,32,49,59,48,44,49,59,126,59,126,32,49,59,48,59,126,59,126,10,101,110,100,32,49,59,48,44,49,59,126,59,126,10] ||
+      QuPRS.CnfReplay.checkLedger [99,114,114,45,108,101,100,103,101,114,45,118,50,32,51,32,50,32,48,32,49,32,48,32,48,32,48,32,48,32,49,10,115,116,97,114,116,32,49,59,48,44,49,59,126,59,126,10,115,116,101,112,32,49,32,48,32,45,32,49,59,48,44,49,59,126,59,126,32,49,59,48,59,126,59,126,10,101,110,100,32,49,59,48,59,126,59,126,10] ||
+      QuPRS.CnfReplay.checkLedger [99,114,114,45,108,101,100,103,101,114,45,118,50,32,51,32,50,32,48,32,49,32,48,32,48,32,48,32,48,32,49,10,115,116,97,114,116,32,49,59,48,44,49,59,126,59,126,10,115,116,101,112,32,49,32,49,32,45,32,49,59,48,44,49,59,126,59,126,32,49,59,48,59,126,59,126,10,101,110,100,32,49,59,48,59,126,59,126,10] ||
+      QuPRS.CnfReplay.checkLedger [99,114,114,45,108,101,100,103,101,114,45,118,50,32,50,32,50,32,48,32,49,32,48,32,48,32,48,32,48,32,49,10,115,116,97,114,116,32,49,59,48,44,49,59,126,59,126,10,115,116,101,112,32,49,32,49,32,45,32,49,59,48,44,49,59,126,59,126,32,49,59,48,59,126,59,126,10,101,110,100,32,49,59,48,59,126,59,126,10] then
+    throw (IO.userError "portable reduction ledger regression")
+  IO.println "CRR_LEAN_LEDGER_CONTROLS_PASS controls=7"
   let mode :: paths := args | throw (IO.userError "usage: CnfReplay accept|reject files")
+  if mode == "ledger" then
+    if paths.isEmpty then throw (IO.userError "empty ledger cohort")
+    for path in paths do
+      let raw ← IO.FS.readBinFile path
+      if !(QuPRS.CnfReplay.checkLedger (raw.data.toList.map UInt8.toNat)) then
+        throw (IO.userError s!"portable ledger rejected {path}")
+      IO.println s!"CRR_LEAN_PORTABLE_LEDGER path={path} structural=true"
+    IO.println s!"CRR_LEAN_LEDGER_SUMMARY count={paths.length} structural=true semantic_steps=false"
+    return
   if (mode != "accept" && mode != "reject") || paths.isEmpty then
     throw (IO.userError "bad replay mode or empty cohort")
   let want := mode == "accept"

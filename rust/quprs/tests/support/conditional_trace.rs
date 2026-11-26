@@ -1591,6 +1591,62 @@ fn check_ordered_ledger(original:&PathSum,start:&Trace,final_state:&Trace,
     Ok(())
 }
 
+// Portable snapshots retain exact coefficient fractions, not only
+// the research hash of Debug output. Canonical ordering is independent
+// of hash-map iteration; row order itself is preserved.
+#[cfg(test)]
+fn ledger_snapshot(t:&Trace)->String{
+    fn mono(m:&[u32])->String{
+        if m.is_empty(){"-".into()}else{m.iter().map(u32::to_string).collect::<Vec<_>>().join(",")}
+    }
+    let mut live:Vec<_>=t.live.iter().copied().collect();live.sort_unstable();
+    let mut phase:Vec<_>=t.p.terms.iter().collect();phase.sort_unstable_by(|(a,_),(b,_)|a.cmp(b));
+    let phase=phase.into_iter().map(|(m,c)|{
+        let (a,b)=exact_pair(c).unwrap();
+        format!("{}:{}:{}:{}:{}",mono(m),a.numer(),a.denom(),b.numer(),b.denom())
+    }).collect::<Vec<_>>().join("|");
+    let rows=t.constraints.iter().map(|p|{
+        let mut ms:Vec<_>=p.iter().collect();ms.sort();
+        if ms.is_empty(){"~".into()}else{ms.into_iter().map(|m|mono(m)).collect::<Vec<_>>().join(":")}
+    }).collect::<Vec<_>>().join("|");
+    format!("{};{};{};{}",t.n,mono(&live),if phase.is_empty(){"~"}else{&phase},
+        if rows.is_empty(){"!"}else{&rows})
+}
+#[cfg(test)]
+fn export_ordered_ledger(name:&str,start:&Trace,end:&Trace,entries:&[LedgerEntry],
+    twice:i32,counts:LedgerCounts,k:usize){
+    use std::fmt::Write as _;
+    use std::io::Write as _;
+    let Some(dir)=std::env::var_os("CRR_GATE_DIR")else{return;};
+    assert!(name.chars().all(|c|c.is_ascii_alphanumeric()||c=='_'));
+    let dir=std::path::PathBuf::from(dir).join("ledgers");
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut text=format!("crr-ledger-v2 {twice} {k} {} {} {} {} {} {} {}\nstart {}\n",
+        counts.0,counts.1,counts.2,counts.3,counts.4,counts.5,counts.6,ledger_snapshot(start));
+    for entry in entries{
+        let (kind,witness)=match &entry.rule{
+            LedgerRule::Alias(links,map)=>{
+                let a=links.iter().map(|v|format!("{},{},{},{}",v.x,v.y,v.child,v.par)).collect::<Vec<_>>().join("|");
+                let mut p:Vec<_>=map.iter().collect();p.sort_unstable();
+                let b=p.iter().map(|(x,y)|format!("{x},{y}")).collect::<Vec<_>>().join("|");
+                (0,format!("{a}:{b}"))
+            },
+            LedgerRule::BatchFree=>(1,"-".into()),
+            LedgerRule::Iter(IterWitness::Sub{y,row})=>(2,format!("{y},{row}")),
+            LedgerRule::Iter(IterWitness::Free{y})=>(3,y.to_string()),
+            LedgerRule::Iter(IterWitness::Hh{y})=>(4,y.to_string()),
+            LedgerRule::Iter(IterWitness::Omega{y})=>(5,y.to_string()),
+        };
+        writeln!(&mut text,"step {kind} {} {witness} {} {}",u8::from(entry.accepted),
+            ledger_snapshot(&entry.before),ledger_snapshot(&entry.trial)).unwrap();
+    }
+    writeln!(&mut text,"end {}",ledger_snapshot(end)).unwrap();
+    let path=dir.join(format!("{name}.ledger"));
+    let mut f=std::fs::OpenOptions::new().create_new(true).write(true).open(path).unwrap();
+    f.write_all(text.as_bytes()).unwrap();
+    println!("CRR_PORTABLE_LEDGER name={name} steps={} sha256={}",entries.len(),receipt_sha(text.as_bytes()));
+}
+
 #[test]
 fn exact_trace_ordered_ledger(){
     use quprs::rational::{PhaseCoeff,Rational};
@@ -1608,6 +1664,7 @@ fn exact_trace_ordered_ledger(){
     let k=2*(counts.1+counts.2)+counts.3;
     assert_eq!((counts.5,counts.6,counts.3),(1,1,1));
     assert_eq!(check_ordered_ledger(&ps,&start,&end,&log,twice,counts,k),Ok(()));
+    export_ordered_ledger("synthetic_mixed",&start,&end,&log,twice,counts,k);
     let mut native=start.clone();assert_eq!(batch_then_iterate(&mut native),counts);assert!(same_trace(&native,&end));
     let mut bad=log.clone();bad.swap(0,1);
     assert_eq!(check_ordered_ledger(&ps,&start,&end,&bad,twice,counts,k),Err("ledger chain mismatch"));
@@ -1630,6 +1687,7 @@ fn exact_trace_ordered_ledger(){
     assert!(counts.4>0);
     let k=2*(counts.1+counts.2)+counts.3;
     assert_eq!(check_ordered_ledger(&ps,&start,&end,&log,twice,counts,k),Ok(()));
+    export_ordered_ledger("synthetic_rejection",&start,&end,&log,twice,counts,k);
     let mut bad=log.clone();let i=bad.iter().position(|e|!e.accepted).unwrap();bad[i].accepted=true;
     assert_eq!(check_ordered_ledger(&ps,&start,&end,&bad,twice,counts,k),Err("invalid committed cost"));
     let mut leaked=end.clone();leaked.live=log[i].trial.live.clone();
@@ -2255,6 +2313,7 @@ fn exact_trace_source_locked_receipts(){
             println!("{prefix} status=certificate_rejected reason={reason:?} source_semantics_certified=false solver=not_run");
             refused+=1;continue;
         }
+        export_ordered_ledger(&format!("{case}_selected"),&start,&end,&ledger,twice,counts,k);
         let candidate=end.encoding_view(p);
         let (av,ac)=trace_cnf_dimensions(p);
         let (bv,bc)=trace_cnf_dimensions(&candidate);
@@ -2386,6 +2445,7 @@ fn gpmc_trace_witness_source_receipts(){
         let (end,ledger,counts)=record_guarded_ledger(&start);
         let k=2*(counts.1+counts.2)+counts.3;
         check_ordered_ledger(p,&start,&end,&ledger,twice,counts,k).expect("real ledger");
+        export_ordered_ledger(&format!("{case}_paired"),&start,&end,&ledger,twice,counts,k);
         let reduced=end.encoding_view(p);
         let (baseline,_,_)=route_encode(p);
         let (conditioned,_,_)=route_encode(&reduced);

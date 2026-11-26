@@ -220,16 +220,14 @@ theorem one_hot_decode {n : Nat} (j k : Fin n) :
   rw [decide_eq_true k.isLt, decide_eq_true hn]
   by_cases h : k = j
   · subst k
-    rw [decide_eq_false (Nat.lt_irrefl j.val), Nat.sub_self]
-    rfl
+    rw [decide_eq_false (Nat.lt_irrefl j.val), Nat.sub_self,
+      decide_eq_true (show j = j from rfl)] <;> rfl
   · have hne : k.val ≠ j.val := fun he => h (Fin.ext he)
     rw [decide_eq_false h]
     by_cases hl : k.val < j.val
-    · rw [decide_eq_true hl]
-      rfl
+    · rw [decide_eq_true hl] <;> rfl
     · have hd : k.val - j.val ≠ 0 := by omega
-      rw [decide_eq_false hl, decide_eq_false hd]
-      rfl
+      rw [decide_eq_false hl, decide_eq_false hd] <;> rfl
 
 /-- Construct a duplicate-free key list; order is irrelevant to GF(2).
     This is a reference model of the native map's key set. -/

@@ -421,13 +421,18 @@ fn exact_trace_constraint_substitution(){
             if next()%4==0{ps.p.add_term(m,PhaseCoeff::new_constant(Rational::new((next()%8) as i64,8)));}
         }
         let original=Trace::from_native(&ps).unwrap();let mut t=original.clone();
-        for _ in 0..STEP_CAP{if t.step().is_none(){break;}steps+=1;}
+        for _ in 0..STEP_CAP{
+            let b=t.clone();
+            let Some((y,len))=t.step()else{break;};
+            assert!(check_observed_substitution(&b,&t,y,len));
+            steps+=1;
+        }
         let view=t.encoding_view(&ps);
         let roundtrip=Trace::from_native(&view).unwrap();
         for x in 0..4{assert_eq!(hist(&original,x),hist(&t,x));assert_eq!(hist(&t,x),hist(&roundtrip,x));checks+=1;}
     }
     assert!(steps>0);
-    println!("CRR_TRACE_ORACLE models=512 input_hist_checks={checks} substitutions={steps}");
+    println!("CRR_TRACE_ORACLE models=512 input_hist_checks={checks} substitutions={steps} independent_substitution_checks={steps}");
 }
 
 
@@ -466,7 +471,18 @@ fn exact_trace_iterated_elim_hh(){
             if next()%5==0{ps.p.add_term(m,PhaseCoeff::new_constant(Rational::new((next()%8) as i64,8)));}
         }
         let orig=Trace::from_native(&ps).unwrap();let mut t=orig.clone();
-        let (_,elim,hh)=iterate(&mut t);total_elim+=elim;total_hh+=hh;
+        let (mut elim,mut hh)=(0,0);
+        for _ in 0..STEP_CAP{
+            let b=t.clone();
+            if let Some((y,len))=t.step(){assert!(check_observed_substitution(&b,&t,y,len));continue;}
+            match t.integrate(){
+                Some(("elim",_))=>{check_free_elim(&b,&t,1,0).unwrap();elim+=1;},
+                Some(("hh",y))=>{check_hh(&b,&t,y,1,0).unwrap();hh+=1;},
+                None=>break,
+                _=>unreachable!(),
+            }
+        }
+        total_elim+=elim;total_hh+=hh;
         let round=Trace::from_native(&t.encoding_view(&ps)).unwrap();
         for x in 0..4{
             assert_eq!(coeff(&orig,x,0),coeff(&t,x,elim+hh));
@@ -475,7 +491,7 @@ fn exact_trace_iterated_elim_hh(){
         }
     }
     assert!(total_elim>=512&&total_hh>0);
-    println!("CRR_ITERATE_ORACLE models=512 checks={checks} elim={total_elim} hh={total_hh}");
+    println!("CRR_ITERATE_ORACLE models=512 checks={checks} elim={total_elim} hh={total_hh} independent_hh_checks={total_hh} independent_free_checks={total_elim}");
     // Negative normalization control: omitting a free-variable factor
     // changes a nonzero trace coefficient exactly.
     let mut ps=PathSum::new(1);ps.rr_tolerance=0.0;ps.v.get_fresh_var();
@@ -997,6 +1013,214 @@ fn exact_trace_alias_normalization_certificate(){
     // Unnormalized trace equals 4, not 4 times an extra sqrt(2).
     for x in 0..2{assert_eq!(hist(&before,x),hist(&after,x));}
     println!("CRR_ALIAS_NORMALIZATION_CERTIFICATE positive=1 rejected=8 original_twice=4 adapter_twice=3 alias_multiplier=1 source_qasm_certified=false integration_certified=false");
+}
+
+// Independent substitution transport: GF(2) for constraints, integer
+// Boolean-function expansion for exact phase coefficients. No native
+// substitution, phase addition, toggle, or reducer helper is used.
+#[cfg(test)]
+type ExactPair=(Rat,Rat);
+#[cfg(test)]
+fn exact_pair(c:&quprs::rational::PhaseCoeff)->Result<ExactPair,&'static str>{
+    use num_bigint::BigInt;
+    use num_traits::Zero;
+    if !c.symbols.is_empty(){return Err("unsupported symbolic phase");}
+    let r=c.constant;
+    if r.denom<=0||r.numer<0||r.numer>=r.denom{return Err("noncanonical phase fraction");}
+    let t=Rat::new(BigInt::from(r.numer),BigInt::from(r.denom));
+    if t.numer()!=&BigInt::from(r.numer)||t.denom()!=&BigInt::from(r.denom){
+        return Err("noncanonical phase fraction");
+    }
+    if c.radians.as_ref().is_some_and(|v|v.is_zero()){return Err("noncanonical zero radians");}
+    let r=c.radians.clone().unwrap_or_else(Rat::zero);
+    if t.is_zero()&&r.is_zero(){return Err("noncanonical zero phase term");}
+    Ok((t,r))
+}
+#[cfg(test)]
+fn check_substitution_transport(before:&Trace,after:&Trace,y:u32,
+    rhs:&std::collections::BTreeSet<Vec<u32>>,skip:Option<usize>)
+    ->Result<(), &'static str>{
+    use std::collections::{BTreeMap,BTreeSet};
+    use num_bigint::BigInt;
+    use num_integer::Integer;
+    use num_traits::Zero;
+    if before.n!=after.n||(y as usize)<before.n||!before.live.contains(&y){
+        return Err("invalid substitution variable");
+    }
+    if (0..before.n).any(|i|u32::try_from(i).ok().map_or(true,|v|!before.live.contains(&v))){
+        return Err("missing input");
+    }
+    let live:BTreeSet<_>=before.live.iter().copied().filter(|&v|v!=y).collect();
+    if live!=after.live.iter().copied().collect(){return Err("substitution domain mismatch");}
+    let valid=|m:&Vec<u32>|m.windows(2).all(|w|w[0]<w[1])&&m.iter().all(|v|before.live.contains(v));
+    if before.p.terms.keys().chain(before.constraints.iter().flatten()).any(|m|!valid(m)){
+        return Err("invalid original support");
+    }
+    if rhs.iter().any(|m|!valid(m)||m.contains(&y)){return Err("invalid replacement support");}
+    if rhs.len()>8||before.size()>4096{return Err("certificate expansion cap");}
+    fn join(a:&[u32],b:&[u32])->Vec<u32>{
+        a.iter().chain(b).copied().collect::<BTreeSet<_>>().into_iter().collect()
+    }
+    fn parity(p:&mut BTreeSet<Vec<u32>>,m:Vec<u32>){
+        if !p.insert(m.clone()){p.remove(&m);}
+    }
+    // Iterative arithmetic XOR: A xor B = A+B-2AB.
+    // With <=8 RHS terms, sum of absolute integer coefficients is
+    // bounded by (3^8-1)/2, so i64 is exact even after support merging.
+    let mut arithmetic:BTreeMap<Vec<u32>,i64>=BTreeMap::new();
+    for mono in rhs{
+        let prior=arithmetic.clone();
+        *arithmetic.entry(mono.clone()).or_default()+=1;
+        for (part,k) in prior{
+            *arithmetic.entry(join(&part,mono)).or_default()-=2*k;
+        }
+        arithmetic.retain(|_,v|*v!=0);
+    }
+    let mut expected:BTreeMap<Vec<u32>,ExactPair>=BTreeMap::new();
+    let mut add=|key:Vec<u32>,c:&ExactPair,k:i64|{
+        let scale=Rat::from_integer(BigInt::from(k));
+        let e=expected.entry(key).or_insert_with(||(Rat::zero(),Rat::zero()));
+        e.0+=&c.0*&scale;e.1+=&c.1*&scale;
+        e.0=Rat::new(e.0.numer().mod_floor(e.0.denom()),e.0.denom().clone());
+    };
+    for (mono,c) in &before.p.terms{
+        let c=exact_pair(c)?;
+        if mono.contains(&y){
+            let rest:Vec<_>=mono.iter().copied().filter(|&v|v!=y).collect();
+            for (part,&k) in &arithmetic{add(join(&rest,part),&c,k);}
+        }else{add(mono.clone(),&c,1);}
+    }
+    expected.retain(|_,(a,b)|!a.is_zero()||!b.is_zero());
+    let mut actual=BTreeMap::new();
+    for (mono,c) in &after.p.terms{actual.insert(mono.clone(),exact_pair(c)?);}
+    if expected!=actual{return Err("substitution phase mismatch");}
+    let mut rows=Vec::new();
+    for (i,row) in before.constraints.iter().enumerate(){
+        if skip==Some(i){continue;}
+        let mut q=BTreeSet::new();
+        for mono in row{
+            if mono.contains(&y){
+                let rest:Vec<_>=mono.iter().copied().filter(|&v|v!=y).collect();
+                for part in rhs{parity(&mut q,join(&rest,part));}
+            }else{parity(&mut q,mono.clone());}
+        }
+        if !q.is_empty(){rows.push(q);}
+    }
+    let actual:Vec<BTreeSet<Vec<u32>>>=after.constraints.iter().map(|q|q.iter().cloned().collect()).collect();
+    if rows!=actual{return Err("substitution ANF mismatch");}
+    Ok(())
+}
+
+#[cfg(test)]
+fn check_general_substitution(before:&Trace,after:&Trace,y:u32,row:usize,m:usize,o:usize)
+    ->Result<(), &'static str>{
+    if m!=0||o!=0{return Err("substitution multiplier must be one");}
+    let mut rhs=before.constraints.get(row).ok_or("missing source row")?.iter().cloned()
+        .collect::<std::collections::BTreeSet<_>>();
+    if !rhs.remove(&vec![y])||rhs.iter().any(|m|m.contains(&y)){
+        return Err("nonisolated source pivot");
+    }
+    check_substitution_transport(before,after,y,&rhs,Some(row))
+}
+
+// The actual reducer returns pivot and RHS length, not row index.
+// Independently find an original isolated equation that explains the
+// committed transition; this checks existence, not native choice order.
+#[cfg(test)]
+fn check_observed_substitution(before:&Trace,after:&Trace,y:u32,len:usize)->bool{
+    before.constraints.iter().enumerate().any(|(i,r)|r.len()==len+1
+        &&check_general_substitution(before,after,y,i,0,0).is_ok())
+}
+
+#[cfg(test)]
+fn check_hh(before:&Trace,after:&Trace,y:u32,m:usize,o:usize)->Result<(), &'static str>{
+    use std::collections::BTreeSet;
+    use num_traits::Zero;
+    if m!=1||o!=0{return Err("HH multiplier mismatch");}
+    if (y as usize)<before.n||!before.live.contains(&y)
+        ||before.constraints.iter().flatten().any(|p|p.contains(&y)){
+        return Err("invalid HH integrator");
+    }
+    let mut phi=BTreeSet::new();
+    for (mono,c) in &before.p.terms{
+        if !mono.contains(&y){continue;}
+        let (turns,rad)=exact_pair(c)?;
+        if turns!=Rat::new(1.into(),2.into())||!rad.is_zero(){return Err("HH nonhalf phase");}
+        if !mono.windows(2).all(|w|w[0]<w[1])||mono.iter().any(|v|!before.live.contains(v)){
+            return Err("invalid HH support");
+        }
+        phi.insert(mono.iter().copied().filter(|&v|v!=y).collect::<Vec<_>>());
+    }
+    let removed:Vec<_>=before.live.iter().copied().filter(|v|!after.live.contains(v)).collect();
+    if removed.len()!=2||!removed.contains(&y){return Err("HH domain mismatch");}
+    let z=*removed.iter().find(|&&v|v!=y).unwrap();
+    if (z as usize)<before.n||!phi.remove(&vec![z])||phi.iter().any(|p|p.contains(&z)){
+        return Err("nonisolated HH pivot");
+    }
+    let mut base=before.clone();
+    base.live.remove(&y);base.p.terms.retain(|p,_|!p.contains(&y));
+    check_substitution_transport(&base,after,z,&phi,None)
+}
+
+#[test]
+fn exact_trace_general_substitution_certificate(){
+    use quprs::rational::PhaseCoeff;
+    let mut ps=PathSum::new(2);ps.rr_tolerance=0.0;
+    let y=ps.v.get_fresh_var();
+    let mut before=Trace::from_native(&ps).unwrap();
+    before.constraints=vec![[vec![y],vec![0],vec![1]].into_iter().collect(),
+        [vec![0,y],vec![1]].into_iter().collect()];
+    let mut c=PhaseCoeff::QUARTER;c.radians=Some(Rat::new(7.into(),19.into()));
+    before.p.add_term(vec![y],c);
+    before.p.add_term(vec![0,y],PhaseCoeff::QUARTER);
+    let mut after=before.clone();assert_eq!(after.step(),Some((y,2)));
+    assert_eq!(check_general_substitution(&before,&after,y,0,0,0),Ok(()));
+    let mut bad=after.clone();bad.p.add_term(vec![],PhaseCoeff::HALF);
+    assert_eq!(check_general_substitution(&before,&bad,y,0,0,0),Err("substitution phase mismatch"));
+    let mut bad=after.clone();bad.constraints.clear();
+    assert_eq!(check_general_substitution(&before,&bad,y,0,0,0),Err("substitution ANF mismatch"));
+    assert_eq!(check_general_substitution(&before,&after,y,1,0,0),Err("nonisolated source pivot"));
+    assert_eq!(check_general_substitution(&before,&after,y,0,1,0),Err("substitution multiplier must be one"));
+    let mut bad=after.clone();bad.live.insert(y);
+    assert_eq!(check_general_substitution(&before,&bad,y,0,0,0),Err("substitution domain mismatch"));
+    for rhs in [vec![vec![y]],vec![vec![y],vec![]]]{
+        let mut b=before.clone();b.constraints=vec![rhs.into_iter().collect()];
+        let mut a=b.clone();assert!(a.step().is_some());
+        assert_eq!(check_general_substitution(&b,&a,y,0,0,0),Ok(()));
+    }
+    println!("CRR_GENERAL_SUBSTITUTION_CERTIFICATE mixed=1 constant=2 rejected=5 expansion_rhs_cap=8");
+}
+
+#[test]
+fn exact_trace_hh_certificate(){
+    use quprs::rational::PhaseCoeff;
+    let mut ps=PathSum::new(2);ps.rr_tolerance=0.0;
+    let y=ps.v.get_fresh_var();let z=ps.v.get_fresh_var();
+    let mut before=Trace::from_native(&ps).unwrap();
+    before.constraints=vec![[vec![0,z],vec![1]].into_iter().collect()];
+    for v in [0,1,z]{before.p.add_term(vec![y,v],PhaseCoeff::HALF);}
+    before.p.add_term(vec![0,z],PhaseCoeff::QUARTER);
+    let mut after=before.clone();assert_eq!(after.integrate(),Some(("hh",y)));
+    assert_eq!(check_hh(&before,&after,y,1,0),Ok(()));
+    for x in 0..4{
+        let a=hist(&before,x);let b=hist(&after,x);
+        for i in 0..4{assert_eq!(a[i] as i64-a[i+4] as i64,2*(b[i] as i64-b[i+4] as i64));}
+    }
+    assert_eq!(check_hh(&before,&after,y,0,0),Err("HH multiplier mismatch"));
+    assert_eq!(check_hh(&before,&after,y,1,1),Err("HH multiplier mismatch"));
+    let mut bad=before.clone();bad.constraints.push([vec![y]].into_iter().collect());
+    assert_eq!(check_hh(&bad,&after,y,1,0),Err("invalid HH integrator"));
+    let mut bad=before.clone();bad.p.add_term(vec![y],PhaseCoeff::QUARTER);
+    assert_eq!(check_hh(&bad,&after,y,1,0),Err("HH nonhalf phase"));
+    let mut bad=before.clone();bad.p.add_term(vec![y,z,0],PhaseCoeff::HALF);
+    assert_eq!(check_hh(&bad,&after,y,1,0),Err("nonisolated HH pivot"));
+    let mut bad=after.clone();bad.p.add_term(vec![],PhaseCoeff::HALF);
+    assert_eq!(check_hh(&before,&bad,y,1,0),Err("substitution phase mismatch"));
+    let mut bad=after.clone();bad.constraints.clear();
+    assert_eq!(check_hh(&before,&bad,y,1,0),Err("substitution ANF mismatch"));
+    let mut bad=after.clone();bad.live.insert(z);
+    assert_eq!(check_hh(&before,&bad,y,1,0),Err("HH domain mismatch"));
+    println!("CRR_HH_CERTIFICATE positive=1 rejected=8 exact_signed_histogram_checks=4 multiplier_power=1");
 }
 
 // Free hidden variables contribute exactly 2 per variable, regardless

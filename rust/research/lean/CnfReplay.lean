@@ -2982,174 +2982,203 @@ def ledgerStepExponent (s : LedgerStep) : Nat :=
   else if s.kind == 5 then 1
   else 0
 
+-- Independently audit each constructive ingredient rather than hiding
+-- the axiom dependencies inside a single tactic proof.
+theorem ledger_bool_false {A : Type} (b : Bool) (x y : A)
+    (hb : b = false) : (if b then x else y) = y := by
+  cases b with
+  | false => rfl
+  | true => cases hb
+
+theorem ledger_bool_true {A : Type} (b : Bool) (x y : A)
+    (hb : b = true) : (if b then x else y) = x := by
+  cases b with
+  | false => cases hb
+  | true => rfl
+
+theorem ledger_batch_arithmetic (f q o d : Nat) :
+    2 * (f+d+q)+o = 2*(f+q)+o+2*d := by
+  simp only [Nat.mul_add, Nat.add_assoc, Nat.add_left_comm, Nat.add_comm]
+
+theorem ledger_free_arithmetic (f q o : Nat) :
+    2 * (f+1+q)+o = 2*(f+q)+o+2 :=
+  ledger_batch_arithmetic f q o 1
+
+theorem ledger_hh_arithmetic (f q o : Nat) :
+    2 * (f+(q+1))+o = 2*(f+q)+o+2 := by
+  simp only [Nat.mul_add, Nat.add_assoc, Nat.add_left_comm, Nat.add_comm]
+
+theorem ledger_kind_eq (k j : Nat) (h : (k == j) = true) : k = j :=
+  eq_of_beq h
+
+theorem ledger_exponent_5 (s : LedgerStep) (hc : (!s.commit) = false)
+    (hk : (s.kind == 5) = true) : ledgerStepExponent s = 1 := by
+  have hkind : s.kind = 5 := ledger_kind_eq _ _ hk
+  unfold ledgerStepExponent
+  rw [ledger_bool_false _ _ _ hc, hkind] <;> rfl
+
+theorem ledger_exponent_4 (s : LedgerStep) (hc : (!s.commit) = false)
+    (hk : (s.kind == 4) = true) : ledgerStepExponent s = 2 := by
+  have hkind : s.kind = 4 := ledger_kind_eq _ _ hk
+  unfold ledgerStepExponent
+  rw [ledger_bool_false _ _ _ hc, hkind] <;> rfl
+
+theorem ledger_exponent_3 (s : LedgerStep) (hc : (!s.commit) = false)
+    (hk : (s.kind == 3) = true) : ledgerStepExponent s = 2 := by
+  have hkind : s.kind = 3 := ledger_kind_eq _ _ hk
+  unfold ledgerStepExponent
+  rw [ledger_bool_false _ _ _ hc, hkind] <;> rfl
+
+theorem ledger_exponent_2 (s : LedgerStep) (hc : (!s.commit) = false)
+    (hk : (s.kind == 2) = true) : ledgerStepExponent s = 0 := by
+  have hkind : s.kind = 2 := ledger_kind_eq _ _ hk
+  unfold ledgerStepExponent
+  rw [ledger_bool_false _ _ _ hc, hkind] <;> rfl
+
+theorem ledger_exponent_1 (s : LedgerStep) (hc : (!s.commit) = false)
+    (hk : (s.kind == 1) = true) : ledgerStepExponent s = 2 * (removedIds s.before s.trial).length := by
+  have hkind : s.kind = 1 := ledger_kind_eq _ _ hk
+  unfold ledgerStepExponent
+  rw [ledger_bool_false _ _ _ hc, hkind] <;> rfl
+
+theorem ledger_exponent_0 (s : LedgerStep) (hc : (!s.commit) = false)
+    (hk : (s.kind == 0) = true) : ledgerStepExponent s = 0 := by
+  have hkind : s.kind = 0 := ledger_kind_eq _ _ hk
+  unfold ledgerStepExponent
+  rw [ledger_bool_false _ _ _ hc, hkind] <;> rfl
+
+theorem ledger_exponent_rejected (s : LedgerStep) (hc : (!s.commit) = true) :
+    ledgerStepExponent s = 0 :=
+  ledger_bool_true _ _ _ hc
+
 theorem ledger_advance_multiplier (t : LedgerTally) (s : LedgerStep)
     (next : LedgerTally) (h : ledgerAdvance t s = some next) :
     ledgerMultiplier next = ledgerMultiplier t + ledgerStepExponent s := by
-  -- Constructive branch reduction: the decidability instance is
-  -- fixed by Bool, rather than inferred for an arbitrary proposition.
-  have pickFalse : ∀ {A : Type} (b : Bool) (x y : A),
-      b = false → (if b then x else y) = y := by
-    intro A b x y hb
-    cases b with
-    | false => rfl
-    | true => cases hb
-  have pickTrue : ∀ {A : Type} (b : Bool) (x y : A),
-      b = true → (if b then x else y) = x := by
-    intro A b x y hb
-    cases b with
-    | false => cases hb
-    | true => rfl
-  have batchArithmetic : ∀ f q o d : Nat,
-      2 * (f+d+q)+o = 2*(f+q)+o+2*d := by
-    intro f q o d
-    omega
-  have freeArithmetic : ∀ f q o : Nat,
-      2 * (f+1+q)+o = 2*(f+q)+o+2 := by
-    intro f q o
-    exact batchArithmetic f q o 1
-  have hhArithmetic : ∀ f q o : Nat,
-      2 * (f+(q+1))+o = 2*(f+q)+o+2 := by
-    intro f q o
-    omega
   unfold ledgerAdvance at h
   dsimp only at h
   cases hf : (!natLE (ledgerFuel t+1) 64) with
   | false =>
-    rw [pickFalse _ _ _ hf] at h
+    rw [ledger_bool_false _ _ _ hf] at h
     cases hc : (!s.commit) with
     | false =>
-      rw [pickFalse _ _ _ hc] at h
+      rw [ledger_bool_false _ _ _ hc] at h
       cases hb : (!(natLE (snapCost s.trial).1 (snapCost s.before).1 && natLE ((snapCost s.trial).2+1) (snapCost s.before).2) || s.before.n != s.trial.n || !inputsKnown s.before.live s.trial.live || !ledgerWitnessOK s) with
       | false =>
-        rw [pickFalse _ _ _ hb] at h
+        rw [ledger_bool_false _ _ _ hb] at h
         cases hk0 : (s.kind == 0) with
         | false =>
-          rw [pickFalse _ _ _ hk0] at h
+          rw [ledger_bool_false _ _ _ hk0] at h
           cases hk1 : (s.kind == 1) with
           | false =>
-            rw [pickFalse _ _ _ hk1] at h
+            rw [ledger_bool_false _ _ _ hk1] at h
             cases hk2 : (s.kind == 2) with
             | false =>
-              rw [pickFalse _ _ _ hk2] at h
+              rw [ledger_bool_false _ _ _ hk2] at h
               cases hk3 : (s.kind == 3) with
               | false =>
-                rw [pickFalse _ _ _ hk3] at h
+                rw [ledger_bool_false _ _ _ hk3] at h
                 cases hk4 : (s.kind == 4) with
                 | false =>
-                  rw [pickFalse _ _ _ hk4] at h
+                  rw [ledger_bool_false _ _ _ hk4] at h
                   cases hk5 : (s.kind == 5) with
                   | false =>
-                    rw [pickFalse _ _ _ hk5] at h
+                    rw [ledger_bool_false _ _ _ hk5] at h
                     cases h
                   | true =>
-                    rw [pickTrue _ _ _ hk5] at h
+                    rw [ledger_bool_true _ _ _ hk5] at h
                     cases hr : ((removedIds s.before s.trial).length == 1) with
                     | false =>
-                      rw [pickFalse _ _ _ hr] at h
+                      rw [ledger_bool_false _ _ _ hr] at h
                       cases h
                     | true =>
-                      rw [pickTrue _ _ _ hr] at h
+                      rw [ledger_bool_true _ _ _ hr] at h
                       have he := Option.some.inj h
                       rw [← he]
-                      have hk : s.kind = 5 := by simpa using hk5
-                      have hx : ledgerStepExponent s = 1 := by
-                        unfold ledgerStepExponent
-                        rw [pickFalse _ _ _ hc, hk] <;> rfl
-                      rw [hx] <;> unfold ledgerMultiplier <;> first | rfl | exact batchArithmetic _ _ _ _ | exact freeArithmetic _ _ _ | exact hhArithmetic _ _ _
+                      rw [ledger_exponent_5 s hc hk5]
+                      unfold ledgerMultiplier
+                      rfl
                 | true =>
-                  rw [pickTrue _ _ _ hk4] at h
+                  rw [ledger_bool_true _ _ _ hk4] at h
                   cases hr : ((removedIds s.before s.trial).length == 2) with
                   | false =>
-                    rw [pickFalse _ _ _ hr] at h
+                    rw [ledger_bool_false _ _ _ hr] at h
                     cases h
                   | true =>
-                    rw [pickTrue _ _ _ hr] at h
+                    rw [ledger_bool_true _ _ _ hr] at h
                     have he := Option.some.inj h
                     rw [← he]
-                    have hk : s.kind = 4 := by simpa using hk4
-                    have hx : ledgerStepExponent s = 2 := by
-                      unfold ledgerStepExponent
-                      rw [pickFalse _ _ _ hc, hk] <;> rfl
-                    rw [hx] <;> unfold ledgerMultiplier <;> first | rfl | exact batchArithmetic _ _ _ _ | exact freeArithmetic _ _ _ | exact hhArithmetic _ _ _
+                    rw [ledger_exponent_4 s hc hk4]
+                    unfold ledgerMultiplier
+                    exact ledger_hh_arithmetic _ _ _
               | true =>
-                rw [pickTrue _ _ _ hk3] at h
+                rw [ledger_bool_true _ _ _ hk3] at h
                 cases hr : ((removedIds s.before s.trial).length == 1 && freeSnapOK s.before s.trial) with
                 | false =>
-                  rw [pickFalse _ _ _ hr] at h
+                  rw [ledger_bool_false _ _ _ hr] at h
                   cases h
                 | true =>
-                  rw [pickTrue _ _ _ hr] at h
+                  rw [ledger_bool_true _ _ _ hr] at h
                   have he := Option.some.inj h
                   rw [← he]
-                  have hk : s.kind = 3 := by simpa using hk3
-                  have hx : ledgerStepExponent s = 2 := by
-                    unfold ledgerStepExponent
-                    rw [pickFalse _ _ _ hc, hk] <;> rfl
-                  rw [hx] <;> unfold ledgerMultiplier <;> first | rfl | exact batchArithmetic _ _ _ _ | exact freeArithmetic _ _ _ | exact hhArithmetic _ _ _
+                  rw [ledger_exponent_3 s hc hk3]
+                  unfold ledgerMultiplier
+                  exact ledger_free_arithmetic _ _ _
             | true =>
-              rw [pickTrue _ _ _ hk2] at h
+              rw [ledger_bool_true _ _ _ hk2] at h
               cases hr : ((removedIds s.before s.trial).length == 1) with
               | false =>
-                rw [pickFalse _ _ _ hr] at h
+                rw [ledger_bool_false _ _ _ hr] at h
                 cases h
               | true =>
-                rw [pickTrue _ _ _ hr] at h
+                rw [ledger_bool_true _ _ _ hr] at h
                 have he := Option.some.inj h
                 rw [← he]
-                have hk : s.kind = 2 := by simpa using hk2
-                have hx : ledgerStepExponent s = 0 := by
-                  unfold ledgerStepExponent
-                  rw [pickFalse _ _ _ hc, hk] <;> rfl
-                rw [hx] <;> unfold ledgerMultiplier <;> first | rfl | exact batchArithmetic _ _ _ _ | exact freeArithmetic _ _ _ | exact hhArithmetic _ _ _
+                rw [ledger_exponent_2 s hc hk2]
+                unfold ledgerMultiplier
+                rfl
           | true =>
-            rw [pickTrue _ _ _ hk1] at h
+            rw [ledger_bool_true _ _ _ hk1] at h
             cases hr : (natLE t.stage 1 && (removedIds s.before s.trial).length != 0 && freeSnapOK s.before s.trial) with
             | false =>
-              rw [pickFalse _ _ _ hr] at h
+              rw [ledger_bool_false _ _ _ hr] at h
               cases h
             | true =>
-              rw [pickTrue _ _ _ hr] at h
+              rw [ledger_bool_true _ _ _ hr] at h
               have he := Option.some.inj h
               rw [← he]
-              have hk : s.kind = 1 := by simpa using hk1
-              have hx : ledgerStepExponent s = 2 * (removedIds s.before s.trial).length := by
-                unfold ledgerStepExponent
-                rw [pickFalse _ _ _ hc, hk] <;> rfl
-              rw [hx] <;> unfold ledgerMultiplier <;> first | rfl | exact batchArithmetic _ _ _ _ | exact freeArithmetic _ _ _ | exact hhArithmetic _ _ _
+              rw [ledger_exponent_1 s hc hk1]
+              unfold ledgerMultiplier
+              exact ledger_batch_arithmetic _ _ _ _
         | true =>
-          rw [pickTrue _ _ _ hk0] at h
+          rw [ledger_bool_true _ _ _ hk0] at h
           cases hr : (t.stage == 0 && (removedIds s.before s.trial).length != 0) with
           | false =>
-            rw [pickFalse _ _ _ hr] at h
+            rw [ledger_bool_false _ _ _ hr] at h
             cases h
           | true =>
-            rw [pickTrue _ _ _ hr] at h
+            rw [ledger_bool_true _ _ _ hr] at h
             have he := Option.some.inj h
             rw [← he]
-            have hk : s.kind = 0 := by simpa using hk0
-            have hx : ledgerStepExponent s = 0 := by
-              unfold ledgerStepExponent
-              rw [pickFalse _ _ _ hc, hk] <;> rfl
-            rw [hx] <;> unfold ledgerMultiplier <;> first | rfl | exact batchArithmetic _ _ _ _ | exact freeArithmetic _ _ _ | exact hhArithmetic _ _ _
+            rw [ledger_exponent_0 s hc hk0]
+            unfold ledgerMultiplier
+            rfl
       | true =>
-        rw [pickTrue _ _ _ hb] at h
+        rw [ledger_bool_true _ _ _ hb] at h
         cases h
     | true =>
-      rw [pickTrue _ _ _ hc] at h
+      rw [ledger_bool_true _ _ _ hc] at h
       cases hr : (natLE 2 s.kind && !(natLE (snapCost s.trial).1 (snapCost s.before).1 && natLE ((snapCost s.trial).2+1) (snapCost s.before).2)) with
       | false =>
-        rw [pickFalse _ _ _ hr] at h
+        rw [ledger_bool_false _ _ _ hr] at h
         cases h
       | true =>
-        rw [pickTrue _ _ _ hr] at h
+        rw [ledger_bool_true _ _ _ hr] at h
         have he := Option.some.inj h
         rw [← he]
-        have hx : ledgerStepExponent s = 0 := by
-          unfold ledgerStepExponent
-          exact pickTrue _ _ _ hc
-        rw [hx] <;> unfold ledgerMultiplier <;> first | rfl | exact batchArithmetic _ _ _ _ | exact freeArithmetic _ _ _ | exact hhArithmetic _ _ _
+        rw [ledger_exponent_rejected s hc]
+        rfl
   | true =>
-    rw [pickTrue _ _ _ hf] at h
+    rw [ledger_bool_true _ _ _ hf] at h
     cases h
 
 -- Extract actual successful recursive calls (including fuel) from the
@@ -3488,6 +3517,19 @@ theorem replay_ledger_scale_from_zero {A : Type} (scale : Nat → A → A)
 #print axioms committed_ledger_next
 #print axioms ledger_scale_compose
 #print axioms ledgerStepExponent
+#print axioms ledger_bool_false
+#print axioms ledger_bool_true
+#print axioms ledger_batch_arithmetic
+#print axioms ledger_free_arithmetic
+#print axioms ledger_hh_arithmetic
+#print axioms ledger_kind_eq
+#print axioms ledger_exponent_5
+#print axioms ledger_exponent_4
+#print axioms ledger_exponent_3
+#print axioms ledger_exponent_2
+#print axioms ledger_exponent_1
+#print axioms ledger_exponent_0
+#print axioms ledger_exponent_rejected
 #print axioms ledger_advance_multiplier
 #print axioms replay_ledger_cons
 #print axioms replay_ledger_multiplier

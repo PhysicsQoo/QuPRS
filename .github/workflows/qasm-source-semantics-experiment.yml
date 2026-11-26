@@ -956,7 +956,11 @@ jobs:
           if grep -E 'sorryAx|Lean[.]trustCompiler|Classical[.]choice' ../../../evidence/conditional-lean-enumeration.log; then
             exit 1
           fi
-          test "$(grep -Ec 'does not depend on any axioms|depends on axioms' ../../../evidence/conditional-lean-enumeration.log)" -eq 16
+          # 16 theorem reports plus three explicit dependency diagnostics.
+          test "$(grep -Ec 'does not depend on any axioms|depends on axioms' ../../../evidence/conditional-lean-enumeration.log)" -eq 19
+          for diagnostic in QuPRS.ForestEnumeration.memDecision funext Nat.decEq; do
+            test "$(grep -Fc "'$diagnostic' " ../../../evidence/conditional-lean-enumeration.log)" -eq 1
+          done
           for theorem in set_self set_other enumeration_length enumeration_cover enumeration_outside enumeration_distinguishes map_nodup_of_inj set_injective_on_enum enumeration_nodup root_seed_cover root_seed_unique extended_cover extended_unique extended_nodup extended_satisfies enumerated_sum; do
             test "$(grep -Ec "^'QuPRS[.]ForestEnumeration[.]$theorem' (does not depend on any axioms|depends on axioms)" ../../../evidence/conditional-lean-enumeration.log)" -eq 1
           done

@@ -77,14 +77,28 @@ theorem enumeration_outside (vs : List Nat) (a : Assignment)
       · rw [set_other b v i true hv]
         exact ih b hb ht
 
+/-- Explicit structural decision on Nat membership. This definition
+does not use typeclass search for Decidable (List.Mem ...). -/
+def memDecision (i : Nat) : (vs : List Nat) → Decidable (i ∈ vs)
+  | [] => isFalse (fun h => by cases h)
+  | v :: vs =>
+      match Nat.decEq i v with
+      | isTrue h => isTrue (List.mem_cons.mpr (Or.inl h))
+      | isFalse h =>
+          match memDecision i vs with
+          | isTrue ht => isTrue (List.mem_cons.mpr (Or.inr ht))
+          | isFalse ht =>
+              isFalse (fun hm => (List.mem_cons.mp hm).elim h ht)
+
 theorem enumeration_distinguishes (vs : List Nat) (a b : Assignment)
     (ha : a ∈ enumerate vs) (hb : b ∈ enumerate vs)
-    (h : AgreeOn vs a b) : a = b := by
-  apply funext
-  intro i
-  cases (inferInstance : Decidable (i ∈ vs)) with
-  | isTrue hi => exact h i hi
-  | isFalse hi => rw [enumeration_outside vs a ha i hi, enumeration_outside vs b hb i hi]
+    (h : AgreeOn vs a b) : a = b :=
+  @funext Nat (fun _ => Bool) a b (fun i =>
+    match memDecision i vs with
+    | isTrue hi => h i hi
+    | isFalse hi =>
+        (enumeration_outside vs a ha i hi).trans
+          (enumeration_outside vs b hb i hi).symm)
 
 theorem map_nodup_of_inj {A B : Type} (xs : List A) (f : A → B)
     (hn : xs.Nodup)
@@ -183,6 +197,9 @@ theorem enumerated_sum {A : Type} [Zero A] [Add A] (f : Forest)
     QuPRS.ConditionalTrace.sumPaths (enumerate vs) (transported f g amp) :=
   forest_sum f (enumerate vs) g amp
 
+#print axioms memDecision
+#print axioms funext
+#print axioms Nat.decEq
 #print axioms set_self
 #print axioms set_other
 #print axioms enumeration_length

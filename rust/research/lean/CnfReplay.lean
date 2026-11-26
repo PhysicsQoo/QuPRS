@@ -3805,8 +3805,7 @@ theorem ledger_advance_free_obligations (t next : LedgerTally) (s : LedgerStep)
       · rw [hk] at h
         change (if natLE t.stage 1 && (removedIds s.before s.trial).length != 0 &&
           freeSnapOK s.before s.trial then
-            some { t with free := t.free+(removedIds s.before s.trial).length,
-              batchFree := (removedIds s.before s.trial).length, stage := 2 }
+            some { t with free := t.free+(removedIds s.before s.trial).length, batchFree := (removedIds s.before s.trial).length, stage := 2 }
           else none) = some next at h
         cases hr : (natLE t.stage 1 && (removedIds s.before s.trial).length != 0 &&
           freeSnapOK s.before s.trial) with

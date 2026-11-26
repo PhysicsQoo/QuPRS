@@ -10,7 +10,7 @@ on:
       suite:
         description: Experimental evidence suite
         type: choice
-        options: [legacy, cross-family, source-admission, root-profile, factor-classes, sparse-anchor, prefix-memo, axis-profile, direct-binary, operand-profile, pool-profile, last-use-donor, masked-donor, descendant-units, inplace-scan, inplace-branch, move-components, borrowed-cache, general-cumulative, general-simulation-repair, general-native-gpmc, scope-scratch, streaming-large-general, large-root-closure, large-descendant-closure, fixed-work-descendant, large-general-candidate, long-native-candidate, default-parser-isolation, scope-scratch-fair, scope-scratch-candidate, large-root-ownership, root-ownership-port, packed-index-scratch]
+        options: [legacy, cross-family, source-admission, root-profile, factor-classes, sparse-anchor, prefix-memo, axis-profile, direct-binary, operand-profile, pool-profile, last-use-donor, masked-donor, descendant-units, inplace-scan, inplace-branch, move-components, borrowed-cache, general-cumulative, general-simulation-repair, general-native-gpmc, scope-scratch, streaming-large-general, large-root-closure, large-descendant-closure, fixed-work-descendant, large-general-candidate, long-native-candidate, default-parser-isolation, scope-scratch-fair, scope-scratch-candidate, large-root-ownership, root-ownership-port, packed-index-scratch, owned-entry-isolation]
         default: legacy
 permissions:
   contents: read
@@ -2942,7 +2942,7 @@ jobs:
           if-no-files-found: warn
 
   root-ownership-port:
-    if: github.event_name == 'push' || inputs.suite == 'root-ownership-port'
+    if: github.event_name == 'workflow_dispatch' && inputs.suite == 'root-ownership-port'
     name: Root ownership production candidate / witnessed port
     runs-on: ubuntu-24.04
     timeout-minutes: 8
@@ -3087,7 +3087,7 @@ jobs:
           if-no-files-found: warn
 
   packed-index-scratch:
-    if: github.event_name == 'push' || inputs.suite == 'packed-index-scratch'
+    if: github.event_name == 'workflow_dispatch' && inputs.suite == 'packed-index-scratch'
     name: Packed occurrence index / repeated closure scratch ablation
     runs-on: ubuntu-24.04
     timeout-minutes: 8
@@ -3238,5 +3238,139 @@ jobs:
         with:
           name: rawmocs-packed-index-scratch
           path: .packed-evidence/
+          include-hidden-files: true
+          if-no-files-found: warn
+
+  owned-entry-isolation:
+    if: github.event_name == 'push' || inputs.suite == 'owned-entry-isolation'
+    name: Owned entry isolation / ${{ matrix.digits }} digits
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    strategy:
+      fail-fast: false
+      matrix:
+        digits: [30, 130]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: PhysicsQoo/RaWMoCS
+          ref: b3d02b2720c2fae5231c0ed5cf44950164a5780d
+          path: .root-baseline
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: PhysicsQoo/RaWMoCS
+          ref: 8dc8bd0847eb63c51328164639e592d495bb2ca5
+          path: .root-shared
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: PhysicsQoo/RaWMoCS
+          ref: 0f4e284c4bb67da523578093c2bcc20f5e3b0d79
+          path: .root-isolated
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: rawmocs-quprs-planner-gen-*
+          run-id: 45734596083
+          github-token: ${{ github.token }}
+          path: .entry-input
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            .root-baseline/crates/rawmocs-cli -> target
+            .root-shared/crates/rawmocs-cli -> target
+            .root-isolated/crates/rawmocs-cli -> target
+          shared-key: rawmocs-root-entry
+          cache-workspace-crates: 'false'
+      - name: Build exact binaries and test isolated candidate
+        run: |
+          set -euo pipefail
+          test "$(git -C .root-baseline rev-parse HEAD)" = b3d02b2720c2fae5231c0ed5cf44950164a5780d
+          test "$(git -C .root-shared rev-parse HEAD)" = 8dc8bd0847eb63c51328164639e592d495bb2ca5
+          test "$(git -C .root-isolated rev-parse HEAD)" = 0f4e284c4bb67da523578093c2bcc20f5e3b0d79
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libgmp-dev libmpfr-dev m4 make gcc time pkg-config
+          for repo in .root-baseline .root-shared .root-isolated; do
+            cargo build --locked --release --manifest-path "$repo/crates/rawmocs-cli/Cargo.toml"
+          done
+          cargo test --locked --release --manifest-path .root-isolated/crates/rawmocs-cli/Cargo.toml
+      - name: Six balanced triples per original route
+        env:
+          DIGITS: ${{ matrix.digits }}
+        run: |
+          set -euo pipefail
+          mkdir -p .entry-evidence
+          python3 - <<'PY'
+          import hashlib,itertools,json,os,re,statistics,subprocess,sys,time
+          from pathlib import Path
+          root=Path(".entry-evidence").resolve()
+          sys.path.insert(0,str(Path(".root-baseline/crates/rawmocs-cli/tools").resolve()))
+          from release_transfer import check_count
+          from release_native_paired import parse
+          def digest(p): return hashlib.sha256(p.read_bytes()).hexdigest()
+          digits=int(os.environ["DIGITS"])
+          bits={30:100,130:432}[digits]
+          arms={"base":(".root-baseline","b3d02b2720c2fae5231c0ed5cf44950164a5780d"),"shared":(".root-shared","8dc8bd0847eb63c51328164639e592d495bb2ca5"),"isolated":(".root-isolated","0f4e284c4bb67da523578093c2bcc20f5e3b0d79")}
+          bins={a:Path(p+"/crates/rawmocs-cli/target/release/rawmocs").resolve() for a,(p,_) in arms.items()}
+          report={"digits":digits,"bits":bits,"revisions":{a:sha for a,(_,sha) in arms.items()},"binaries":{a:digest(p) for a,p in bins.items()},"cases":{}}
+          def save(): (root/"report.json").write_text(json.dumps(report,indent=2)+"\n")
+          for name,sha,mode,large in (
+              ("vqe8","55938d577be87d91dd520b7002de7ec886c6035405e5400f6f80392a385562ee","general",True),
+              ("vqe8","55938d577be87d91dd520b7002de7ec886c6035405e5400f6f80392a385562ee","general",False),
+              ("qpeinexact20","9dca661e1a9cfecbfe325970cded1bcb5c3664f7983fa1628473bd42f2ba3fcb","auto",False)):
+              src=Path(".entry-input")/("rawmocs-quprs-planner-gen-"+name)
+              cnf,=src.rglob("gpmc-capture.cnf")
+              witness,=src.rglob("witness.json")
+              ref=json.loads(witness.read_text())
+              assert digest(cnf)==ref["source_sha256"]==sha and ref["bits"]==550
+              assert ref["status"] in ("INDEPENDENT_INTERVAL_COMPLETE","INDEPENDENT_FIXED_INTERVAL_COMPLETE") and ref["width"]<=19 and ref["work"]<=40000000 and ref["peak"]<=2000000
+              if ref["status"]=="INDEPENDENT_FIXED_INTERVAL_COMPLETE": assert ref["order_policy"] in ("fill-reverse","degree-reverse")
+              key=f"{name}-{mode}-{large}"
+              case={"source_sha256":sha,"witness_sha256":digest(witness),"rows":[]}
+              report["cases"][key]=case
+              for i,order in enumerate(itertools.permutations(arms)):
+                  for arm in order:
+                      prefix=root/f"{key}-{i}-{arm}"
+                      start=time.monotonic_ns()
+                      p=subprocess.run(["timeout","-k","2s","10s","prlimit","--as=3221225472","--","/usr/bin/time","-f","%M","-o",str(prefix.with_suffix(".rss")),str(bins[arm]),"--digits",str(digits),"--solver",mode,*(["--large-general"] if large else []),"--timeout-ms","8000",str(cnf.resolve())],env={k:v for k,v in os.environ.items() if not k.startswith("RAWMOCS_RESEARCH_")},capture_output=True,text=True,timeout=15)
+                      row={"trial":i,"arm":arm,"exit":p.returncode,"wall_ns":time.monotonic_ns()-start}
+                      case["rows"].append(row)
+                      prefix.with_suffix(".stdout").write_text(p.stdout)
+                      prefix.with_suffix(".stderr").write_text(p.stderr)
+                      vals=[v for v in prefix.with_suffix(".rss").read_text().splitlines() if v.strip().isdigit()]
+                      assert len(vals)==1
+                      row["rss_kib"]=int(vals[0])
+                      save()
+                      assert p.returncode==0,(key,arm,p.stderr[-1000:])
+                      row.update(parse(p.stdout,"rawmocs"))
+                      route,solve_ns=re.findall(r"^RAWMOCS_COMPLETE route=(\w+) digits="+str(digits)+r" bits="+str(bits)+r" solve_ns=(\d+)$",p.stderr,re.M)[0]
+                      row["route"]=route
+                      row["solve_ns"]=int(solve_ns)
+                      row["outside_solve_ns"]=row["wall_ns"]-row["solve_ns"]
+                      if large: row["parse_ns"]=int(re.findall(r"^RAWMOCS_SOURCE_ADMITTED .* parse_ns=(\d+)$",p.stderr,re.M)[0])
+                      if route=="general":
+                          row["frames"]=int(re.findall(r"^RAWMOCS_GENERAL_COMPLETE max_frames=(\d+)$",p.stderr,re.M)[0])
+                      if mode=="general": assert route=="general"
+                      row["witness_upper"]=check_count(row,ref,digits)
+                      row["stdout_sha256"]=hashlib.sha256(p.stdout.encode()).hexdigest()
+                      row["status"]="WITNESSED_PASS"
+                      save()
+              rows=case["rows"]
+              assert len(rows)==18 and len({r["stdout_sha256"] for r in rows})==1 and len({r["route"] for r in rows})==1 and len({r.get("frames") for r in rows})==1
+              case["median"]={a:{k:statistics.median(r[k] for r in rows if r["arm"]==a) for k in ("wall_ns","solve_ns","outside_solve_ns","rss_kib")} for a in arms}
+              case["paired_solve_ratio"]={a:[next(r["solve_ns"] for r in rows if r["arm"]==a and r["trial"]==i)/next(r["solve_ns"] for r in rows if r["arm"]=="base" and r["trial"]==i) for i in range(6)] for a in ("shared","isolated")}
+              case["status"]="SIX_BALANCED_TRIPLES_PASS"
+              save()
+          report["status"]="OWNED_ENTRY_ISOLATION_COMPLETE"
+          save()
+          print("OWNED_ENTRY_FINAL",json.dumps(report),flush=True)
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: rawmocs-owned-entry-isolation-${{ matrix.digits }}
+          path: .entry-evidence/
           include-hidden-files: true
           if-no-files-found: warn

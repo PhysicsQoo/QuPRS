@@ -1292,15 +1292,23 @@ theorem pack_at (v : Nat → Bool) (n k : Nat) (hk : k < n) :
 theorem bits_ext (xs ys : List Bool) (hl : xs.length = ys.length)
     (h : ∀ k, k < xs.length → bitsAt xs k = bitsAt ys k) : xs = ys := by
   induction xs generalizing ys with
-  | nil => cases ys <;> simp_all
+  | nil =>
+    cases ys with
+    | nil => rfl
+    | cons y ys =>
+      change 0 = Nat.succ ys.length at hl
+      cases hl
   | cons x xs ih =>
     cases ys with
-    | nil => simp at hl
+    | nil =>
+      change Nat.succ xs.length = 0 at hl
+      cases hl
     | cons y ys =>
       have he : x = y := h 0 (Nat.zero_lt_succ xs.length)
       have ht : xs = ys := ih ys (Nat.succ.inj hl)
         (fun k hk => h (k+1) (Nat.succ_lt_succ hk))
-      rw [he, ht]
+      exact (congrArg (fun b => b :: xs) he).trans
+        (congrArg (fun tail => y :: tail) ht)
 
 theorem decode_pack_agree (v : Nat → Bool) (n : Nat) :
     agreeOn (liftVal (decodeBits (packBits (fun k => v (k+1)) n))) (liftVal v) (dimacsIds n) := by
@@ -1519,6 +1527,121 @@ theorem accepted_fiber_count (gate cnf : List Nat) (n : Nat)
       if guardTruth (extendVal v rs) rs then 1 else 0 :=
   accepted_weighted_fiber Nat.zero_add Nat.add_zero gate cnf n rs p cs ws hg hp hr h v (fun _ => 1)
 
+
+-- Literal weight products in declared DIMACS order. Unlisted literal
+-- weights must be supplied as the multiplicative unit by the caller.
+-- This is an exact algebraic interface, not a decimal parser proof.
+def chosenLiteral (v : Nat → Bool) (z : Nat) : Int :=
+  if v z then pos z else -pos z
+
+def literalProduct {A : Type} [One A] [Mul A]
+    (weight : Int → A) (v : Nat → Bool) : List Nat → A
+  | [] => 1
+  | z :: zs => weight (chosenLiteral v z) * literalProduct weight v zs
+
+theorem literal_product_agree {A : Type} [One A] [Mul A]
+    (weight : Int → A) (a b : Nat → Bool) (ids : List Nat)
+    (h : agreeOn (liftVal a) (liftVal b) ids) :
+    literalProduct weight a ids = literalProduct weight b ids := by
+  induction ids with
+  | nil => rfl
+  | cons z zs ih =>
+    have hz : a z = b z := h z (List.mem_cons.mpr (Or.inl rfl))
+    have ht := ih (fun x hm => h x (List.mem_cons.mpr (Or.inr hm)))
+    change weight (if a z then pos z else -pos z) * literalProduct weight a zs =
+      weight (if b z then pos z else -pos z) * literalProduct weight b zs
+    rw [hz, ht]
+
+theorem accepted_literal_fiber {A : Type} [Zero A] [Add A] [One A] [Mul A]
+    (zl : ∀ a : A, 0 + a = a) (zr : ∀ a : A, a + 0 = a)
+    (gate cnf : List Nat) (n : Nat)
+    (rs : List Record) (p : ParsedCnf) (cs : List (List Int)) (ws : List Nat)
+    (hg : parseGate gate = some (n, rs)) (hp : parseCnf cnf = some p)
+    (hr : replayRows n rs = some (cs, ws)) (h : check gate cnf = true)
+    (v : Nat → Bool) (weight : Int → A) :
+    actualFiber n p rs v (fun bits => literalProduct weight (decodeBits bits) (dimacsIds n)) =
+      if guardTruth (extendVal v rs) rs then
+        literalProduct weight (extendVal v rs) (dimacsIds n) else 0 := by
+  have hf := accepted_weighted_fiber zl zr gate cnf n rs p cs ws hg hp hr h v
+    (fun bits => literalProduct weight (decodeBits bits) (dimacsIds n))
+  have ha := literal_product_agree weight
+    (decodeBits (packBits (fun k => extendVal v rs (k+1)) n))
+    (extendVal v rs) (dimacsIds n) (decode_pack_agree (extendVal v rs) n)
+  exact hf.trans (congrArg (fun x => if guardTruth (extendVal v rs) rs then x else 0) ha)
+
+-- Keep only the positive phase literals selected by the canonical
+-- assignment, in the same declared-ID order as literalProduct.
+def selectedPhaseProduct {A : Type} [One A] [Mul A]
+    (weight : Int → A) (v : Nat → Bool) (weighted : List Nat) : List Nat → A
+  | [] => 1
+  | z :: zs =>
+    if natMem z weighted && v z then
+      weight (pos z) * selectedPhaseProduct weight v weighted zs
+    else selectedPhaseProduct weight v weighted zs
+
+theorem chosen_literal_false (v : Nat → Bool) (z : Nat) (h : v z = false) :
+    chosenLiteral v z = -pos z := by
+  unfold chosenLiteral
+  rw [h]
+  rfl
+
+theorem chosen_literal_true (v : Nat → Bool) (z : Nat) (h : v z = true) :
+    chosenLiteral v z = pos z := by
+  unfold chosenLiteral
+  rw [h]
+  rfl
+
+theorem literal_product_phase {A : Type} [One A] [Mul A]
+    (ol : ∀ a : A, 1 * a = a)
+    (weight : Int → A) (v : Nat → Bool) (weighted ids : List Nat)
+    (hn : ∀ z, z ∈ ids → weight (-pos z) = 1)
+    (hu : ∀ z, z ∈ ids → natMem z weighted = false → weight (pos z) = 1) :
+    literalProduct weight v ids = selectedPhaseProduct weight v weighted ids := by
+  induction ids with
+  | nil => rfl
+  | cons z zs ih =>
+    have ht := ih
+      (fun x hm => hn x (List.mem_cons.mpr (Or.inr hm)))
+      (fun x hm hf => hu x (List.mem_cons.mpr (Or.inr hm)) hf)
+    have hneg := hn z (List.mem_cons.mpr (Or.inl rfl))
+    have hunit := hu z (List.mem_cons.mpr (Or.inl rfl))
+    change weight (chosenLiteral v z) * literalProduct weight v zs =
+      (if natMem z weighted && v z then
+        weight (pos z) * selectedPhaseProduct weight v weighted zs
+       else selectedPhaseProduct weight v weighted zs)
+    rw [ht]
+    cases hv : v z with
+    | false =>
+      rw [chosen_literal_false v z hv, hneg]
+      cases natMem z weighted <;> exact ol _
+    | true =>
+      rw [chosen_literal_true v z hv]
+      cases hw : natMem z weighted with
+      | false =>
+        rw [hunit hw]
+        exact ol _
+      | true => rfl
+
+-- Specialization of the actual weighted fiber to a phase-weight
+-- product. The unit assumptions are explicit; no assertion that
+-- parsed decimal strings already equal ideal complex phases.
+theorem accepted_phase_product_fiber {A : Type} [Zero A] [Add A] [One A] [Mul A]
+    (zl : ∀ a : A, 0 + a = a) (zr : ∀ a : A, a + 0 = a)
+    (ol : ∀ a : A, 1 * a = a)
+    (gate cnf : List Nat) (n : Nat)
+    (rs : List Record) (p : ParsedCnf) (cs : List (List Int)) (ws : List Nat)
+    (hg : parseGate gate = some (n, rs)) (hp : parseCnf cnf = some p)
+    (hr : replayRows n rs = some (cs, ws)) (h : check gate cnf = true)
+    (v : Nat → Bool) (weight : Int → A)
+    (hn : ∀ z, z ∈ dimacsIds n → weight (-pos z) = 1)
+    (hu : ∀ z, z ∈ dimacsIds n → natMem z ws = false → weight (pos z) = 1) :
+    actualFiber n p rs v (fun bits => literalProduct weight (decodeBits bits) (dimacsIds n)) =
+      if guardTruth (extendVal v rs) rs then
+        selectedPhaseProduct weight (extendVal v rs) ws (dimacsIds n) else 0 :=
+  (accepted_literal_fiber zl zr gate cnf n rs p cs ws hg hp hr h v weight).trans
+    (congrArg (fun x => if guardTruth (extendVal v rs) rs then x else 0)
+      (literal_product_phase ol weight (extendVal v rs) ws (dimacsIds n) hn hu))
+
 -- Localize any unexpected dependency to a definition vs theorem.
 #print axioms splitBytes
 #print axioms digits
@@ -1654,6 +1777,15 @@ theorem accepted_fiber_count (gate cnf : List Nat) (n : Nat)
 #print axioms sum_bits_single
 #print axioms accepted_weighted_fiber
 #print axioms accepted_fiber_count
+#print axioms chosenLiteral
+#print axioms literalProduct
+#print axioms selectedPhaseProduct
+#print axioms literal_product_agree
+#print axioms accepted_literal_fiber
+#print axioms chosen_literal_false
+#print axioms chosen_literal_true
+#print axioms literal_product_phase
+#print axioms accepted_phase_product_fiber
 end QuPRS.CnfReplay
 
 def main (args : List String) : IO Unit := do

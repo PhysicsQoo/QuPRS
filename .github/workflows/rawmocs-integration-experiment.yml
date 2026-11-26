@@ -40,7 +40,7 @@ jobs:
         if: startsWith(matrix.case, 'planner-')
         with:
           repository: PhysicsQoo/RaWMoCS
-          ref: 7d9df869608baa39c984641805cbc75f515b613f
+          ref: 056b5d5ad0fc1fc336c78863bbb5983984e2c130
           path: .rawmocs-candidate
           persist-credentials: false
       - uses: actions/setup-python@v5
@@ -101,7 +101,7 @@ jobs:
         if: startsWith(matrix.case, 'planner-')
         run: |
           set -euo pipefail
-          test "$(git -C .rawmocs-candidate rev-parse HEAD)" = 7d9df869608baa39c984641805cbc75f515b613f
+          test "$(git -C .rawmocs-candidate rev-parse HEAD)" = 056b5d5ad0fc1fc336c78863bbb5983984e2c130
           cargo test --locked --release --manifest-path .rawmocs-candidate/crates/rawmocs-cli/Cargo.toml
           cargo build --locked --release --manifest-path .rawmocs-candidate/crates/rawmocs-cli/Cargo.toml
       - name: Build expanded native cohort verifier

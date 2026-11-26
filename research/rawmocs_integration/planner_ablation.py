@@ -25,8 +25,8 @@ def trial(a,cnf,label,arm):
     env.pop("RAWMOCS_RESEARCH_RECYCLE_MOVE",None)
     env.pop("RAWMOCS_RESEARCH_SUPPORT_FIRST",None)
     if arm=="peak":env["RAWMOCS_RESEARCH_PEAK_FIRST"]="1"
-    if arm in ("gated","gated_support"):env["RAWMOCS_RESEARCH_PEAK_FIRST"]="2"
-    if arm in ("support","gated_support"):env["RAWMOCS_RESEARCH_SUPPORT_FIRST"]="1"
+    if arm=="gated":env["RAWMOCS_RESEARCH_PEAK_FIRST"]="2"
+    if arm=="refine":env["RAWMOCS_RESEARCH_PEAK_FIRST"]="3"
     if arm=="three":env["RAWMOCS_RESEARCH_THREE_CUT"]="1"
     prefix=a.out/label
     rss=prefix.with_suffix(".rss")
@@ -94,7 +94,7 @@ def main():
         cnf=a.out/"gpmc-capture.cnf"
         assert digest(cnf)==HASHES[a.n]
         if g["status"]=="COMPLETED":assert g["cnf_sha256"]==HASHES[a.n]
-        order=("baseline","candidate","support","gated","gated_support","gated_support","gated","support","candidate","baseline") if a.n!=22 else ("baseline","candidate","three")
+        order=("baseline","candidate","gated","refine","refine","gated","candidate","baseline") if a.n!=22 else ("baseline","candidate","three")
         for i,arm in enumerate(order):
             row=trial(a,cnf,f"trial-{i}-{arm}",arm)
             if row["status"]=="COMPLETED" and g["status"]=="COMPLETED":
@@ -104,18 +104,24 @@ def main():
         if a.n!=22:
             assert all(r["status"]=="COMPLETED" for r in report["rows"])
             b=report["rows"][0]
-            assert all(all(Fraction(r[k])==Fraction(b[k]) for k in ("real","imag")) and r["sat"]==b["sat"] for r in report["rows"] if r["arm"] in ("candidate","support"))
+            assert all(all(Fraction(r[k])==Fraction(b[k]) for k in ("real","imag")) and r["sat"]==b["sat"] for r in report["rows"] if r["arm"]=="candidate")
             gated=next(r for r in report["rows"] if r["arm"]=="gated")
-            assert all(r["sat"]==gated["sat"] and all(Fraction(r[k])==Fraction(gated[k]) for k in ("real","imag")) for r in report["rows"] if r["arm"]=="gated_support")
+            assert all(r["sat"]==gated["sat"] for r in report["rows"] if r["arm"]=="refine")
             def signature(row):
                 line,=[v for v in row["stderr"].splitlines() if v.startswith("PREJOIN_COMPLETE ")]
                 return line.split(" plan_ns=")[0]
-            assert all(signature(r)==signature(gated if r["arm"]=="gated_support" else b)
-                       for r in report["rows"] if r["arm"] in ("candidate","support","gated_support"))
+            assert all(signature(r)==signature(b) for r in report["rows"] if r["arm"]=="candidate")
+            for r in report["rows"]:
+                if r["arm"]!="refine":continue
+                if signature(r)==signature(gated):
+                    assert all(Fraction(r[k])==Fraction(gated[k]) for k in ("real","imag")),r
+                else:
+                    assert a.n==20 and "PREJOIN_RESEARCH_REFINE" in r["stderr"],r
+                    assert "cuts=2 leaves=4" in signature(r),r
             report["median"]={arm:{k:statistics.median(r[k] for r in report["rows"] if r["arm"]==arm)
-                        for k in ("wall_s","rss_kib")} for arm in ("baseline","candidate","support","gated","gated_support")}
+                        for k in ("wall_s","rss_kib")} for arm in ("baseline","candidate","gated","refine")}
             report["witness"]=witness(a,cnf,[g,*report["rows"]])
-            report["status"]="SUPPORT_FIRST_ABLATION_COMPLETE" if report["witness"]["status"]=="PASS" else "SUPPORT_FIRST_UNWITNESSED"
+            report["status"]="INCUMBENT_REFINE_ABLATION_COMPLETE" if report["witness"]["status"]=="PASS" else "INCUMBENT_REFINE_UNWITNESSED"
         else:
             b,c,t=report["rows"]
             assert b["status"]=="ROUTE_REJECTED" and c["status"]=="ROUTE_REJECTED", (b,c)

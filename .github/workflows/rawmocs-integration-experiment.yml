@@ -10,7 +10,7 @@ on:
       suite:
         description: Experimental evidence suite
         type: choice
-        options: [legacy, cross-family, source-admission, root-profile, factor-classes, sparse-anchor, prefix-memo, axis-profile, direct-binary, operand-profile, pool-profile, last-use-donor, masked-donor, descendant-units, inplace-scan, inplace-branch, move-components, borrowed-cache, general-cumulative, general-simulation-repair, general-native-gpmc, scope-scratch, streaming-large-general, large-root-closure, large-descendant-closure, fixed-work-descendant, large-general-candidate, long-native-candidate, default-parser-isolation, scope-scratch-fair, scope-scratch-candidate, large-root-ownership, root-ownership-port, packed-index-scratch, owned-entry-isolation, root-long-regression, reversible-index-state, reversible-canonical-boundary, historical-gap-baseline, reversible-frontier-transitions, reversible-ordered-frontier, historical-grover5, grover5-precision-audit, grover5-seven-pairs, reversible-rank-generation, reversible-single-unit-queue, component-scoped-trail-wmc, scoped-complete-ablation, scoped-adaptive-ablation, scoped-local-allocation]
+        options: [legacy, cross-family, source-admission, root-profile, factor-classes, sparse-anchor, prefix-memo, axis-profile, direct-binary, operand-profile, pool-profile, last-use-donor, masked-donor, descendant-units, inplace-scan, inplace-branch, move-components, borrowed-cache, general-cumulative, general-simulation-repair, general-native-gpmc, scope-scratch, streaming-large-general, large-root-closure, large-descendant-closure, fixed-work-descendant, large-general-candidate, long-native-candidate, default-parser-isolation, scope-scratch-fair, scope-scratch-candidate, large-root-ownership, root-ownership-port, packed-index-scratch, owned-entry-isolation, root-long-regression, reversible-index-state, reversible-canonical-boundary, historical-gap-baseline, reversible-frontier-transitions, reversible-ordered-frontier, historical-grover5, grover5-precision-audit, grover5-seven-pairs, reversible-rank-generation, reversible-single-unit-queue, component-scoped-trail-wmc, scoped-complete-ablation, scoped-adaptive-ablation, scoped-local-allocation, scoped-canonical-reuse]
         default: legacy
 permissions:
   contents: read
@@ -4611,7 +4611,7 @@ jobs:
           if-no-files-found: warn
 
   scoped-local-allocation:
-    if: github.event_name == 'push' || inputs.suite == 'scoped-local-allocation'
+    if: github.event_name == 'workflow_dispatch' && inputs.suite == 'scoped-local-allocation'
     name: Component-local allocation / ${{ matrix.digits }} digits
     runs-on: ubuntu-24.04
     timeout-minutes: 8
@@ -4734,5 +4734,137 @@ jobs:
         with:
           name: rawmocs-scoped-local-allocation-${{ matrix.digits }}
           path: .scoped-local-evidence/
+          include-hidden-files: true
+          if-no-files-found: warn
+
+  scoped-canonical-reuse:
+    if: github.event_name == 'push' || inputs.suite == 'scoped-canonical-reuse'
+    name: Canonical boundary reuse / ${{ matrix.digits }} digits
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    strategy:
+      fail-fast: false
+      matrix:
+        digits: [30, 130]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: PhysicsQoo/RaWMoCS
+          ref: 6bf4284d5d91502d4f11d0ab981b11b175291d7b
+          path: .classes-candidate
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: rawmocs-quprs-planner-gen-vqe8
+          run-id: 45734596083
+          github-token: ${{ github.token }}
+          path: .scoped-original
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: .classes-candidate/crates/rawmocs-cli -> target
+          shared-key: rawmocs-general-dependencies
+          cache-workspace-crates: 'false'
+      - name: Compile and test exact candidate
+        run: |
+          set -euo pipefail
+          test "$(git -C .classes-candidate rev-parse HEAD)" = 6bf4284d5d91502d4f11d0ab981b11b175291d7b
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libgmp-dev libmpfr-dev m4 make gcc time pkg-config
+          mkdir -p .scoped-reuse-evidence
+          cargo test --locked --release --manifest-path .classes-candidate/crates/rawmocs-cli/Cargo.toml 2>&1 | tee .scoped-reuse-evidence/science.log
+      - name: Complete weighted count and matched canonical node traces
+        env:
+          RAWMOCS_TEST_DIGITS: ${{ matrix.digits }}
+        run: |
+          set -euo pipefail
+          mapfile -t cnfs < <(find .scoped-original -name gpmc-capture.cnf -type f)
+          test "${#cnfs[@]}" -eq 1
+          export RAWMOCS_TEST_ORIGINAL="$(realpath "${cnfs[0]}")"
+          echo '55938d577be87d91dd520b7002de7ec886c6035405e5400f6f80392a385562ee  '"$RAWMOCS_TEST_ORIGINAL" | sha256sum -c -
+          timeout -k 2s 200s prlimit --as=3221225472 -- cargo test --locked --release --manifest-path .classes-candidate/crates/rawmocs-cli/Cargo.toml scoped_canonical_reuse_ablation -- --ignored --nocapture 2>&1 | tee .scoped-reuse-evidence/full.log
+      - name: Verify every original count independently and summarize complete pairs
+        env:
+          DIGITS: ${{ matrix.digits }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib,json,os,re,statistics,sys
+          from fractions import Fraction
+          from pathlib import Path
+          root=Path(".scoped-reuse-evidence")
+          sys.path.insert(0,str(Path(".classes-candidate/crates/rawmocs-cli/tools").resolve()))
+          from release_transfer import check_count
+          witness,=Path(".scoped-original").rglob("witness.json")
+          ref=json.loads(witness.read_text())
+          expected="55938d577be87d91dd520b7002de7ec886c6035405e5400f6f80392a385562ee"
+          assert ref["source_sha256"]==expected and ref["bits"]==550
+          assert ref["status"] in ("INDEPENDENT_INTERVAL_COMPLETE","INDEPENDENT_FIXED_INTERVAL_COMPLETE") and ref["width"]<=19 and ref["work"]<=40000000 and ref["peak"]<=2000000
+          if ref["status"]=="INDEPENDENT_FIXED_INTERVAL_COMPLETE": assert ref["order_policy"] in ("fill-reverse","degree-reverse")
+          digits=int(os.environ["DIGITS"])
+          target={30:30,130:100}[digits]
+          lines=(root/"full.log").read_text().splitlines()
+          report={"source_sha256":expected,"witness_sha256":hashlib.sha256(witness.read_bytes()).hexdigest(),"candidate_sha":"6bf4284d5d91502d4f11d0ab981b11b175291d7b","digits":digits,"target":target,"cases":{}}
+          for case in ("chain8192","split4096","vqe8"):
+              traces={}
+              for line in lines:
+                  if not line.startswith("REUSE_TRACE case="+case+" "): continue
+                  tr=dict(x.split("=",1) for x in line.split()[1:])
+                  mode=int(tr["mode"])
+                  assert mode not in traces and int(tr["digits"])==digits
+                  traces[mode]=tr
+              assert set(traces)=={0,1,2,3,4} and traces[0]["status"]=="COMPLETE"
+              assert int(traces[0]["nodes"])<=1000000
+              admitted={m for m,t in traces.items() if t["status"]=="COMPLETE"}
+              if case!="vqe8": assert admitted=={0,1,2,3,4}
+              for m,t in traces.items():
+                  assert t["budget"]==traces[0]["nodes"]
+                  if m in admitted:
+                      for k in ("fingerprint","nodes","hits","splits","branches","free"): assert t[k]==traces[0][k]
+                  else: assert t["status"]=="CENSORED" and int(t["nodes"])<=int(t["budget"])
+              rows=[]
+              for line in lines:
+                  if not line.startswith("REUSE_FULL_FINAL case="+case+" "): continue
+                  r=dict(x.split("=",1) for x in line.split()[1:])
+                  assert int(r["digits"])==digits
+                  row={"trial":int(r["trial"]),"mode":int(r["mode"]),"wall_ns":int(r["wall_ns"]),"sat":r["sat"]=="SATISFIABLE","real":r["real"],"imag":r["imag"]}
+                  if case=="vqe8": row["witness_upper"]=check_count(row,ref,target)
+                  else: assert row["sat"] and Fraction(row["real"])==(Fraction(5,32) if case=="chain8192" else 1) and Fraction(row["imag"])==0
+                  rows.append(row)
+              assert len(rows)==10*len(admitted)
+              assert {(r["trial"],r["mode"]) for r in rows}=={(t,m) for t in range(10) for m in admitted}
+              assert len({(r["sat"],r["real"],r["imag"]) for r in rows})==1
+              med={str(m):statistics.median(r["wall_ns"] for r in rows if r["mode"]==m) for m in admitted}
+              report["cases"][case]={"traces":traces,"rows":rows,"median_ns":med,"base_over_mode":{m:med["0"]/v for m,v in med.items()}}
+          current=None
+          for line in lines:
+              if line.startswith("REUSE_PHASE_CASE "):
+                  current=dict(x.split("=",1) for x in line.split()[1:])["case"]
+                  report["cases"][current]["phases"]={}
+              elif line.startswith("REUSE_PHASE "):
+                  assert current is not None
+                  phase={k:int(v) for k,v in (x.split("=",1) for x in line.split()[1:])}
+                  mode=phase.pop("mode")
+                  assert mode in (1,2,3,4)
+                  report["cases"][current]["phases"][str(mode)]=phase
+          for c in report["cases"].values():
+              assert set(c["phases"])=={"1","2","3","4"}
+              if all(t["status"]=="COMPLETE" for t in c["traces"].values()):
+                  assert len({p["source_clauses"] for p in c["phases"].values()})==1
+                  assert len({p["slots"] for p in c["phases"].values()})==1
+                  for mode,p in c["phases"].items():
+                      assert p["fresh_shortcuts"]==(int(c["traces"][mode]["indexes"]) if mode in ("2","4") else 0)
+                      assert 0<=p["unchanged_residuals"]<=p["reused_residuals"]
+                      if mode in ("1","2"): assert p["reused_residuals"]==0
+                      else: assert p["reused_residuals"]>0
+          report["status"]="REUSE_FULL_COMPLETE" if all(all(t["status"]=="COMPLETE" for t in c["traces"].values()) for c in report["cases"].values()) else "REUSE_DIAGNOSTIC_WITH_CENSOR"
+          (root/"report.json").write_text(json.dumps(report,indent=2)+"\n")
+          print("REUSE_FULL_REPORT",json.dumps(report),flush=True)
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: rawmocs-scoped-canonical-reuse-${{ matrix.digits }}
+          path: .scoped-reuse-evidence/
           include-hidden-files: true
           if-no-files-found: warn

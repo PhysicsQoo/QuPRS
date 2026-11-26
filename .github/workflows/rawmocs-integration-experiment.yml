@@ -10,7 +10,7 @@ on:
       suite:
         description: Experimental evidence suite
         type: choice
-        options: [legacy, cross-family, source-admission, root-profile, factor-classes, sparse-anchor, prefix-memo, axis-profile, direct-binary, operand-profile, pool-profile, last-use-donor, masked-donor, descendant-units, inplace-scan, inplace-branch, move-components, borrowed-cache, general-cumulative, general-simulation-repair, general-native-gpmc, scope-scratch, streaming-large-general, large-root-closure, large-descendant-closure, fixed-work-descendant, large-general-candidate, long-native-candidate, default-parser-isolation, scope-scratch-fair, scope-scratch-candidate, large-root-ownership, root-ownership-port, packed-index-scratch, owned-entry-isolation, root-long-regression, reversible-index-state, reversible-canonical-boundary, historical-gap-baseline, reversible-frontier-transitions, reversible-ordered-frontier, historical-grover5, grover5-precision-audit, grover5-seven-pairs, reversible-rank-generation, reversible-single-unit-queue, component-scoped-trail-wmc, scoped-complete-ablation, scoped-adaptive-ablation, scoped-local-allocation, scoped-canonical-reuse, scoped-preindex-cache, general-pivot-scout, general-separator-scout, general-separator-paired, general-separator-transfer, general-separator-cli, general-separator-admission, general-separator-prehash, general-auto-fallback-scout, general-fallback-witness, general-frontier-transaction, qft24-bounded-order]
+        options: [legacy, cross-family, source-admission, root-profile, factor-classes, sparse-anchor, prefix-memo, axis-profile, direct-binary, operand-profile, pool-profile, last-use-donor, masked-donor, descendant-units, inplace-scan, inplace-branch, move-components, borrowed-cache, general-cumulative, general-simulation-repair, general-native-gpmc, scope-scratch, streaming-large-general, large-root-closure, large-descendant-closure, fixed-work-descendant, large-general-candidate, long-native-candidate, default-parser-isolation, scope-scratch-fair, scope-scratch-candidate, large-root-ownership, root-ownership-port, packed-index-scratch, owned-entry-isolation, root-long-regression, reversible-index-state, reversible-canonical-boundary, historical-gap-baseline, reversible-frontier-transitions, reversible-ordered-frontier, historical-grover5, grover5-precision-audit, grover5-seven-pairs, reversible-rank-generation, reversible-single-unit-queue, component-scoped-trail-wmc, scoped-complete-ablation, scoped-adaptive-ablation, scoped-local-allocation, scoped-canonical-reuse, scoped-preindex-cache, general-pivot-scout, general-separator-scout, general-separator-paired, general-separator-transfer, general-separator-cli, general-separator-admission, general-separator-prehash, general-auto-fallback-scout, general-fallback-witness, general-frontier-transaction, qft24-bounded-order, qft24-cutset-dag]
         default: legacy
 permissions:
   contents: read
@@ -7085,7 +7085,7 @@ jobs:
           PY
 
   qft24-bounded-order:
-    if: github.event_name == 'push' || inputs.suite == 'qft24-bounded-order'
+    if: github.event_name == 'workflow_dispatch' && inputs.suite == 'qft24-bounded-order'
     name: QFT24 bounded independent order / local width ${{ matrix.width }}
     runs-on: ubuntu-24.04
     timeout-minutes: 6
@@ -7170,5 +7170,98 @@ jobs:
         with:
           name: rawmocs-qft24-bounded-order-width-${{ matrix.width }}
           path: .qft24-order/
+          include-hidden-files: true
+          if-no-files-found: warn
+
+  qft24-cutset-dag:
+    if: github.event_name == 'push' || inputs.suite == 'qft24-cutset-dag'
+    name: QFT24 exact cutset DAG / local width ${{ matrix.width }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - width: 4
+            artifact: 15160840408
+            zip_sha: 2dd88f1b4f265e472f246a6540461cba84695a5d88f4e41dfcef4a23f3802e43
+          - width: 5
+            artifact: 15160013472
+            zip_sha: bb1f154a9f43d4a1c90e390676582c4439ef74c29924d8bda8b469ccdd7097fa
+          - width: 6
+            artifact: 15160925279
+            zip_sha: 209f8ed7fec5b22e0eb4cafbe13a505c22567a6f6c0d0453967d03dabec290e7
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: PhysicsQoo/RaWMoCS
+          ref: c3d6003290b76d501209e71a86b886bec578364f
+          path: .classes-candidate
+          persist-credentials: false
+      - name: Recover locked source and previous order report
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT: ${{ matrix.artifact }}
+          ZIP_SHA: ${{ matrix.zip_sha }}
+        run: |
+          set -euo pipefail
+          test "$(git -C .classes-candidate rev-parse HEAD)" = c3d6003290b76d501209e71a86b886bec578364f
+          for spec in "15139118520 4bccb5ac270567fbef7c70cf1f2d697975ee57b6d5ed8e0d1f5441eafbdb1b1a .qft24-original" "$ARTIFACT $ZIP_SHA .qft24-order"; do
+            read -r id digest dir <<< "$spec"
+            zip="$RUNNER_TEMP/$id.zip"
+            gh api "repos/PhysicsQoo/QuPRS/actions/artifacts/$id/zip" > "$zip"
+            echo "$digest  $zip" | sha256sum -c -
+            unzip -q "$zip" -d "$dir"
+          done
+      - name: Exact DAG schedule and support replay
+        env:
+          LOCAL_WIDTH: ${{ matrix.width }}
+        run: |
+          set -euo pipefail
+          mkdir -p .qft24-dag
+          python3 - <<'PY'
+          import hashlib,json,os,subprocess,sys
+          from pathlib import Path
+          root=Path(".qft24-dag").resolve()
+          cli=Path(".classes-candidate/crates/rawmocs-cli").resolve()
+          sys.path.insert(0,str(cli/"tools"))
+          from release_transfer import check_count
+          expected="e06d6a673e664fcfe4d39dad8cafe42d309438be2951014208ffa2e329059485"
+          def sha(p): return hashlib.sha256(p.read_bytes()).hexdigest()
+          cnf,=Path(".qft24-original").rglob("extended_qft24-gpmc.cnf")
+          receipt,=Path(".qft24-original").rglob("report.json")
+          prior,=Path(".qft24-order").rglob("report.json")
+          old=json.loads(receipt.read_text())
+          order=json.loads(prior.read_text())
+          width=int(os.environ["LOCAL_WIDTH"])
+          assert old["case"]=="qft24" and old["cnf_sha256"]==expected==sha(cnf)
+          assert old["rows"]["gpmc"]["status"]=="COMPLETE_UNWITNESSED"
+          assert order["source_sha256"]==expected and order["local_width"]==width
+          assert order["status"]=="NO_ADMITTED_OBSERVED_PLAN" and len(order["replay"])==4
+          p=subprocess.run(["timeout","-k","2s","240s","prlimit","--as=3221225472","--",sys.executable,str(cli/"tools/repro/bounded_cutset_dag.py"),str(cnf),str(prior),expected],capture_output=True,text=True,timeout=247)
+          (root/"scout.stdout").write_text(p.stdout)
+          (root/"scout.stderr").write_text(p.stderr)
+          report={"source_sha256":expected,"local_width":width,"exit":p.returncode,"prior_report_sha256":sha(prior)}
+          if p.returncode==0:
+              result=json.loads(p.stdout)
+              assert result["source_sha256"]==expected and result["local_width"]==width
+              report.update(result)
+              if result["status"]=="INDEPENDENT_INTERVAL_COMPLETE":
+                  assert result["bits"]==550 and result["width"]<=19 and result["work"]<=40000000 and result["peak"]<=2000000
+                  report["historical_gpmc_witness_upper"]=check_count(old["rows"]["gpmc"],result,100)
+                  (root/"independent-reference.json").write_text(json.dumps(result,indent=2)+"\n")
+          elif p.returncode==124:
+              report["status"]="OUTER_CENSORED"
+          else:
+              raise RuntimeError((p.returncode,p.stderr[-3000:]))
+          assert sha(cnf)==expected
+          (root/"report.json").write_text(json.dumps(report,indent=2)+"\n")
+          print("QFT24_CUTSET_DAG_REPORT",json.dumps(report),flush=True)
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: rawmocs-qft24-cutset-dag-width-${{ matrix.width }}
+          path: .qft24-dag/
           include-hidden-files: true
           if-no-files-found: warn

@@ -894,6 +894,17 @@ jobs:
           done
           echo 'LEAN4_HOARE_SECTOR_TRANSPORT_PROOFS_PASS theorem_axiom_reports=157 conditional_support=true terminal_sound=true local_z8=true gate_replay_formalized=true affine_certificate_formalized=true quadratic_degree_bound=true bounded_table_interpolation=true qexpr_table_refinement=true circuit_phase_interpolation=true fourier_coefficient_transport=true walsh_nonzero=true reversible_monomial_map=true inverse_phase_walsh_nonzero=true fourier_nonzero_output=true finite_sector_checker_sound=true quadratic_coordinate_zero_equivalence=true direct_phase_coordinate_bridge=true complex_embedding_formalized=false'
 
+          lean AffineOutputQuotient.lean 2>&1 | tee /tmp/qasm-lean-affine-output.log
+          if grep -E 'sorryAx|Lean[.]trustCompiler|Classical[.]choice' /tmp/qasm-lean-affine-output.log; then
+            echo 'Unexpected affine output quotient theorem axiom dependency' >&2
+            exit 1
+          fi
+          test "$(grep -Ec 'does not depend on any axioms|depends on axioms' /tmp/qasm-lean-affine-output.log)" -eq 9
+          for theorem in parity_congr parity_single representative_left_inverse reconstruction_injective fixed_first_equivalence fixed_first_contradiction fibre_preserved outside_image_zero forbidden_fibre_zero_iff; do
+            test "$(grep -Ec "^'QuPRS[.]AffineOutputQuotient[.]$theorem' (does not depend on any axioms|depends on axioms)" /tmp/qasm-lean-affine-output.log)" -eq 1
+          done
+          echo 'LEAN4_AFFINE_OUTPUT_QUOTIENT_PASS theorem_axiom_reports=9 conditional_certificate=true fixed_first=true fibre_preservation=true rust_refinement=false'
+
       - name: Build and test std-only independent verifier
         run: |
           set -euo pipefail

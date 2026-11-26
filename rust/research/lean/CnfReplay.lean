@@ -358,12 +358,12 @@ def acceptResult (n : Nat) (p : ParsedCnf) :
 def ascii (bytes : List Nat) : Bool :=
   bytes.all (fun b => natLE b 127)
 
+def checkParsed : Option (Nat × List Record) → Option ParsedCnf → Bool
+  | some (n, rs), some p => acceptResult n p (replayRows n rs)
+  | _, _ => false
+
 def check (gate cnf : List Nat) : Bool :=
-  if ascii gate && ascii cnf then
-    match parseGate gate, parseCnf cnf with
-    | some (n, rs), some p => acceptResult n p (replayRows n rs)
-    | _, _ => false
-  else false
+  (ascii gate && ascii cnf) && checkParsed (parseGate gate) (parseCnf cnf)
 
 -- Typed replay boundary: acceptance implies clause satisfaction
 -- equivalence for every literal valuation. Use only explicit
@@ -380,6 +380,166 @@ theorem accepted_rows_sound (n : Nat) (rs : List Record)
     bagEqBy intEq (weightIds weighted) p.weights) &&
     checkRows generated p.clauses) = true := h'
   check_rows_sound generated p.clauses (and_true_parts hc).2 value
+
+
+-- Connect actual byte-checker acceptance to its typed replay result.
+-- Parsing correctness relative to the external DIMACS specification
+-- remains separate: the theorem concerns exactly the parsed rows.
+theorem byte_check_sound (gate cnf : List Nat) (n : Nat)
+    (rs : List Record) (p : ParsedCnf)
+    (generated : List (List Int)) (weighted : List Nat)
+    (hg : parseGate gate = some (n, rs))
+    (hp : parseCnf cnf = some p)
+    (hr : replayRows n rs = some (generated, weighted))
+    (h : check gate cnf = true) (value : Int → Bool) :
+    satisfies generated value ↔ satisfies p.clauses value :=
+  let h' : ((ascii gate && ascii cnf) &&
+      checkParsed (parseGate gate) (parseCnf cnf)) = true := h
+  let hc := (and_true_parts h').2
+  let h1 : checkParsed (some (n, rs)) (parseCnf cnf) = true :=
+    (congrArg (fun g => checkParsed g (parseCnf cnf)) hg).symm.trans hc
+  let he : checkParsed (some (n, rs)) (some p) = true :=
+    (congrArg (checkParsed (some (n, rs))) hp).symm.trans h1
+  accepted_rows_sound n rs p generated weighted hr he value
+
+-- Semantics of the exact sorted rows used by replayRows, not a
+-- separate CNF encoder. A valuation is coherent on the relevant
+-- positive/negative literal pairs (nonzero IDs established by replay).
+def rowTruth (value : Int → Bool) : List Int → Bool
+  | [] => false
+  | x :: xs => value x || rowTruth value xs
+
+def cnfTruth (value : Int → Bool) : List (List Int) → Bool
+  | [] => true
+  | row :: rest => rowTruth value row && cnfTruth value rest
+
+theorem row_truth_iff (value : Int → Bool) (row : List Int) :
+    rowTruth value row = true ↔ ∃ x, x ∈ row ∧ value x = true := by
+  induction row with
+  | nil => simp [rowTruth]
+  | cons x xs ih =>
+    simp only [rowTruth, Bool.or_eq_true, ih, List.mem_cons]
+    constructor
+    · intro h
+      rcases h with hx | ⟨y, hy, hv⟩
+      · exact ⟨x, Or.inl rfl, hx⟩
+      · exact ⟨y, Or.inr hy, hv⟩
+    · intro h
+      rcases h with ⟨y, hy, hv⟩
+      rcases hy with he | hm
+      · subst y
+        exact Or.inl hv
+      · exact Or.inr ⟨y, hm, hv⟩
+
+theorem cnf_truth_iff (value : Int → Bool) (cs : List (List Int)) :
+    cnfTruth value cs = true ↔ satisfies cs value := by
+  induction cs with
+  | nil => simp [cnfTruth, satisfies]
+  | cons c cs ih =>
+    constructor
+    · intro h row hm
+      have h' : (rowTruth value c && cnfTruth value cs) = true := h
+      have hc := and_true_parts h'
+      rcases List.mem_cons.mp hm with he | ht
+      · subst row
+        exact (row_truth_iff value c).mp hc.1
+      · exact (ih.mp hc.2) row ht
+    · intro h
+      have hc := (row_truth_iff value c).mpr (h c (List.mem_cons.mpr (Or.inl rfl)))
+      have ht := ih.mpr (fun row hm => h row (List.mem_cons.mpr (Or.inr hm)))
+      change (rowTruth value c && cnfTruth value cs) = true
+      rw [hc, ht]
+      rfl
+
+theorem bool_true_iff_eq {a b : Bool} (h : (a = true ↔ b = true)) :
+    a = b := by
+  cases a <;> cases b <;> simp_all
+
+theorem row_truth_sort (value : Int → Bool) (row : List Int) :
+    rowTruth value (clauseSort row) = rowTruth value row := by
+  apply bool_true_iff_eq
+  simp only [row_truth_iff]
+  constructor
+  · rintro ⟨x, hm, hv⟩
+    exact ⟨x, List.mem_mergeSort.mp hm, hv⟩
+  · rintro ⟨x, hm, hv⟩
+    exact ⟨x, List.mem_mergeSort.mpr hm, hv⟩
+
+theorem cnf_truth_append (value : Int → Bool) (a b : List (List Int)) :
+    cnfTruth value (a ++ b) = (cnfTruth value a && cnfTruth value b) := by
+  induction a with
+  | nil => rfl
+  | cons x xs ih =>
+    simp only [List.cons_append, cnfTruth, ih, Bool.and_assoc]
+
+theorem cnf_truth_sorted (value : Int → Bool) (cs : List (List Int)) :
+    cnfTruth value (cs.map clauseSort) = cnfTruth value cs := by
+  induction cs with
+  | nil => rfl
+  | cons x xs ih =>
+    simp only [List.map_cons, cnfTruth, row_truth_sort, ih]
+
+theorem and_forward_rows (value : Int → Bool) (z : Nat) (inputs : List Nat)
+    (hz : value (-pos z) = !(value (pos z))) :
+    cnfTruth value (inputs.map (fun v => clauseSort [-pos z, pos v])) =
+      andForward (inputs.map (fun v => value (pos v))) (value (pos z)) := by
+  induction inputs with
+  | nil => rfl
+  | cons x xs ih =>
+    simp only [List.map_cons, cnfTruth, row_truth_sort, rowTruth, Bool.or_false,
+      hz, andForward, ih]
+
+theorem negative_row (value : Int → Bool) (inputs : List Nat)
+    (h : ∀ v, v ∈ inputs → value (-pos v) = !(value (pos v))) :
+    rowTruth value (inputs.map (fun v => -pos v)) =
+      !(andValue (inputs.map (fun v => value (pos v)))) := by
+  induction inputs with
+  | nil => rfl
+  | cons x xs ih =>
+    have hx := h x (List.mem_cons.mpr (Or.inl rfl))
+    have ht := ih (fun v hv => h v (List.mem_cons.mpr (Or.inr hv)))
+    simp only [List.map_cons, rowTruth, andValue, hx, ht]
+    cases value (pos x) <;> cases andValue (xs.map (fun v => value (pos v))) <;> rfl
+
+theorem actual_and_rows_sound (value : Int → Bool) (z : Nat) (inputs : List Nat)
+    (hz : value (-pos z) = !(value (pos z)))
+    (hi : ∀ v, v ∈ inputs → value (-pos v) = !(value (pos v))) :
+    satisfies (andRows z inputs) value ↔
+      value (pos z) = andValue (inputs.map (fun v => value (pos v))) := by
+  rw [← cnf_truth_iff]
+  unfold andRows
+  rw [cnf_truth_append, and_forward_rows value z inputs hz]
+  simp only [cnfTruth, row_truth_sort, rowTruth, Bool.and_true, negative_row value inputs hi]
+  exact and_nary (inputs.map (fun v => value (pos v))) (value (pos z))
+
+theorem actual_xor_rows_sound (value : Int → Bool) (z a b : Nat)
+    (hz : value (-pos z) = !(value (pos z)))
+    (ha : value (-pos a) = !(value (pos a)))
+    (hb : value (-pos b) = !(value (pos b))) :
+    satisfies (xorRows z a b) value ↔
+      value (pos z) = (value (pos a)).xor (value (pos b)) := by
+  rw [← cnf_truth_iff]
+  unfold xorRows
+  rw [cnf_truth_sorted]
+  simp only [cnfTruth, rowTruth, Bool.or_false, Bool.and_true, hz, ha, hb]
+  cases value (pos z) <;> cases value (pos a) <;> cases value (pos b) <;> decide
+
+theorem actual_eq_rows_sound (value : Int → Bool) (a b : Nat)
+    (ha : value (-pos a) = !(value (pos a)))
+    (hb : value (-pos b) = !(value (pos b))) :
+    satisfies (eqRows a b) value ↔ value (pos a) = value (pos b) := by
+  rw [← cnf_truth_iff]
+  unfold eqRows
+  rw [cnf_truth_sorted]
+  simp only [cnfTruth, rowTruth, Bool.or_false, Bool.and_true, ha, hb]
+  cases value (pos a) <;> cases value (pos b) <;> decide
+
+theorem actual_zero_row_sound (value : Int → Bool) (z : Nat)
+    (hz : value (-pos z) = !(value (pos z))) :
+    satisfies [[-pos z]] value ↔ value (pos z) = false := by
+  rw [← cnf_truth_iff]
+  simp only [cnfTruth, rowTruth, Bool.or_false, Bool.and_true, hz]
+  cases value (pos z) <;> decide
 
 -- Localize any unexpected dependency to a definition vs theorem.
 #print axioms splitBytes
@@ -403,6 +563,7 @@ theorem accepted_rows_sound (n : Nat) (rs : List Record)
 #print axioms checkRows
 #print axioms replayRows
 #print axioms acceptResult
+#print axioms checkParsed
 #print axioms check
 #print axioms and_forward
 #print axioms and_nary
@@ -412,6 +573,19 @@ theorem accepted_rows_sound (n : Nat) (rs : List Record)
 #print axioms covers_iff
 #print axioms check_rows_sound
 #print axioms accepted_rows_sound
+#print axioms byte_check_sound
+#print axioms row_truth_iff
+#print axioms cnf_truth_iff
+#print axioms bool_true_iff_eq
+#print axioms row_truth_sort
+#print axioms cnf_truth_append
+#print axioms cnf_truth_sorted
+#print axioms and_forward_rows
+#print axioms negative_row
+#print axioms actual_and_rows_sound
+#print axioms actual_xor_rows_sound
+#print axioms actual_eq_rows_sound
+#print axioms actual_zero_row_sound
 end QuPRS.CnfReplay
 
 def main (args : List String) : IO Unit := do

@@ -1128,59 +1128,95 @@ fn factor8(scope:u64,mut f:impl FnMut(u64)->Z8)->Result<Factor8,&'static str>{
     if scope.count_ones()>12{return Err("WIDTH_LIMIT");}
     Ok(Factor8{scope,table:(0..1usize<<scope.count_ones()).map(|i|f(deposit8(i,scope))).collect()})
 }
-fn contract_fibre8(ps:&PathSum,z:u64,deadline:std::time::Instant)->Result<(Z8,usize,usize),&'static str>{
+
+// Plan scopes before allocating any dense factor tables. The output
+// coordinates are boundary indices, never summed with hidden variables.
+fn plan_factor8(mut scopes:Vec<u64>,hidden:usize,boundary:u64,mut work:usize)
+    ->Result<(Vec<usize>,usize,usize),&'static str>{
+    if hidden>60||boundary.count_ones()>12{return Err("WIDTH_LIMIT");}
+    let mut peak=boundary.count_ones() as usize;
+    for &scope in &scopes{
+        let w=scope.count_ones() as usize;
+        if w>12{return Err("WIDTH_LIMIT");}peak=peak.max(w);
+    }
+    if work>2_000_000{return Err("WORK_LIMIT");}
+    let mut order=Vec::new();let mut live=(1u64<<hidden)-1;
+    while live!=0{
+        let (width,i,u)=(0..hidden).filter(|&i|live&(1u64<<i)!=0).map(|i|{
+            let b=1u64<<i;let u=scopes.iter().filter(|&&f|f&b!=0).fold(b,|a,&f|a|f);
+            (u.count_ones(),i,u)
+        }).min().unwrap();
+        if width>12{return Err("WIDTH_LIMIT");}peak=peak.max(width as usize);
+        let b=1u64<<i;
+        let count=scopes.iter().filter(|&&f|f&b!=0).count().max(1);
+        work=work.checked_add((1usize<<width).checked_mul(count).ok_or("WORK_LIMIT")?).ok_or("WORK_LIMIT")?;
+        if work>2_000_000{return Err("WORK_LIMIT");}
+        scopes.retain(|f|*f&b==0);scopes.push(u&!b);order.push(i);live^=b;
+    }
+    assert!(scopes.iter().all(|f|f&!boundary==0));
+    work=work.checked_add((1usize<<boundary.count_ones()).checked_mul(scopes.len().max(1)).ok_or("WORK_LIMIT")?).ok_or("WORK_LIMIT")?;
+    if work>2_000_000{return Err("WORK_LIMIT");}
+    Ok((order,peak,work))
+}
+enum FactorSpec8{Phase(u64,usize),Output(u64,Vec<u64>,Option<u64>,bool)}
+fn contract_boundary8(ps:&PathSum,fixed_mask:u64,z:u64,deadline:std::time::Instant)
+    ->Result<(Vec<Z8>,usize,usize),&'static str>{
     let n=ps.v.num_qubits;let hidden=h(ps);
-    if hidden>60||n>16||!admitted(ps)||z>>n!=0{return Err("UNSUPPORTED");}
+    if hidden>60||n>16||hidden+n>63||!admitted(ps)||fixed_mask>>n!=0||z&!fixed_mask!=0{return Err("UNSUPPORTED");}
+    if std::time::Instant::now()>=deadline{return Err("DEADLINE");}
+    let free=(((1u64<<n)-1)&!fixed_mask)<<hidden;
     let mut ids:Vec<_>=ps.v.path_vars.iter().copied().filter(|&i|i as usize>=n).collect();
     ids.sort_unstable();
     let positions:BTreeMap<_,_>=ids.iter().enumerate().map(|(j,&id)|(id,1u64<<j)).collect();
     let mask=|m:&[u32]|->Result<u64,&'static str>{
         m.iter().try_fold(0u64,|a,v|positions.get(v).map(|b|a|b).ok_or("UNFIXED_INPUT"))
     };
-    let mut fs=Vec::<Factor8>::new();let mut work=0usize;let mut peak=0usize;
+    let mut specs=Vec::new();let mut scopes=Vec::new();let mut initial_work=0usize;
+    let mut charge=|scope:u64,per:usize|->Result<(),&'static str>{
+        let w=scope.count_ones();
+        if w>12{return Err("WIDTH_LIMIT");}
+        initial_work=initial_work.checked_add((1usize<<w).checked_mul(per.max(1)).ok_or("WORK_LIMIT")?).ok_or("WORK_LIMIT")?;
+        if initial_work>2_000_000{return Err("WORK_LIMIT");}
+        scopes.push(scope);Ok(())
+    };
     for (m,c) in &ps.p.terms{
-        let den=c.constant.denom as i128;
-        let num=8i128*c.constant.numer as i128;
+        let den=c.constant.denom as i128;let num=8i128*c.constant.numer as i128;
         if den<=0||num%den!=0{return Err("UNSUPPORTED_PHASE");}
         let k=(num/den).rem_euclid(8) as usize;if k==0{continue;}
-        let scope=mask(m)?;
-        let f=factor8(scope,|a|{
-            if a&scope!=scope{return Z8_ONE;}
-            let mut r=[0;4];r[k%4]=if k<4{1}else{-1};r
-        })?;
-        work+=f.table.len();fs.push(f);
+        let scope=mask(m)?;charge(scope,1)?;specs.push(FactorSpec8::Phase(scope,k));
     }
     for (i,p) in ps.f.functions.iter().enumerate(){
         let ms=p.iter().map(|m|mask(m)).collect::<Result<Vec<_>,_>>()?;
-        let scope=ms.iter().fold(0u64,|a,b|a|b);
-        let f=factor8(scope,|a|{
-            let v=ms.iter().fold(false,|b,&m|b^(a&m==m));
-            if v==(z>>i&1==1){Z8_ONE}else{[0;4]}
-        })?;
-        work+=f.table.len();fs.push(f);
+        let bit=if fixed_mask>>i&1==0{Some(1u64<<(hidden+i))}else{None};
+        let scope=ms.iter().fold(bit.unwrap_or(0),|a,b|a|b);
+        charge(scope,ms.len())?;specs.push(FactorSpec8::Output(scope,ms,bit,z>>i&1==1));
     }
-    if work>2_000_000{return Err("WORK_LIMIT");}
-    let mut live=(1u64<<hidden)-1;
-    while live!=0{
+    let (order,peak,work)=plan_factor8(scopes,hidden,free,initial_work)?;
+    // The work cap also upper-bounds the total number of allocated
+    // table entries across this call (including discarded tables).
+    let mut fs=Vec::<Factor8>::new();
+    for spec in specs{
         if std::time::Instant::now()>=deadline{return Err("DEADLINE");}
-        // Minimum current bucket union (deterministic ties by stable ID).
-        let mut best=None;
-        for i in 0..hidden{
-            let b=1u64<<i;if live&b==0{continue;}
-            let u=fs.iter().filter(|f|f.scope&b!=0).fold(b,|a,f|a|f.scope);
-            let score=(u.count_ones(),i,u);
-            if best.is_none_or(|v|score<v){best=Some(score);}
-        }
-        let (width,i,u)=best.unwrap();let b=1u64<<i;
-        if width>12{return Err("WIDTH_LIMIT");}
-        peak=peak.max(width as usize);
+        let f=match spec{
+            FactorSpec8::Phase(scope,k)=>factor8(scope,|a|{
+                if a&scope!=scope{return Z8_ONE;}
+                let mut r=[0;4];r[k%4]=if k<4{1}else{-1};r
+            })?,
+            FactorSpec8::Output(scope,ms,bit,value)=>factor8(scope,|a|{
+                let v=ms.iter().fold(false,|b,&m|b^(a&m==m));
+                let want=bit.map_or(value,|b|a&b!=0);
+                if v==want{Z8_ONE}else{[0;4]}
+            })?,
+        };fs.push(f);
+    }
+    for i in order{
+        if std::time::Instant::now()>=deadline{return Err("DEADLINE");}
+        let b=1u64<<i;
         let (bucket,rest):(Vec<_>,Vec<_>)=fs.into_iter().partition(|f|f.scope&b!=0);
-        let scope=u&!b;
-        let count=1usize<<scope.count_ones();
-        work=work.checked_add(count*2*bucket.len().max(1)).ok_or("WORK_LIMIT")?;
-        if work>2_000_000{return Err("WORK_LIMIT");}
-        let mut table=Vec::with_capacity(count);
+        let scope=bucket.iter().fold(0u64,|a,f|a|f.scope)&!b;
+        let count=1usize<<scope.count_ones();let mut table=Vec::with_capacity(count);
         for i in 0..count{
+            if i%64==0&&std::time::Instant::now()>=deadline{return Err("DEADLINE");}
             let a=deposit8(i,scope);let mut sum=[0;4];
             for assignment in [a,a|b]{
                 let mut v=Z8_ONE;
@@ -1192,11 +1228,25 @@ fn contract_fibre8(ps:&PathSum,z:u64,deadline:std::time::Instant)->Result<(Z8,us
             }
             table.push(sum);
         }
-        fs=rest;fs.push(Factor8{scope,table});live^=b;
+        fs=rest;fs.push(Factor8{scope,table});
     }
-    let mut a=Z8_ONE;
-    for f in fs{assert_eq!(f.scope,0);a=z8_mul(a,f.table[0]).ok_or("OVERFLOW")?;}
-    Ok((a,peak,work))
+    let mut result=Vec::with_capacity(1usize<<free.count_ones());
+    for i in 0..1usize<<free.count_ones(){
+        if i%64==0&&std::time::Instant::now()>=deadline{return Err("DEADLINE");}
+        let a=deposit8(i,free);let mut v=Z8_ONE;
+        for f in &fs{
+            assert_eq!(f.scope&!free,0);
+            v=z8_mul(v,f.table[extract8(a,f.scope)]).ok_or("OVERFLOW")?;
+            if v==[0;4]{break;}
+        }
+        result.push(v);
+    }
+    Ok((result,peak,work))
+}
+fn contract_fibre8(ps:&PathSum,z:u64,deadline:std::time::Instant)->Result<(Z8,usize,usize),&'static str>{
+    if ps.v.num_qubits>16{return Err("UNSUPPORTED");}
+    let (a,w,c)=contract_boundary8(ps,(1u64<<ps.v.num_qubits)-1,z,deadline)?;
+    assert_eq!(a.len(),1);Ok((a[0],w,c))
 }
 fn z8_norm(a:Z8)->i128{a.into_iter().map(|v|v*v).sum()}
 #[test]
@@ -1214,6 +1264,15 @@ fn native_factor8_exact_reference(){
         for x in 0..8u64{
             let expected=gate_reference_width(&ops,x,3);
             let fixed=fixed_input(ps.clone(),x);
+            for mask in 0..8u64{for z in 0..8u64{
+                if z&!mask!=0{continue;}
+                let (a,_,_)=contract_boundary8(&fixed,mask,z,std::time::Instant::now()+std::time::Duration::from_secs(5)).unwrap();
+                for (i,r) in a.iter().enumerate(){
+                    let output=z|deposit8(i,7&!mask);
+                    let mut lifted=[0i64;32];for j in 0..4{lifted[8*j]=i64::try_from(r[j]).unwrap();}
+                    assert_eq!(lifted,expected[output as usize]);
+                }
+            }}
             for z in 0..8u64{
                 let (a,w,_)=contract_fibre8(&fixed,z,std::time::Instant::now()+std::time::Duration::from_secs(5)).unwrap();
                 let mut lifted=[0i64;32];for i in 0..4{lifted[8*i]=i64::try_from(a[i]).unwrap();}
@@ -1265,6 +1324,82 @@ fn native_qft_factor8_pilot(){
     }
     if let Some(dir)=std::env::var_os("HOARE_PAPER_PROJECTED_DIR"){
         std::fs::write(std::path::PathBuf::from(dir).join("qft-factor8-pilot.done"),"native bounded factor pilot executed\n").unwrap();
+    }
+}
+
+
+#[test]
+fn native_boundary_plan_caps(){
+    assert_eq!(plan_factor8(vec![(1u64<<13)-1],13,0,8192).unwrap_err(),"WIDTH_LIMIT");
+    assert_eq!(plan_factor8(vec![1],1,0,2_000_001).unwrap_err(),"WORK_LIMIT");
+    assert_eq!(plan_factor8((1..13).map(|i|1|(1u64<<i)).collect(),1,((1u64<<13)-1)&!1,48).unwrap_err(),"WIDTH_LIMIT");
+    let mut ps=PathSum::new(1);ps.set_auto_reduce(false);
+    let _=ps.v.get_fresh_var();
+    let fixed=fixed_input(ps,0);
+    let (a,_,_)=contract_boundary8(&fixed,0,0,std::time::Instant::now()+std::time::Duration::from_secs(1)).unwrap();
+    assert_eq!(a,vec![[2,0,0,0],[0;4]]);
+    assert_eq!(contract_boundary8(&fixed,0,0,std::time::Instant::now()).unwrap_err(),"DEADLINE");
+    println!("HOARE_NATIVE_BOUNDARY_CAPS width_work_free_deadline=true");
+}
+#[test]
+fn native_feynman_boundary8_pilot(){
+    let sources=[
+        ("qft4",include_str!("../../../benchmarks/Feynman/qft_4.qasm")),
+        ("hwb6",include_str!("../../../benchmarks/Feynman/hwb6.qasm")),
+        ("mod5",include_str!("../../../benchmarks/Feynman/mod5_4.qasm")),
+        ("barenco5",include_str!("../../../benchmarks/Feynman/barenco_tof_5.qasm")),
+    ];
+    for (name,src) in sources{
+        let (ops,n)=feynman_source_ops(src);
+        let mask=1u64<<(n-1);
+        // Independent oracle is prepared outside both measured arms.
+        let oracle:Vec<_>=(0..4u64).map(|x|gate_reference_width(&ops,x,n)).collect();
+        let t=std::time::Instant::now();
+        let mut raw=PathSum::new(n);raw.set_auto_reduce(false);
+        for g in &ops{g.apply(&mut raw,false);}
+        let (general,gr)=reduce(raw);let common=t.elapsed();
+        let mut receipts=BTreeMap::<(u64,u64),Z8>::new();let mut paired=0;
+        for boundary in [false,true]{
+            let start=std::time::Instant::now();
+            let deadline=start+std::time::Duration::from_secs(30).saturating_sub(common);
+            let mut exact=0;let mut positive=0;let mut peak=0;let mut work=0;let mut calls=0;let mut first_ns=None;
+            let mut failures=BTreeMap::<&str,usize>::new();let mut kernel_ns=0u128;
+            for x in 0..4u64{
+                if std::time::Instant::now()>=deadline{break;}
+                let (prefix,pr)=reduce(fixed_input(general.clone(),x));
+                let scale=gr.scale2+pr.scale2;
+                // One boundary contraction for all bad outputs or the
+                // matched repeated-fibre baseline. Full diagnostics
+                // continue after the first positive, record prefix cost.
+                let queries=if boundary{vec![(mask,mask)]}else{(mask..2*mask).map(|z|(2*mask-1,z)).collect()};
+                for (fixed,z) in queries{
+                    if std::time::Instant::now()>=deadline{break;}
+                    calls+=1;let t=std::time::Instant::now();
+                    let got=contract_boundary8(&prefix,fixed,z,deadline);
+                    kernel_ns+=t.elapsed().as_nanos();
+                    match got{
+                        Ok((a,w,cost))=>{
+                            peak=peak.max(w);work+=cost;
+                            for (i,r) in a.into_iter().enumerate(){
+                                let out=z|deposit8(i,(2*mask-1)&!fixed);
+                                let want=oracle[x as usize][out as usize].iter().map(|&v|i128::from(v)*i128::from(v)).sum::<i128>();
+                                assert_eq!(z8_norm(r).checked_shl(scale).unwrap(),want,"{name} {x} {out}");
+                                if boundary{
+                                    if let Some(prev)=receipts.get(&(x,out)){assert_eq!(r,*prev);paired+=1;}
+                                }else{receipts.insert((x,out),r);}
+                                exact+=1;positive+=usize::from(r!=[0;4]);
+                                if r!=[0;4]&&first_ns.is_none(){first_ns=Some((common+start.elapsed()).as_nanos());}
+                            }
+                        }
+                        Err(reason)=>{*failures.entry(reason).or_default()+=1;}
+                    }
+                }
+            }
+            let planned=4*mask as usize;
+            let verdict=if positive>0{"REFUTED"}else if exact==planned{"PROVED"}else{"UNKNOWN"};
+            println!("HOARE_FEYNMAN_BOUNDARY8 name={name} boundary={boundary} exact={exact} planned={planned} positive={positive} verdict={verdict} calls={calls} h={} peak_width={peak} work={work} kernel_ns={kernel_ns} accounted_ns={} first_ns={first_ns:?} failures={failures:?}",h(&general),(common+start.elapsed()).as_nanos());
+        }
+        println!("HOARE_FEYNMAN_BOUNDARY8_PARITY name={name} paired={paired}");
     }
 }
 

@@ -1929,7 +1929,10 @@ def run_gpmc_pure(directory, exe, tmp, deadline):
         run_native_gse_wmc(directory,solve,deadline,long_metrics)
         long_metrics=None
         query_cap=5
-    if (directory/"feynman-router.tsv").is_file():
+    if (directory/"qft-factor8-pilot.done").is_file():
+        # Prior 30s QFT WMC timeout controls are frozen.
+        print("HOARE_QFT_FACTOR8_WMC_BASELINE_FROZEN",flush=True)
+    elif (directory/"feynman-router.tsv").is_file():
         run_feynman_router(directory,exe,tmp)
     elif (directory/"disjoint-ablation.tsv").is_file():
         run_disjoint_ablation(directory,exe,tmp)
@@ -1945,7 +1948,7 @@ def run_gpmc_pure(directory, exe, tmp, deadline):
         run_paper_single_fibre(directory,exe,tmp)
     # Freeze previously accepted timeout baselines instead of repeatedly
     # spending six additional 30s queries during conditioned-RR research.
-    if (directory/"paper-projected.tsv").is_file() and not any((directory/p).is_file() for p in ("paper-conditioned-fibre.tsv","paper-blind-fibre.tsv","paper-sector-inputs.tsv","general-predicate.tsv","disjoint-ablation.tsv","feynman-router.tsv")):
+    if (directory/"paper-projected.tsv").is_file() and not any((directory/p).is_file() for p in ("paper-conditioned-fibre.tsv","paper-blind-fibre.tsv","paper-sector-inputs.tsv","general-predicate.tsv","disjoint-ablation.tsv","feynman-router.tsv","qft-factor8-pilot.done")):
         query_cap=30
         deadline=time.monotonic()+240
         long_metrics=[]

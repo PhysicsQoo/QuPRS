@@ -1099,6 +1099,175 @@ fn native_feynman_router_pilot(){
     }
 }
 
+
+// Exact bounded factor elimination over Z[zeta_8], a separate
+// algebraic contraction route, NOT a WMC solver or dense statevector.
+type Z8=[i128;4];
+const Z8_ONE:Z8=[1,0,0,0];
+fn z8_add(a:Z8,b:Z8)->Option<Z8>{
+    let mut c=[0i128;4];for i in 0..4{c[i]=a[i].checked_add(b[i])?;}Some(c)
+}
+fn z8_mul(a:Z8,b:Z8)->Option<Z8>{
+    let mut c=[0i128;4];
+    for i in 0..4{for j in 0..4{
+        if a[i]==0||b[j]==0{continue;}
+        let p=a[i].checked_mul(b[j])?;
+        let k=i+j;
+        c[k%4]=if k<4{c[k%4].checked_add(p)?}else{c[k%4].checked_sub(p)?};
+    }}Some(c)
+}
+#[derive(Clone)]
+struct Factor8{scope:u64,table:Vec<Z8>}
+fn deposit8(mut i:usize,mut mask:u64)->u64{
+    let mut a=0;while mask!=0{let b=mask&mask.wrapping_neg();mask^=b;if i&1!=0{a|=b;}i>>=1;}a
+}
+fn extract8(a:u64,mut mask:u64)->usize{
+    let mut i=0;let mut bit=1;while mask!=0{let b=mask&mask.wrapping_neg();mask^=b;if a&b!=0{i|=bit;}bit<<=1;}i
+}
+fn factor8(scope:u64,mut f:impl FnMut(u64)->Z8)->Result<Factor8,&'static str>{
+    if scope.count_ones()>12{return Err("WIDTH_LIMIT");}
+    Ok(Factor8{scope,table:(0..1usize<<scope.count_ones()).map(|i|f(deposit8(i,scope))).collect()})
+}
+fn contract_fibre8(ps:&PathSum,z:u64,deadline:std::time::Instant)->Result<(Z8,usize,usize),&'static str>{
+    let n=ps.v.num_qubits;let hidden=h(ps);
+    if hidden>60||n>16||!admitted(ps)||z>>n!=0{return Err("UNSUPPORTED");}
+    let mut ids:Vec<_>=ps.v.path_vars.iter().copied().filter(|&i|i as usize>=n).collect();
+    ids.sort_unstable();
+    let positions:BTreeMap<_,_>=ids.iter().enumerate().map(|(j,&id)|(id,1u64<<j)).collect();
+    let mask=|m:&[u32]|->Result<u64,&'static str>{
+        m.iter().try_fold(0u64,|a,v|positions.get(v).map(|b|a|b).ok_or("UNFIXED_INPUT"))
+    };
+    let mut fs=Vec::<Factor8>::new();let mut work=0usize;let mut peak=0usize;
+    for (m,c) in &ps.p.terms{
+        let den=c.constant.denom as i128;
+        let num=8i128*c.constant.numer as i128;
+        if den<=0||num%den!=0{return Err("UNSUPPORTED_PHASE");}
+        let k=(num/den).rem_euclid(8) as usize;if k==0{continue;}
+        let scope=mask(m)?;
+        let f=factor8(scope,|a|{
+            if a&scope!=scope{return Z8_ONE;}
+            let mut r=[0;4];r[k%4]=if k<4{1}else{-1};r
+        })?;
+        work+=f.table.len();fs.push(f);
+    }
+    for (i,p) in ps.f.functions.iter().enumerate(){
+        let ms=p.iter().map(|m|mask(m)).collect::<Result<Vec<_>,_>>()?;
+        let scope=ms.iter().fold(0u64,|a,b|a|b);
+        let f=factor8(scope,|a|{
+            let v=ms.iter().fold(false,|b,&m|b^(a&m==m));
+            if v==(z>>i&1==1){Z8_ONE}else{[0;4]}
+        })?;
+        work+=f.table.len();fs.push(f);
+    }
+    if work>2_000_000{return Err("WORK_LIMIT");}
+    let mut live=(1u64<<hidden)-1;
+    while live!=0{
+        if std::time::Instant::now()>=deadline{return Err("DEADLINE");}
+        // Minimum current bucket union (deterministic ties by stable ID).
+        let mut best=None;
+        for i in 0..hidden{
+            let b=1u64<<i;if live&b==0{continue;}
+            let u=fs.iter().filter(|f|f.scope&b!=0).fold(b,|a,f|a|f.scope);
+            let score=(u.count_ones(),i,u);
+            if best.is_none_or(|v|score<v){best=Some(score);}
+        }
+        let (width,i,u)=best.unwrap();let b=1u64<<i;
+        if width>12{return Err("WIDTH_LIMIT");}
+        peak=peak.max(width as usize);
+        let (bucket,rest):(Vec<_>,Vec<_>)=fs.into_iter().partition(|f|f.scope&b!=0);
+        let scope=u&!b;
+        let count=1usize<<scope.count_ones();
+        work=work.checked_add(count*2*bucket.len().max(1)).ok_or("WORK_LIMIT")?;
+        if work>2_000_000{return Err("WORK_LIMIT");}
+        let mut table=Vec::with_capacity(count);
+        for i in 0..count{
+            let a=deposit8(i,scope);let mut sum=[0;4];
+            for assignment in [a,a|b]{
+                let mut v=Z8_ONE;
+                for f in &bucket{
+                    v=z8_mul(v,f.table[extract8(assignment,f.scope)]).ok_or("OVERFLOW")?;
+                    if v==[0;4]{break;}
+                }
+                sum=z8_add(sum,v).ok_or("OVERFLOW")?;
+            }
+            table.push(sum);
+        }
+        fs=rest;fs.push(Factor8{scope,table});live^=b;
+    }
+    let mut a=Z8_ONE;
+    for f in fs{assert_eq!(f.scope,0);a=z8_mul(a,f.table[0]).ok_or("OVERFLOW")?;}
+    Ok((a,peak,work))
+}
+fn z8_norm(a:Z8)->i128{a.into_iter().map(|v|v*v).sum()}
+#[test]
+fn native_factor8_exact_reference(){
+    use QuantumOp as G;
+    let circuits=[
+        vec![G::H(0),G::T(0),G::H(0),G::CX(0,1),G::H(2)],
+        vec![G::H(0),G::H(1),G::CCX(0,1,2),G::H(2),G::TDG(2)],
+        vec![G::H(0),G::Z(0),G::H(0)],
+    ];
+    let mut checks=0;let mut peak=0;
+    for ops in circuits{
+        let mut ps=PathSum::new(3);ps.set_auto_reduce(false);
+        for g in &ops{g.apply(&mut ps,false);}
+        for x in 0..8u64{
+            let expected=gate_reference_width(&ops,x,3);
+            let fixed=fixed_input(ps.clone(),x);
+            for z in 0..8u64{
+                let (a,w,_)=contract_fibre8(&fixed,z,std::time::Instant::now()+std::time::Duration::from_secs(5)).unwrap();
+                let mut lifted=[0i64;32];for i in 0..4{lifted[8*i]=i64::try_from(a[i]).unwrap();}
+                assert_eq!(lifted,expected[z as usize]);checks+=1;peak=peak.max(w);
+            }
+        }
+    }
+    assert_eq!(checks,192);
+    println!("HOARE_NATIVE_FACTOR8_REFERENCE checks={checks} peak_width={peak}");
+}
+#[test]
+fn native_qft_factor8_pilot(){
+    let src=include_str!("../../../benchmarks/Feynman/qft_4.qasm");
+    let (ops,n)=feynman_source_ops(src);assert_eq!(n,5);
+    let t=std::time::Instant::now();
+    let mut raw=PathSum::new(n);raw.set_auto_reduce(false);
+    for g in &ops{g.apply(&mut raw,false);}
+    let (general,gr)=reduce(raw);let common=t.elapsed();
+    assert_eq!(h(&general),30);
+    for conditioned in [false,true]{
+        let start=std::time::Instant::now();
+        let deadline=start+std::time::Duration::from_secs(30).saturating_sub(common);
+        let mut exact=0;let mut positive=0;let mut peak=0;let mut work=0;let mut min_h=usize::MAX;
+        let mut statuses=BTreeMap::<&str,usize>::new();
+        for x in 0..4u64{
+            if std::time::Instant::now()>=deadline{break;}
+            let oracle=gate_reference_width(&ops,x,n);
+            let (prefix,pr)=reduce(fixed_input(general.clone(),x));
+            for z in 16..32u64{
+                if std::time::Instant::now()>=deadline{break;}
+                let (out,s)=if conditioned{
+                    let (out,s,_,_,_)=condition_and_reduce(prefix.clone(),x,z,false);(out,s)
+                }else{(prefix.clone(),0)};
+                min_h=min_h.min(h(&out));
+                match contract_fibre8(&out,z,deadline){
+                    Ok((a,w,cost))=>{
+                        let want=oracle[z as usize].iter().map(|&v|i128::from(v)*i128::from(v)).sum::<i128>();
+                        let scale=gr.scale2+pr.scale2+s;
+                        assert_eq!(z8_norm(a).checked_shl(scale).unwrap(),want,"{x} {z}");
+                        exact+=1;positive+=usize::from(a!=[0;4]);peak=peak.max(w);work+=cost;
+                        println!("HOARE_QFT_FACTOR8_FIBRE conditioned={conditioned} x={x} z={z} h={} width={w} work={cost} scale2={scale} nonzero={}",h(&out),a!=[0;4]);
+                    }
+                    Err(reason)=>{*statuses.entry(reason).or_default()+=1;}
+                }
+            }
+        }
+        let verdict=if positive>0{"REFUTED"}else if exact==64{"PROVED"}else{"UNKNOWN"};
+        println!("HOARE_QFT_FACTOR8_SUMMARY conditioned={conditioned} exact={exact} positive={positive} verdict={verdict} min_h={min_h} max_width={peak} work={work} accounted_ns={} failures={statuses:?}",(common+start.elapsed()).as_nanos());
+    }
+    if let Some(dir)=std::env::var_os("HOARE_PAPER_PROJECTED_DIR"){
+        std::fs::write(std::path::PathBuf::from(dir).join("qft-factor8-pilot.done"),"native bounded factor pilot executed\n").unwrap();
+    }
+}
+
 #[test]
 fn paper_qwalk_native_source_admission(){
     let Some(dir)=std::env::var_os("HOARE_PAPER_QWALK_DIR") else{

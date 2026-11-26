@@ -136,6 +136,7 @@ jobs:
           grep -Fx 'HOARE_NATIVE_MINIMUM_BASIS vectors=96 orders=6 unsupported_rejected=true' evidence/hoare-paper-source.log
           grep -Fx 'HOARE_NATIVE_EARLY_COVERAGE partial_zero_unknown=true partial_positive_refuted=true full_zero_proved=true expired_unchanged=true' evidence/hoare-paper-source.log
           grep -F 'HOARE_NATIVE_INDEXED_RR cases=1024 ' evidence/hoare-paper-source.log
+          grep -F 'HOARE_NATIVE_HH_INCIDENT checks=8192 ' evidence/hoare-paper-source.log
           grep -Fx 'HOARE_NATIVE_TILING8_FAILURE recovered=4 partial_positive=3 partial_zero=3 unresolved=1' evidence/hoare-paper-source.log
           grep -Fx 'HOARE_NATIVE_TILING8_PARTIAL_RECOVERY retained=2048 recovered=2048 duplicate=0' evidence/hoare-paper-source.log
           for source in vchain noancilla; do
@@ -143,6 +144,9 @@ jobs:
             grep -F "HOARE_QWALK_MIN_BASIS name=$source arm=d64 " evidence/hoare-paper-source.log
             grep -F "HOARE_QWALK_MIN_BASIS name=$source arm=minimum " evidence/hoare-paper-source.log
             grep -F "HOARE_QWALK_MIN_BASIS_PARITY name=$source " evidence/hoare-paper-source.log
+            for rep in 0 1 2 3; do
+              grep -F "HOARE_QWALK_HH_INCIDENT name=$source rep=$rep " evidence/hoare-paper-source.log
+            done
             for indexed in false true; do
               grep -F "HOARE_QWALK_INDEXED_RR name=$source indexed=$indexed " evidence/hoare-paper-source.log
             done

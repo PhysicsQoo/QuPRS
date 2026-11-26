@@ -104,7 +104,31 @@ fn reduce_until(mut ps:PathSum,deadline:std::time::Instant)->(PathSum,Receipt,us
     r.limit=true;(ps,r,attempts,false)
 }
 
-fn reduce_indexed(mut ps:PathSum,deadline:std::time::Instant,indexed:bool)->(PathSum,Receipt,usize,usize,bool,Vec<(u32,usize,Option<u32>)>){
+
+#[derive(Default)]
+struct HhScanMetrics{calls:usize,visits:usize,incidences:usize}
+type HhIncident<'a>=BTreeMap<u32,Vec<(&'a Vec<u32>,&'a quprs::PhaseCoeff)>>;
+fn hh_target_counted<'a>(n:usize,y:u32,terms:impl IntoIterator<Item=(&'a Vec<u32>,&'a quprs::PhaseCoeff)>,
+    metrics:&mut HhScanMetrics)->Option<u32>{
+    metrics.calls+=1;
+    let mut phi:FxHashSet<Vec<u32>>=FxHashSet::default();
+    for (m,c) in terms{
+        metrics.visits+=1;
+        if !m.contains(&y){continue;}
+        if !c.is_pure_half(){return None;}
+        let t:Vec<_>=m.iter().copied().filter(|&v|v!=y).collect();
+        if !phi.insert(t.clone()){phi.remove(&t);}
+    }
+    let target=phi.iter().filter(|m|m.len()==1)
+        .filter(|m|phi.iter().all(|t|t==*m||!t.contains(&m[0])))
+        .map(|m|m[0]).max()?;
+    if (target as usize)<n||phi.len()>9{return None;}
+    Some(target)
+}
+fn reduce_indexed(ps:PathSum,deadline:std::time::Instant,indexed:bool)->(PathSum,Receipt,usize,usize,bool,Vec<(u32,usize,Option<u32>)>){
+    reduce_indexed_hh(ps,deadline,indexed,false,&mut HhScanMetrics::default())
+}
+fn reduce_indexed_hh(mut ps:PathSum,deadline:std::time::Instant,indexed:bool,hh_indexed:bool,metrics:&mut HhScanMetrics)->(PathSum,Receipt,usize,usize,bool,Vec<(u32,usize,Option<u32>)>){
     let mut skipped=0usize;let mut trace=Vec::new();
     let mut attempts=0usize;
     let mut r=Receipt::default();
@@ -116,17 +140,23 @@ fn reduce_indexed(mut ps:PathSum,deadline:std::time::Instant,indexed:bool)->(Pat
         // Index is rebuilt after every accepted rewrite, never reused stale.
         let mut used=FxHashSet::default();
         let mut nonhalf=FxHashSet::default();
+        let mut incident:HhIncident<'_>=BTreeMap::new();
         if indexed{
             for (mono,c) in &ps.p.terms{
                 for &v in mono{
                     used.insert(v);
+                    if hh_indexed{incident.entry(v).or_default().push((mono,c));metrics.incidences+=1;}
                     if mono.len()>1&&c.constant!=quprs::Rational::HALF{nonhalf.insert(v);}
                 }
             }
         }
         for &y in &ids{
             for rule in 0..3{
-                let target=if rule==2{hh_target(&ps,y)}else{None};
+                let target=if rule==2{
+                    if hh_indexed{
+                        hh_target_counted(ps.v.num_qubits,y,incident.get(&y).into_iter().flatten().copied(),metrics)
+                    }else{hh_target_counted(ps.v.num_qubits,y,&ps.p.terms,metrics)}
+                }else{None};
                 if rule==2&&target.is_none(){continue;}
                 // Necessary conditions only, derived from exact native matcher.
                 // admitted() has excluded symbolic/approximate/radian inputs.
@@ -156,6 +186,7 @@ fn reduce_indexed(mut ps:PathSum,deadline:std::time::Instant,indexed:bool)->(Pat
         }
         let Some((next,rule))=chosen else{return (ps,r,attempts,skipped,false,trace);};
         match rule{0=>{r.elim+=1;r.scale2+=2;},1=>{r.omega+=1;r.scale2+=1;},_=>{r.hh+=1;r.scale2+=2;}}
+        drop(incident);
         ps=next;
     }
     r.limit=true;(ps,r,attempts,skipped,false,trace)
@@ -2054,6 +2085,43 @@ fn assert_rr_index_parity(a:&PathSum,b:&PathSum,ar:&Receipt,br:&Receipt,
     assert_eq!(a.v.path_vars,b.v.path_vars);
     assert_eq!((ar.scale2,ar.limit),(br.scale2,br.limit));
 }
+
+#[test]
+fn native_hh_incident_matcher(){
+    use quprs::{Rational,PhaseCoeff};
+    let mut seed=20261126u64;
+    let mut checks=0;let mut positives=0;
+    let mut scan=HhScanMetrics::default();let mut indexed=HhScanMetrics::default();
+    for trial in 0..1024{
+        let mut ps=PathSum::new(2);ps.set_auto_reduce(false);
+        let ids:Vec<u32>=(0..8).map(|_|ps.v.get_fresh_var()).collect();
+        for _ in 0..24{
+            seed=seed.wrapping_mul(6364136223846793005).wrapping_add(1);
+            let y=ids[(seed>>32) as usize%8];
+            let z=ids[(seed>>40) as usize%8];
+            let mut m=vec![y,z];m.sort_unstable();m.dedup();
+            let c=if trial%3==0{4}else{1+(seed>>48) as i64%7};
+            ps.p.add_term(m,PhaseCoeff::new_constant(Rational::new(c as _,8)));
+        }
+        // Deterministic isolated internal HH positive and input-target negative.
+        if trial%4==0{
+            let y=ids[0];ps.p.terms.retain(|m,_|!m.contains(&y));
+            let target=if trial%8==0{ids[7]}else{0};
+            ps.p.add_term(vec![target.min(y),target.max(y)],PhaseCoeff::new_constant(Rational::HALF));
+        }
+        let mut incident:HhIncident<'_>=BTreeMap::new();
+        for (m,c) in &ps.p.terms{for &y in m{incident.entry(y).or_default().push((m,c));indexed.incidences+=1;}}
+        for &y in &ids{
+            let a=hh_target(&ps,y);
+            let b=hh_target_counted(ps.v.num_qubits,y,&ps.p.terms,&mut scan);
+            let c=hh_target_counted(ps.v.num_qubits,y,incident.get(&y).into_iter().flatten().copied(),&mut indexed);
+            assert_eq!(a,b);assert_eq!(a,c);checks+=1;positives+=usize::from(a.is_some());
+        }
+    }
+    assert_eq!(checks,8192);assert!(positives>0);
+    println!("HOARE_NATIVE_HH_INCIDENT checks={checks} positive={positives} scan_visits={} indexed_visits={} incidences={}",scan.visits,indexed.visits,indexed.incidences);
+}
+
 #[test]
 fn native_indexed_rr_parity(){
     use QuantumOp as G;
@@ -2073,8 +2141,11 @@ fn native_indexed_rr_parity(){
             let raw=fixed_input(ps.clone(),x);
             let deadline=std::time::Instant::now()+std::time::Duration::from_secs(5);
             let (a,ar,aa,_,ae,at)=reduce_indexed(raw.clone(),deadline,false);
-            let (b,br,ba,bs,be,bt)=reduce_indexed(raw,deadline,true);
+            let (b,br,ba,bs,be,bt)=reduce_indexed(raw.clone(),deadline,true);
             assert!(!ae&&!be);assert_rr_index_parity(&a,&b,&ar,&br,&at,&bt);
+            let (c,cr,ca,cs,ce,ct)=reduce_indexed_hh(raw,deadline,true,true,&mut HhScanMetrics::default());
+            assert!(!ce);assert_rr_index_parity(&b,&c,&br,&cr,&bt,&ct);
+            assert_eq!((ba,bs),(ca,cs));
             assert_eq!(aa,ba+bs);attempts+=aa;skipped+=bs;accepted+=at.len();
         }
     }
@@ -2132,6 +2203,62 @@ fn native_qwalk_indexed_rr(){
             }
             let exact=values.iter().flatten().count();let positive=values.iter().flatten().filter(|a|**a!=[0;32]).count();
             println!("HOARE_QWALK_INDEXED_RR name={name} indexed={indexed} exact={exact} positive={positive} verdict={} attempts={attempts} skipped={skipped} paired={paired} general_ns={rr_ns} input_ns={input_ns} solve_ns={solve_ns} first_ns={first:?} accounted_ns={} failures={failures:?}",sector_verdict(&values),(build+start.elapsed()).as_nanos());
+        }
+    }
+}
+
+#[test]
+fn native_qwalk_hh_incident_rr(){
+    let Some(dir)=std::env::var_os("HOARE_PAPER_QWALK_DIR") else{return;};
+    for name in ["vchain","noancilla"]{
+        let src=std::fs::read_to_string(std::path::Path::new(&dir).join(format!("{name}.qasm"))).unwrap();
+        let (ops,n,_)=source_ops(&src);assert_eq!(n,5);
+        let (native,width)=parse_qasm_str(&src).unwrap();assert_eq!((native,width),(ops.clone(),n));
+        let t=std::time::Instant::now();let mut raw=PathSum::new(n);raw.set_auto_reduce(false);
+        for op in &ops{op.apply(&mut raw,false);}
+        let zero=Poly::default();raw.p.substitute_var_with_poly(4,&zero);raw.f.substitute_var_with_poly(4,&zero);
+        let build=t.elapsed();
+        let mut prior:Option<(PathSum,Receipt,Vec<(u32,usize,Option<u32>)>)>=None;
+        let mut reference=BTreeMap::<u64,Vec<Z64>>::new();
+        for (rep,hh_indexed) in [false,true,true,false].into_iter().enumerate(){
+            let mut metrics=HhScanMetrics::default();
+            let start=std::time::Instant::now();
+            let deadline=start+std::time::Duration::from_secs(30).saturating_sub(build);
+            let t=std::time::Instant::now();
+            let (general,gr,mut attempts,mut skipped,expired,trace)=reduce_indexed_hh(raw.clone(),deadline,true,hh_indexed,&mut metrics);
+            let rr_ns=t.elapsed().as_nanos();
+            assert!(!expired&&!gr.limit);
+            if let Some((a,ar,at))=&prior{assert_rr_index_parity(a,&general,ar,&gr,at,&trace);}
+            else{prior=Some((general.clone(),gr,trace));}
+            let mut values=vec![None;256];let mut input_ns=0;let mut solve_ns=0;let mut paired=0;
+            let mut failures=BTreeMap::<&str,usize>::new();let mut first=None;
+            for x in 0..16u64{
+                if std::time::Instant::now()>=deadline||sector_verdict(&values)=="REFUTED"{break;}
+                let t=std::time::Instant::now();
+                let (p,r,a,k,e,_)=reduce_indexed_hh(fixed_input(general.clone(),x),deadline,true,hh_indexed,&mut metrics);
+                attempts+=a;skipped+=k;input_ns+=t.elapsed().as_nanos();
+                if e||r.limit{*failures.entry(if e{"DEADLINE"}else{"RR_LIMIT"}).or_default()+=1;continue;}
+                let t=std::time::Instant::now();
+                let result=early_sector_minimum(&p,16,16,deadline);solve_ns+=t.elapsed().as_nanos();
+                match result{
+                    Ok(v)=>{
+                        assert_eq!(v.len(),16);
+                        if rep!=0{if let Some(w)=reference.get(&x){assert_eq!(&v,w);paired+=16;}}
+                        else{reference.insert(x,v.clone());}
+                        if name=="vchain"{assert!(v.iter().all(|a|*a==[0;32]));}
+                        else if x==0{
+                            let support:Vec<_>=v.iter().enumerate().filter(|(_,a)|**a!=[0;32]).map(|(i,_)|16+i).collect();
+                            assert_eq!(support,vec![28,31]);
+                        }
+                        let nonzero=v.iter().any(|a|*a!=[0;32]);
+                        for (i,a) in v.into_iter().enumerate(){values[x as usize*16+i]=Some(a);}
+                        if nonzero{first=Some((build+start.elapsed()).as_nanos());}
+                    }
+                    Err(e)=>{*failures.entry(e).or_default()+=1;}
+                }
+            }
+            let exact=values.iter().flatten().count();let positive=values.iter().flatten().filter(|a|**a!=[0;32]).count();
+            println!("HOARE_QWALK_HH_INCIDENT name={name} rep={rep} indexed={hh_indexed} exact={exact} positive={positive} verdict={} attempts={attempts} skipped={skipped} paired={paired} general_ns={rr_ns} input_ns={input_ns} solve_ns={solve_ns} first_ns={first:?} accounted_ns={} hh_calls={} hh_visits={} incidences={} failures={failures:?}",sector_verdict(&values),(build+start.elapsed()).as_nanos(),metrics.calls,metrics.visits,metrics.incidences);
         }
     }
 }

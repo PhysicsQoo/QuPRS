@@ -12,6 +12,7 @@ on:
       - rust/research/conditional_rr_incidence.py
       - rust/research/conditional_rr_walltime.py
       - rust/research/conditional_rr_reference.py
+      - rust/research/lean/ConditionalTrace.lean
       - benchmarks/rust_core/benches/conditional_trace.rs
       - benchmarks/rust_core/Cargo.toml
       - benchmarks/rust_core/Cargo.lock
@@ -873,7 +874,7 @@ jobs:
     env:
       QUPRS_SOLVER_PROVISION: external
       CARGO_TERM_COLOR: never
-      CRR_PERF_STAGE: independent_reference
+      CRR_PERF_STAGE: formal_local
     steps:
       - uses: actions/checkout@v4
         with:
@@ -901,7 +902,9 @@ jobs:
           python3 scripts/install_gpmc_release.py --dest "$tmp/gpmc" | tee evidence/conditional-gpmc-release.json
           sha256sum "$tmp/gpmc" | tee evidence/conditional-gpmc-sha256.txt
           QUPRS_GPMC_PATH="$tmp/gpmc" cargo test --locked --manifest-path rust/Cargo.toml -p quprs --test conditional_rr_experiment gpmc_trace_witness -- --nocapture 2>&1 | tee evidence/conditional-gpmc-witness.log
-          if [[ "$CRR_PERF_STAGE" == independent_reference ]]; then
+          if [[ "$CRR_PERF_STAGE" == formal_local ]]; then
+            echo "Prior reference and performance evidence retained; this stage checks formal local lemmas."
+          elif [[ "$CRR_PERF_STAGE" == independent_reference ]]; then
             sha256sum rust/research/conditional_rr_reference.py rust/Cargo.lock >> evidence/source-sha256.txt
             python3 -m venv "$tmp/reference-venv"
             "$tmp/reference-venv/bin/pip" install --disable-pip-version-check mpmath==1.3.0
@@ -915,6 +918,27 @@ jobs:
             CRR_GPMC_COMPARE=1 QUPRS_GPMC_PATH="$tmp/gpmc" \
               python3 rust/research/conditional_rr_incidence.py 2>&1 | tee evidence/conditional-incidence.jsonl
           fi
+      - name: Kernel-check conditional trace local proofs
+        if: env.CRR_PERF_STAGE == 'formal_local'
+        run: |
+          set -euo pipefail
+          sha256sum rust/research/lean/ConditionalTrace.lean rust/research/lean/lean-toolchain >> evidence/source-sha256.txt
+          curl --proto '=https' --tlsv1.2 --fail --location --silent --show-error https://elan.lean-lang.org/elan-init.sh -o /tmp/crr-elan-init.sh
+          sh /tmp/crr-elan-init.sh -y --default-toolchain none
+          export PATH="$HOME/.elan/bin:$PATH"
+          cd rust/research/lean
+          test "$(cat lean-toolchain)" = "leanprover/lean4:v4.36.0"
+          lean --version | tee ../../../evidence/conditional-lean-version.txt
+          lean ConditionalTrace.lean 2>&1 | tee ../../../evidence/conditional-lean-proof.log
+          if grep -E 'sorryAx|Lean[.]trustCompiler|Classical[.]choice' ../../../evidence/conditional-lean-proof.log; then
+            echo 'Unexpected Lean axiom dependency' >&2
+            exit 1
+          fi
+          test "$(grep -Ec 'does not depend on any axioms|depends on axioms' ../../../evidence/conditional-lean-proof.log)" -eq 14
+          for theorem in sum_congr unique_fiber substitution_sum alias_fiber scale_sum free_fiber free_sum hh_point hh_fiber omega_quarter_exact omega_threequarter_exact root2_twice_exact chain_scale guard_partition; do
+            test "$(grep -Ec "^'QuPRS[.]ConditionalTrace[.]$theorem' (does not depend on any axioms|depends on axioms)" ../../../evidence/conditional-lean-proof.log)" -eq 1
+          done
+          echo 'CRR_LEAN_LOCAL_PASS theorem_axiom_reports=14 complex_embedding=false rust_refinement=false'
       - name: Prepare bounded native Conditional RR CodSpeed target
         if: env.CRR_PERF_STAGE == 'simulation'
         run: |

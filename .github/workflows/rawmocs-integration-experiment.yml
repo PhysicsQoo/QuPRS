@@ -19,7 +19,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        case: ${{ fromJSON(github.event_name == 'workflow_dispatch' && '["e2e","qpeinexact22-432","grover6-432","gf2-7-333","fallback","qft16-memory","qft20","qft22","qpeinexact20","grover6","qaoa9","vqe8","qnn8","wstate8","qft20-negative","planner-qft16","planner-qft22","planner-qft20","planner-qnn8"]' || '["planner-qft16","planner-qft22","planner-qft20","planner-qnn8"]') }}
+        case: ${{ fromJSON(github.event_name == 'workflow_dispatch' && '["e2e","qpeinexact22-432","grover6-432","gf2-7-333","fallback","qft16-memory","qft20","qft22","qpeinexact20","grover6","qaoa9","vqe8","qnn8","wstate8","qft20-negative","planner-qft16","planner-qft22","planner-qft20","planner-qnn8"]' || '["planner-qft16","planner-qft20","planner-qnn8"]') }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -40,7 +40,7 @@ jobs:
         if: startsWith(matrix.case, 'planner-')
         with:
           repository: PhysicsQoo/RaWMoCS
-          ref: 853096c77165605c6660413691f732048be870f2
+          ref: 49c33198d66554c89f3f17167d4d1b7f2276a0ca
           path: .rawmocs-candidate
           persist-credentials: false
       - uses: actions/setup-python@v5
@@ -101,7 +101,7 @@ jobs:
         if: startsWith(matrix.case, 'planner-')
         run: |
           set -euo pipefail
-          test "$(git -C .rawmocs-candidate rev-parse HEAD)" = 853096c77165605c6660413691f732048be870f2
+          test "$(git -C .rawmocs-candidate rev-parse HEAD)" = 49c33198d66554c89f3f17167d4d1b7f2276a0ca
           cargo test --locked --release --manifest-path .rawmocs-candidate/crates/rawmocs-cli/Cargo.toml
           cargo build --locked --release --manifest-path .rawmocs-candidate/crates/rawmocs-cli/Cargo.toml
       - name: Build expanded native cohort verifier

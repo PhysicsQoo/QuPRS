@@ -23,7 +23,7 @@ RAW=Path(".rawmocs/crates/rawmocs-cli/target/release/rawmocs").resolve()
 CANDIDATE=Path(".rawmocs-candidate/crates/rawmocs-cli/target/release/rawmocs").resolve()
 GPMC=Path(".gpmc/build/gpmc").resolve()
 BIN=Path("rust/target/release/examples/rawmocs_cohort").resolve()
-ARMS=("baseline","candidate","peak","gated")
+ARMS=("baseline","candidate","move","gated","gated_move")
 QFT16_HASH="c35ee4e3ce77faf21ae6c8cd39d2fe14d8cba9958abffb8f18857e4357c9ea22"
 
 def command(arm,cnf):
@@ -31,13 +31,14 @@ def command(arm,cnf):
             "--solver","prejoin","--timeout-ms","300000",str(cnf)]
 
 def mode(arm):
-    return {"peak":"1","gated":"2"}.get(arm)
+    return "2" if arm in ("gated","gated_move") else None
 
 def env_for(arm):
     env=os.environ.copy()
-    for key in ("RAWMOCS_RESEARCH_PEAK_FIRST","RAWMOCS_RESEARCH_THREE_CUT"):
+    for key in ("RAWMOCS_RESEARCH_PEAK_FIRST","RAWMOCS_RESEARCH_THREE_CUT","RAWMOCS_RESEARCH_RECYCLE_MOVE"):
         env.pop(key,None)
     if mode(arm):env["RAWMOCS_RESEARCH_PEAK_FIRST"]=mode(arm)
+    if arm in ("move","gated_move"):env["RAWMOCS_RESEARCH_RECYCLE_MOVE"]="1"
     return env
 
 def binaries():
@@ -76,16 +77,17 @@ def prepare():
             assert proc.returncode==0 and row["wall_s"]<=2,row
             row.update(inspect("rawmocs",proc.stdout,proc.stderr))
             assert row["route"]=="prejoin" and parity(g,row),row
-            if arm=="candidate":
-                b=case["rows"]["baseline"]
+            if arm in ("candidate","move","gated_move"):
+                b=case["rows"]["gated" if arm=="gated_move" else "baseline"]
                 assert row["sat"]==b["sat"] and all(Fraction(row[k])==Fraction(b[k]) for k in ("real","imag")),row
             assert digest(cnf)==case["cnf_sha256"]
             row["status"]="PREFLIGHT_PASS"
             runner=case_dir/(arm+".simulation.sh")
             stdout=case_dir/(arm+".simulation.stdout")
             stderr=case_dir/(arm+".simulation.stderr")
-            runner.write_text("#!/bin/sh\nset -eu\nunset RAWMOCS_RESEARCH_PEAK_FIRST RAWMOCS_RESEARCH_THREE_CUT\n"
+            runner.write_text("#!/bin/sh\nset -eu\nunset RAWMOCS_RESEARCH_PEAK_FIRST RAWMOCS_RESEARCH_THREE_CUT RAWMOCS_RESEARCH_RECYCLE_MOVE\n"
                 + (f"export RAWMOCS_RESEARCH_PEAK_FIRST={mode(arm)}\n" if mode(arm) else "")
+                + ("export RAWMOCS_RESEARCH_RECYCLE_MOVE=1\n" if arm in ("move","gated_move") else "")
                 + "exec "+shlex.join(command(arm,cnf))+" >"+shlex.quote(str(stdout))+" 2>"+shlex.quote(str(stderr))+"\n")
             runner.chmod(0o755)
             config.extend([f'  - name: "quprs_planner/{name}/{arm}_mpfr100"',f'    exec: "{runner}"'])

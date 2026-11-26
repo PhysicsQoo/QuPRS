@@ -22,8 +22,10 @@ def trial(a,cnf,label,arm):
     env=os.environ.copy()
     env.pop("RAWMOCS_RESEARCH_PEAK_FIRST",None)
     env.pop("RAWMOCS_RESEARCH_THREE_CUT",None)
+    env.pop("RAWMOCS_RESEARCH_RECYCLE_MOVE",None)
     if arm=="peak":env["RAWMOCS_RESEARCH_PEAK_FIRST"]="1"
-    if arm=="gated":env["RAWMOCS_RESEARCH_PEAK_FIRST"]="2"
+    if arm in ("gated","gated_move"):env["RAWMOCS_RESEARCH_PEAK_FIRST"]="2"
+    if arm in ("move","gated_move"):env["RAWMOCS_RESEARCH_RECYCLE_MOVE"]="1"
     if arm=="three":env["RAWMOCS_RESEARCH_THREE_CUT"]="1"
     prefix=a.out/label
     rss=prefix.with_suffix(".rss")
@@ -91,7 +93,7 @@ def main():
         cnf=a.out/"gpmc-capture.cnf"
         assert digest(cnf)==HASHES[a.n]
         if g["status"]=="COMPLETED":assert g["cnf_sha256"]==HASHES[a.n]
-        order=("baseline","candidate","peak","gated","gated","peak","candidate","baseline") if a.n!=22 else ("baseline","candidate","three")
+        order=("baseline","candidate","move","gated","gated_move","gated_move","gated","move","candidate","baseline") if a.n!=22 else ("baseline","candidate","three")
         for i,arm in enumerate(order):
             row=trial(a,cnf,f"trial-{i}-{arm}",arm)
             if row["status"]=="COMPLETED" and g["status"]=="COMPLETED":
@@ -101,11 +103,13 @@ def main():
         if a.n!=22:
             assert all(r["status"]=="COMPLETED" for r in report["rows"])
             b=report["rows"][0]
-            assert all(all(Fraction(r[k])==Fraction(b[k]) for k in ("real","imag")) and r["sat"]==b["sat"] for r in report["rows"] if r["arm"]=="candidate")
+            assert all(all(Fraction(r[k])==Fraction(b[k]) for k in ("real","imag")) and r["sat"]==b["sat"] for r in report["rows"] if r["arm"] in ("candidate","move"))
+            gated=next(r for r in report["rows"] if r["arm"]=="gated")
+            assert all(r["sat"]==gated["sat"] and all(Fraction(r[k])==Fraction(gated[k]) for k in ("real","imag")) for r in report["rows"] if r["arm"]=="gated_move")
             report["median"]={arm:{k:statistics.median(r[k] for r in report["rows"] if r["arm"]==arm)
-                        for k in ("wall_s","rss_kib")} for arm in ("baseline","candidate","peak","gated")}
+                        for k in ("wall_s","rss_kib")} for arm in ("baseline","candidate","move","gated","gated_move")}
             report["witness"]=witness(a,cnf,[g,*report["rows"]])
-            report["status"]="GATED_PEAK_ABLATION_COMPLETE" if report["witness"]["status"]=="PASS" else "GATED_PEAK_UNWITNESSED"
+            report["status"]="RECYCLE_MOVE_ABLATION_COMPLETE" if report["witness"]["status"]=="PASS" else "RECYCLE_MOVE_UNWITNESSED"
         else:
             b,c,t=report["rows"]
             assert b["status"]=="ROUTE_REJECTED" and c["status"]=="ROUTE_REJECTED", (b,c)

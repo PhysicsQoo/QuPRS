@@ -41,7 +41,7 @@ permissions:
 
 concurrency:
   group: qasm-source-semantics-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   native-source-probe:
@@ -978,15 +978,15 @@ jobs:
             if grep -E 'sorryAx|Lean[.]trustCompiler|Classical[.]choice' /tmp/qasm-lean-affine-negacyclic.log; then
               negacyclic_status=1
             fi
-            test "$(grep -Ec 'does not depend on any axioms|depends on axioms' /tmp/qasm-lean-affine-negacyclic.log)" -eq 9 || negacyclic_status=1
-            for theorem in native_term_correct term_lift term_off_grid pair_sum_lift pair_sum_off_grid pairs_membership zero_pair_term native_acc_correct cartesian_acc_correct; do
+            test "$(grep -Ec 'does not depend on any axioms|depends on axioms' /tmp/qasm-lean-affine-negacyclic.log)" -eq 14 || negacyclic_status=1
+            for theorem in native_term_correct term_lift term_off_grid pair_sum_lift pair_sum_off_grid pairs_membership zero_pair_term native_acc_correct cartesian_acc_correct pair_row_nodup pair_rows_nodup pairs_nodup pair_rows_length pairs_length; do
               test "$(grep -Ec "^'QuPRS[.]AffineNegacyclic[.]$theorem' (does not depend on any axioms|depends on axioms)" /tmp/qasm-lean-affine-negacyclic.log)" -eq 1 || negacyclic_status=1
             done
           else
             negacyclic_status=1
           fi
           if test "$negacyclic_status" -eq 0; then
-            echo 'LEAN4_AFFINE_NEGACYCLIC_PASS theorem_axiom_reports=9 bounded_pair=true pair_sum_lift=true off_grid_zero=true cartesian_accumulator_model=true zero_skip=true checked_i128_refinement=false'
+            echo 'LEAN4_AFFINE_NEGACYCLIC_PASS theorem_axiom_reports=14 bounded_pair=true pair_sum_lift=true off_grid_zero=true cartesian_accumulator_model=true zero_skip=true pair_uniqueness=true pair_cardinality=true checked_i128_refinement=false'
           else
             echo 'LEAN4_AFFINE_NEGACYCLIC_FAIL' >&2
           fi

@@ -26,14 +26,19 @@ theorem native_term_correct (d k i j : Nat) (a b : Int)
   rw [Nat.mod_eq_of_lt h2]
   by_cases h : i+j < d
   · have hn : i+j ≠ k+d := by omega
-    rw [Nat.mod_eq_of_lt h]
-    by_cases he : i+j = k <;> simp [h, hn, he]
+    rw [Nat.mod_eq_of_lt h, ite_eq_left h, ite_eq_right hn]
+    by_cases he : i+j = k
+    · simp only [ite_eq_left he, Int.one_mul]
+    · simp only [ite_eq_right he, Int.zero_mul]
   · have hd : d ≤ i+j := by omega
     have hsub : i+j-d < d := by omega
     have hn : i+j ≠ k := by omega
     have he : i+j-d = k ↔ i+j = k+d := by omega
-    rw [Nat.mod_eq_sub_mod hd, Nat.mod_eq_of_lt hsub]
-    by_cases heq : i+j = k+d <;> simp [h, hn, he, heq]
+    rw [Nat.mod_eq_sub_mod hd, Nat.mod_eq_of_lt hsub, ite_eq_right h, ite_eq_right hn]
+    simp only [he]
+    by_cases heq : i+j = k+d
+    · simp only [ite_eq_left heq, Int.neg_mul, Int.one_mul]
+    · simp only [ite_eq_right heq, Int.zero_mul]
 
 theorem term_lift (d k i j s : Nat) (a b : Int) (hs : 0 < s) :
     exactTerm (d*s) (k*s) (i*s) (j*s) a b =
@@ -137,6 +142,71 @@ theorem cartesian_acc_correct (d k : Nat) (hk : k < d)
     exact ⟨hi, hj⟩
   rw [native_acc_correct d k hk _ 0 h, Int.zero_add]
 
+
+/-- An individual row has no repeated coefficient pairs. -/
+theorem pair_row_nodup (i : Nat) (a b : Nat → Int) (js : List Nat)
+    (h : js.Nodup) :
+    (js.map (fun j => (⟨i, j, a i, b j⟩ : PairTerm))).Nodup := by
+  induction js with
+  | nil => simp
+  | cons j js ih =>
+      have hn := List.nodup_cons.mp h
+      apply List.nodup_cons.mpr
+      constructor
+      · intro hm
+        obtain ⟨k, hk, he⟩ := List.mem_map.mp hm
+        have hj : k = j := congrArg PairTerm.j he
+        exact hn.1 (hj ▸ hk)
+      · exact ih hn.2
+
+/-- Different outer indices have disjoint rows, even if coefficient
+    values coincide. Indices, not values, determine multiplicity. -/
+theorem pair_rows_nodup (a b : Nat → Int) (is js : List Nat)
+    (hi : is.Nodup) (hj : js.Nodup) :
+    (is.flatMap (fun i => js.map (fun j => (⟨i,j,a i,b j⟩ : PairTerm)))).Nodup := by
+  induction is with
+  | nil => simp
+  | cons i is ih =>
+      have hn := List.nodup_cons.mp hi
+      change ((js.map (fun j => (⟨i,j,a i,b j⟩ : PairTerm))) ++
+        is.flatMap (fun k => js.map (fun j => (⟨k,j,a k,b j⟩ : PairTerm)))).Nodup
+      apply List.nodup_append.mpr
+      refine ⟨pair_row_nodup i a b js hj, ih hn.2, ?_⟩
+      intro x hx y hy he
+      obtain ⟨j, _, hleft⟩ := List.mem_map.mp hx
+      obtain ⟨k, hk, hm⟩ := List.mem_flatMap.mp hy
+      obtain ⟨l, _, hright⟩ := List.mem_map.mp hm
+      have heq : (⟨i,j,a i,b j⟩ : PairTerm) = ⟨k,l,a k,b l⟩ :=
+        hleft.trans (he.trans hright.symm)
+      have hik : i = k := congrArg PairTerm.i heq
+      exact hn.1 (hik.symm ▸ hk)
+
+theorem pairs_nodup (d : Nat) (a b : Nat → Int) :
+    (pairs d a b).Nodup :=
+  pair_rows_nodup a b (List.range d) (List.range d) List.nodup_range List.nodup_range
+
+theorem pair_rows_length (a b : Nat → Int) (is js : List Nat) :
+    (is.flatMap (fun i => js.map (fun j => (⟨i,j,a i,b j⟩ : PairTerm)))).length =
+      is.length * js.length := by
+  induction is with
+  | nil => simp
+  | cons i is ih =>
+      change ((js.map (fun j => (⟨i,j,a i,b j⟩ : PairTerm))) ++
+        is.flatMap (fun k => js.map (fun j => (⟨k,j,a k,b j⟩ : PairTerm)))).length =
+          (is.length+1)*js.length
+      rw [List.length_append, List.length_map, ih, Nat.add_mul, Nat.one_mul]
+      exact Nat.add_comm _ _
+
+theorem pairs_length (d : Nat) (a b : Nat → Int) :
+    (pairs d a b).length = d*d := by
+  unfold pairs
+  rw [pair_rows_length, List.length_range]
+
+#print axioms pair_row_nodup
+#print axioms pair_rows_nodup
+#print axioms pairs_nodup
+#print axioms pair_rows_length
+#print axioms pairs_length
 #print axioms pairs_membership
 #print axioms zero_pair_term
 #print axioms native_acc_correct

@@ -8701,5 +8701,222 @@ mod constrained_predicate_overlap {
         assert_eq!((cases,proved,rejected),(6,3,3));assert!(backward_chosen>0&&input_phase_drops>0&&strict_difference>0);
         println!("HOARE_CONSTRAINED_PREDICATE_MULTICOLUMN cases={cases} proved={proved} rejected={rejected} backward_chosen={backward_chosen} input_phase_drops={input_phase_drops} strict_difference={strict_difference} rank_rejects=1");
     }
+
+    type BitPoly=std::collections::BTreeSet<u64>;
+    fn bxor(a:&BitPoly,b:&BitPoly)->BitPoly{a.symmetric_difference(b).copied().collect()}
+    fn bmul(a:&BitPoly,b:&BitPoly)->Option<BitPoly>{
+        // Conservative research cap on each multiplication's work/output.
+        if a.len().checked_mul(b.len())?>2_000_000{return None;}
+        let mut out=BitPoly::new();
+        for &m in a{for &k in b{
+            let u=m|k;if !out.insert(u){out.remove(&u);}
+            if out.len()>100_000{return None;}
+        }}
+        Some(out)
+    }
+    fn phase_bits(p:&Poly)->Option<[BitPoly;3]>{
+        let mut bits:[BitPoly;3]=std::array::from_fn(|_|BitPoly::new());
+        for (&m,&c) in p{
+            let mut carry=BitPoly::new();
+            for j in 0..3{
+                let a=bits[j].clone();
+                let b=if c>>j&1!=0{BitPoly::from([m])}else{BitPoly::new()};
+                let ab=bxor(&a,&b);
+                bits[j]=bxor(&ab,&carry);
+                if bits[j].len()>100_000{return None;}
+                if j<2{carry=bxor(&bmul(&a,&b)?,&bmul(&ab,&carry)?);}
+            }
+        }
+        Some(bits)
+    }
+    fn combine(bs:&[u64],k:u64)->u64{
+        bs.iter().enumerate().filter(|(j,_)|k>>*j&1!=0).fold(0,|v,(_,b)|v^*b)
+    }
+    fn coordinates(bs:&[u64],mut v:u64)->Option<u64>{
+        let mut piv=BTreeMap::<u32,(u64,u64)>::new();
+        for (j,&b) in bs.iter().enumerate(){
+            let(mut x,mut c)=(b,1u64<<j);
+            while x!=0{
+                let i=x.ilog2();
+                if let Some(&(p,q))=piv.get(&i){x^=p;c^=q;}else{piv.insert(i,(x,c));break;}
+            }
+            if x==0{return None;}
+        }
+        let mut c=0;
+        while v!=0{let &(p,q)=piv.get(&v.ilog2())?;v^=p;c^=q;}
+        Some(c)
+    }
+    fn complete_basis(h:&[u64],n:usize)->Vec<u64>{
+        let mut b=h.to_vec();
+        for j in 0..n{if coordinates(&b,1u64<<j).is_none(){b.push(1u64<<j);}}
+        assert_eq!(b.len(),n);b
+    }
+    fn bsubst(p:&BitPoly,b:&[u64],n:usize)->Option<BitPoly>{
+        let forms:Vec<BitPoly>=(0..n).map(|i|b.iter().enumerate()
+            .filter(|(_,v)|**v>>i&1!=0).map(|(j,_)|1u64<<j).collect()).collect();
+        let mut out=BitPoly::new();
+        for &m in p{
+            let mut t=BitPoly::from([0]);let mut k=m;
+            while k!=0{let i=k.trailing_zeros() as usize;k&=k-1;t=bmul(&t,&forms[i])?;}
+            out=bxor(&out,&t);
+            if out.len()>100_000{return None;}
+        }
+        Some(out)
+    }
+    // Exact phase-period subspace by leading active degree descent.
+    // Each round adds necessary homogeneous linear equations on shifts;
+    // the final zero-active-degree test is sufficient. No direction enumeration.
+    fn phase_periods(p:&Poly,n:usize,mut h:Vec<u64>)->Option<(Vec<u64>,usize,usize)>{
+        assert!(n<64);
+        let bits=phase_bits(p)?;let mut rounds=0;let mut peak=bits.iter().map(|b|b.len()).sum::<usize>();
+        loop{
+            let b=complete_basis(&h,n);let active=(1u64<<h.len())-1;let mut rows=Vec::new();
+            for plane in &bits{
+                let q=bsubst(plane,&b,n)?;peak=peak.max(q.len());
+                let d=q.iter().map(|m|(m&active).count_ones()).max().unwrap_or(0);
+                if d==0{continue;}
+                let mut eq=BTreeMap::<u64,u64>::new();
+                for &m in &q{
+                    let mut k=m&active;if k.count_ones()!=d{continue;}
+                    while k!=0{let bit=k&k.wrapping_neg();k^=bit;*eq.entry(m^bit).or_default()^=bit;}
+                }
+                rows.extend(eq.into_values().filter(|&v|v!=0));
+            }
+            if rows.is_empty(){return Some((h,rounds,peak));}
+            let mut ker:Vec<u64>=(0..h.len()).map(|j|1u64<<j).collect();
+            for row in rows{
+                if let Some(p)=ker.iter().position(|v|(v&row).count_ones()%2!=0){
+                    let v=ker.remove(p);
+                    for k in &mut ker{if (*k&row).count_ones()%2!=0{*k^=v;}}
+                }
+            }
+            assert!(ker.len()<h.len());
+            h=ker.iter().map(|&v|combine(&h,v)).collect();rounds+=1;
+        }
+    }
+    #[derive(Clone)]
+    struct FlatFrame{n:usize,off:u64,support:Vec<u64>,kernel:Vec<u64>,q:Poly}
+    fn restrict_phase(q:&Poly,off:u64,b:&[u64],n:usize)->Poly{
+        let forms:Vec<_>=(0..n).map(|i|{
+            let m=b.iter().enumerate().fold(0u64,|m,(j,v)|m|(((v>>i)&1)<<j));
+            lift_parity(m,off>>i&1!=0)
+        }).collect();
+        subst(q,&forms)
+    }
+    // Admit exact native snapshots only under fixed-zero input mask,
+    // joint affine injection and known original H normalization.
+    fn admit_flat(s:&Symbolic,free:u64)->Option<FlatFrame>{
+        let (m,_)=multi_frame(s,free)?;let n=m.n;
+        let active:Vec<usize>=(n..n+m.h).chain((0..n).filter(|&i|free>>i&1!=0)).collect();
+        let mut cols=vec![0u64;active.len()];let mut off=0;
+        for (j,f) in m.output.iter().enumerate(){for &v in f{
+            if v==0{off|=1u64<<j;}else{let i=active.iter().position(|&i|v==1u64<<i)?;cols[i]|=1u64<<j;}
+        }}
+        let inv=left_inverse(&cols,n)?;
+        let mut forms=vec![Poly::new();n+m.h];
+        for (&i,&v) in active.iter().zip(&inv){forms[i]=lift_parity(v,(v&off).count_ones()%2!=0);}
+        let q=subst(&m.phase,&forms);
+        let forward:Vec<_>=m.output.iter().map(|f|lift_parity(f.iter().filter(|&&v|v!=0).fold(0u64,|a,&v|a|v),f.contains(&0))).collect();
+        if subst(&q,&forward)!=m.phase{return None;}
+        Some(FlatFrame{n,off,kernel:cols[..m.h].to_vec(),support:cols,q})
+    }
+    fn flat_include(a:&FlatFrame,b:&FlatFrame)->Option<bool>{
+        assert_eq!(a.n,b.n);
+        if coordinates(&b.support,a.off^b.off).is_none()||
+           a.support.iter().any(|&v|coordinates(&b.support,v).is_none())||
+           b.kernel.iter().any(|&v|coordinates(&a.kernel,v).is_none()){return Some(false);}
+        let mut diff=a.q.clone();plus(&mut diff,&b.q,7);
+        let p=restrict_phase(&diff,a.off,&a.support,a.n);
+        for &v in &b.kernel{
+            let c=coordinates(&a.support,v)?;
+            let forms:Vec<_>=(0..a.support.len()).map(|j|lift_parity(1u64<<j,c>>j&1!=0)).collect();
+            if subst(&p,&forms)!=p{return Some(false);}
+        }
+        Some(true)
+    }
+    fn separator(a:&FlatFrame,b:&FlatFrame)->Option<(FlatFrame,usize)>{
+        if !flat_include(a,b)?{return None;}
+        let mut d=a.q.clone();plus(&mut d,&b.q,7);
+        let p=restrict_phase(&d,a.off,&a.support,a.n);
+        let h:Vec<u64>=a.kernel.iter().map(|&v|coordinates(&a.support,v)).collect::<Option<_>>()?;
+        let (h,rounds,_)=phase_periods(&p,a.support.len(),h)?;
+        let c=FlatFrame{n:a.n,off:a.off,support:a.support.clone(),
+            kernel:h.iter().map(|&v|combine(&a.support,v)).collect(),q:b.q.clone()};
+        assert_eq!(flat_include(a,&c),Some(true));assert_eq!(flat_include(&c,b),Some(true));
+        Some((c,rounds))
+    }
+    // Re-encode synthesized affine frame into a padded native research
+    // snapshot. External domain contains exactly one label per coset.
+    fn frame_snapshot(f:&FlatFrame)->(Symbolic,u64){
+        let mut basis=f.kernel.clone();
+        for &v in &f.support{if coordinates(&basis,v).is_none(){basis.push(v);}}
+        assert_eq!(basis.len(),f.support.len());
+        let h=f.kernel.len();let r=basis.len()-h;let n=f.n;
+        let mut output=vec![BitPoly::new();n];
+        for i in 0..n{
+            if f.off>>i&1!=0{output[i].insert(0);}
+            for (j,&v) in basis.iter().enumerate(){if v>>i&1!=0{
+                output[i].insert(1u64<<if j<h{n+j}else{j-h});
+            }}
+        }
+        let forms:Vec<_>=output.iter().map(|s|lift_parity(s.iter().filter(|&&m|m!=0).fold(0u64,|a,&m|a|m),s.contains(&0))).collect();
+        let phase=subst(&f.q,&forms);
+        (Symbolic{n,h,output,phase},(1u64<<(1usize<<r))-1)
+    }
+    #[test]
+    fn hoare_symbolic_phase_period_discovery(){
+        let mut models=0;let mut directions=0;let mut rounds=0;
+        // Deterministic degree/carry and non-coordinate-subspace controls.
+        for n in 1..=5usize{for seed in 0..48u64{
+            let mut p=Poly::new();let mask=(1u64<<n)-1;
+            for j in 0..(n+2){let m=(seed.wrapping_mul(17).wrapping_add((j*j+3*j+1) as u64))&mask;
+                plus(&mut p,&Poly::from([(m,((seed+j as u64)%8) as u8)]),1);}
+            let h:Vec<u64>=(0..n).filter(|&j|(seed>>j)&1!=0)
+                .map(|j|if j+1<n{(1u64<<j)|(1u64<<(j+1))}else{1u64<<j}).collect();
+            let (got,k,_)=phase_periods(&p,n,h.clone()).unwrap();rounds+=k;
+            for u in 0..1u64<<h.len(){
+                let v=combine(&h,u);
+                let expected=(0..1u64<<n).all(|x|eval(&p,x)==eval(&p,x^v));
+                assert_eq!(coordinates(&got,v).is_some(),expected);directions+=1;
+            }
+            models+=1;
+        }}
+        let p:Poly=(0..12).map(|i|(1u64<<i,1)).collect();
+        let (h,k,peak)=phase_periods(&p,24,(0..24).map(|i|1u64<<i).collect()).unwrap();
+        assert_eq!(h,(12..24).map(|i|1u64<<i).collect::<Vec<_>>());
+        assert_eq!(k,1);
+        println!("HOARE_SYMBOLIC_PHASE_PERIOD models={models} directions={directions} rounds={rounds} large_n=24 large_rank={} large_peak={peak}",h.len());
+    }
+    #[test]
+    fn hoare_affine_frame_inclusion_replay(){
+        let gates:Vec<Vec<G>>=vec![vec![],vec![G::X(0)],vec![G::H(0)],vec![G::H(0),G::T(0)],
+            vec![G::H(0),G::CX(0,1),G::T(1)],vec![G::H(1),G::H(0),G::CZ(0,1)],
+            vec![G::T(1),G::H(0),G::CX(0,1)]];
+        let mut frames=Vec::new();
+        for ops in &gates{
+            let s=native(2,ops).unwrap();
+            for free in 0..4u64{if let Some(f)=admit_flat(&s,free){
+                let dom=(0..4u64).filter(|&x|x&!free==0).fold(0u64,|m,x|m|(1<<x));
+                let (check,cd)=frame_snapshot(&f);
+                assert!(gram(&s,&check,dom,cd)&&gram(&check,&s,cd,dom));
+                frames.push((s.clone(),dom,f));
+            }}
+        }
+        assert!(admit_flat(&native(2,&[G::H(0),G::H(0)]).unwrap(),0).is_none());
+        let(mut cases,mut proved,mut refuted,mut smaller,mut rounds)=(0,0,0,0,0);
+        for (a,ad,af) in &frames{for (b,bd,bf) in &frames{
+            let truth=gram(a,b,*ad,*bd);assert_eq!(flat_include(af,bf),Some(truth));
+            if truth{
+                let (f,k)=separator(af,bf).unwrap();rounds+=k;
+                let (c,cd)=frame_snapshot(&f);
+                assert!(gram(a,&c,*ad,cd)&&gram(&c,b,cd,*bd));
+                if f.support.len()-f.kernel.len()<bf.support.len()-bf.kernel.len(){smaller+=1;}
+                proved+=1;
+            }else{refuted+=1;}
+            cases+=1;
+        }}
+        assert!(proved>0&&refuted>0&&smaller>0);
+        println!("HOARE_AFFINE_FRAME_INCLUSION frames={} cases={cases} proved={proved} refuted={refuted} separators_smaller={smaller} period_rounds={rounds}",frames.len());
+    }
 }
 

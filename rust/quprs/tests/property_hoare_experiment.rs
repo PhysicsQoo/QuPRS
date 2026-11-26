@@ -8483,6 +8483,17 @@ mod constrained_predicate_overlap {
             let legal=i64::from(pre.count_ones());
             let verdict=two==[legal*den,0,0,0]&&cross==[0;4];
             assert_eq!(verdict,four==[legal*den*den,0,0,0]);
+            // Independent structural support test, no phase gates. Full
+            // target domain is a certified basis here (native unitary B).
+            let t=std::time::Instant::now();
+            let (screen,k)=structural_collision(&a,&b,pre,post);
+            let mut data=format!("p cnf {} {}\n",screen.vars,screen.clauses.len());
+            for cl in &screen.clauses{for l in cl{data.push_str(&format!("{l} "));}data.push_str("0\n");}
+            let ns=t.elapsed().as_nanos();
+            let sat=(0..1u64<<k).any(|v|extension(&screen,k,v).is_some());
+            if !sat{assert_eq!(cross,[0;4]);}
+            std::fs::write(dir.join(format!("predicate-{name}-structural.cnf")),data).unwrap();
+            manifest.push_str(&format!("{name}\tstructural\t{k}\t{}\t{}\t-1,-1,-1\t{den}\t{legal}\t{build_ns}\t{ns}\t{sat}\t{verdict}\t{}\n",screen.vars,screen.clauses.len(),post==(1u64<<size)-1));
             for (route,copies,collision,expected) in [("two",2,false,two),("four",4,false,four),("collision",4,true,cross)]{
                 let t=std::time::Instant::now();
                 let(c,phase,primary)=global(&a,&b,pre,post,copies,collision,None);
@@ -8492,11 +8503,11 @@ mod constrained_predicate_overlap {
                 assert_eq!(count(&c,phase,primary).0,expected);
                 std::fs::write(dir.join(format!("predicate-{name}-{route}.cnf")),data).unwrap();
                 let expected=expected.iter().map(|v|v.to_string()).collect::<Vec<_>>().join(",");
-                manifest.push_str(&format!("{name}\t{route}\t{primary}\t{}\t{}\t{},{},{}\t{den}\t{legal}\t{build_ns}\t{encoding_ns}\t{expected}\t{verdict}\n",c.vars,c.clauses.len(),phase[0],phase[1],phase[2]));
+                manifest.push_str(&format!("{name}\t{route}\t{primary}\t{}\t{}\t{},{},{}\t{den}\t{legal}\t{build_ns}\t{encoding_ns}\t{expected}\t{verdict}\t{}\n",c.vars,c.clauses.len(),phase[0],phase[1],phase[2],post==(1u64<<size)-1));
             }
         }
         std::fs::write(dir.join("predicate-moments.tsv"),manifest).unwrap();
-        println!("HOARE_CONSTRAINED_PREDICATE_EXPORT cases=8 formulas=24");
+        println!("HOARE_CONSTRAINED_PREDICATE_EXPORT cases=8 formulas=32");
     }
 
     fn inverse_ops(ops:&[G])->Vec<G>{
@@ -8580,6 +8591,115 @@ mod constrained_predicate_overlap {
         }
         assert_eq!((accepted,rejected),(4,4));
         println!("HOARE_CONSTRAINED_PREDICATE_SPLIT accepted={accepted} rejected={rejected} prefix_certificates=4");
+    }
+
+    // Two overlap copies, different target labels, same original input.
+    // Ignore phase entirely. UNSAT proves no two nonzero target amplitudes
+    // can coexist; SAT is not evidence of a nonzero amplitude.
+    fn structural_collision(a:&Symbolic,b:&Symbolic,pre:u64,post:u64)->(Cnf,usize){
+        let n=a.n;assert_eq!(b.n,n);
+        let primary=3*n+2*(a.h+b.h);assert!(n<=2&&primary<=14);
+        let mut c=Cnf::new(primary);
+        let x:Vec<Lit>=(0..n).map(|i|i as Lit+2).collect();
+        let z:Vec<Lit>=(0..n).map(|i|(n+i) as Lit+2).collect();
+        let w:Vec<Lit>=(0..n).map(|i|(2*n+i) as Lit+2).collect();
+        domain(&mut c,&x,pre);domain(&mut c,&z,post);domain(&mut c,&w,post);
+        let mut neq=ZERO;
+        for (&u,&v) in z.iter().zip(&w){let d=c.xor(u,v);neq=c.or(neq,d);}
+        c.enforce(neq);
+        let mut next=(3*n) as Lit+2;
+        for target in [z,w]{
+            let mut av=x.clone();let mut bv=target;
+            av.extend((0..a.h).map(|_|{let l=next;next+=1;l}));
+            bv.extend((0..b.h).map(|_|{let l=next;next+=1;l}));
+            for (fa,fb) in a.output.iter().zip(&b.output){
+                let l=c.anf(fa,&av);let r=c.anf(fb,&bv);let d=c.xor(l,r);c.enforce(-d);
+            }
+        }
+        assert_eq!(next as usize,primary+2);(c,primary)
+    }
+    // Multi-column frame: fixed-zero external bits are domain-restricted;
+    // free external labels and hidden bits jointly inject into output.
+    // Drop input-only phase for SUBSPACE (not strict pointwise equality).
+    fn multi_frame(s:&Symbolic,free:u64)->Option<(Symbolic,usize)>{
+        let n=s.n;let fixed=((1u64<<n)-1)&!free;
+        let active:Vec<usize>=(0..n+s.h).filter(|&i|fixed>>i&1==0).collect();
+        let mut cols=vec![0u64;active.len()];let mut off=0u64;
+        let output:Vec<std::collections::BTreeSet<u64>>=s.output.iter().map(|f|f.iter().filter(|&&m|m&fixed==0).copied().collect()).collect();
+        for (j,f) in output.iter().enumerate(){
+            for &m in f{
+                if m==0{off|=1<<j;continue;}
+                if m.count_ones()!=1{return None;}
+                let i=active.iter().position(|&i|m==1u64<<i)?;
+                cols[i]|=1<<j;
+            }
+        }
+        let inv=left_inverse(&cols,n)?;
+        let mut forms=vec![Poly::new();n+s.h];
+        for (&i,&m) in active.iter().zip(&inv){forms[i]=lift_parity(m,(m&off).count_ones()%2==1);}
+        let phase:Poly=s.phase.iter().filter(|(m,_)|**m&fixed==0&&**m>>n!=0).map(|(&m,&k)|(m,k)).collect();
+        let dropped=s.phase.keys().filter(|&&m|m&fixed==0&&m>>n==0).count();
+        let q=subst(&phase,&forms);
+        let forward:Vec<Poly>=output.iter().map(|f|{
+            let m=f.iter().filter(|&&m|m!=0).fold(0u64,|a,&b|a|b);
+            lift_parity(m,f.contains(&0))
+        }).collect();
+        if subst(&q,&forward)!=phase{return None;}
+        Some((Symbolic{n,h:s.h,output,phase},dropped))
+    }
+    fn gram(a:&Symbolic,b:&Symbolic,pre:u64,post:u64)->bool{
+        let(c,p,k)=global(a,b,pre,post,2,false,None);
+        count(&c,p,k).0==[i64::from(pre.count_ones())*(1i64<<(a.h+b.h)),0,0,0]
+    }
+    fn frame_cost(s:&Symbolic,domain:u64)->(u32,usize,usize){
+        (domain.count_ones(),s.output.iter().map(|f|f.len()).sum::<usize>()+s.phase.len(),s.h)
+    }
+    #[test]
+    fn hoare_constrained_predicate_multicolumn(){
+        // Fixed bit0=0, free bit1: two-dimensional coherent subspace.
+        // Prefix can permute/rephase logical labels; suffix checks image,
+        // not pointwise identity. Backward frame may be cheaper.
+        let dom=5u64;
+        let frame=vec![G::H(0),G::T(0),G::CX(0,1)];
+        let mut cases=0;let mut proved=0;let mut rejected=0;
+        let mut backward_chosen=0;let mut input_phase_drops=0;let mut strict_difference=0;
+        for extra in [vec![],vec![G::T(1)],vec![G::X(1),G::T(1)]]{
+            let mut prefix=extra.clone();prefix.extend(frame.clone());
+            let a=native(2,&prefix).unwrap();
+            let (forward,dropped)=multi_frame(&a,2).unwrap();
+            input_phase_drops+=dropped;
+            assert!(gram(&a,&forward,dom,dom)&&gram(&forward,&a,dom,dom));
+            // Verify candidate Gram matrix equals identity on legal columns.
+            for x in [0,2u64]{for z in [0,2u64]{
+                let(c,p,k)=encode(&forward,&forward,x,&[z,z],None);
+                assert_eq!(count(&c,p,k).0,[if x==z{1i64<<(2*forward.h)}else{0},0,0,0]);
+            }}
+            // Strict equality is not required by span semantics.
+            for x in [0,2u64]{
+                let(c,p,k)=encode(&a,&forward,x,&[x],None);
+                let v=count(&c,p,k).0;
+                if v!=[1i64<<a.h,0,0,0]{strict_difference+=1;}
+            }
+            for mutant in [false,true]{
+                let mut suffix=inverse_ops(&frame);
+                if mutant{suffix.push(G::X(0));}
+                let b=native(2,&inverse_ops(&suffix)).unwrap();
+                let (backward,_)=multi_frame(&b,2).unwrap();
+                let mut candidates=vec![(&forward,false),(&backward,true)];
+                candidates.sort_by_key(|(s,_)|frame_cost(s,dom));
+                let chosen=candidates.into_iter().find(|(s,_)|gram(&a,s,dom,dom)&&gram(s,&b,dom,dom));
+                let direct=gram(&a,&b,dom,dom);
+                let mut full=prefix.clone();full.extend(suffix);
+                let dense=[0u64,2].iter().all(|&x|dense_state(2,&full,x).iter().enumerate().all(|(z,v)|dom>>z&1!=0||*v==[0;4]));
+                assert_eq!(dense,!mutant);
+                assert_eq!(direct,dense);assert_eq!(chosen.is_some(),dense);
+                if let Some((_,back))=chosen{proved+=1;backward_chosen+=usize::from(back);}else{rejected+=1;}
+                cases+=1;
+            }
+        }
+        assert!(multi_frame(&native(2,&[G::H(0),G::H(0)]).unwrap(),2).is_none());
+        assert_eq!((cases,proved,rejected),(6,3,3));assert!(backward_chosen>0&&input_phase_drops>0&&strict_difference>0);
+        println!("HOARE_CONSTRAINED_PREDICATE_MULTICOLUMN cases={cases} proved={proved} rejected={rejected} backward_chosen={backward_chosen} input_phase_drops={input_phase_drops} strict_difference={strict_difference} rank_rejects=1");
     }
 }
 

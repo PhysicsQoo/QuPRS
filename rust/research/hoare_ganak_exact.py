@@ -132,7 +132,7 @@ def main():
 
         # Primary GPMC pilot uses a separate budget before Ganak regressions.
         gpmc_rows=run_gpmc_pure(directory,pathlib.Path(sys.argv[4]).resolve(),tmp,time.monotonic()+45)
-        run_predicate_moment_gpmc(directory,pathlib.Path(sys.argv[4]).resolve(),tmp)
+        run_predicate_moment_gpmc(directory,pathlib.Path(sys.argv[4]).resolve(),tmp,pathlib.Path(sys.argv[3]).resolve())
         deadline=time.monotonic()+90
         # Qualify unweighted free variables, UNSAT and large integers.
         assert count("p cnf 3 1\n1 0\n", []) == 4
@@ -4629,9 +4629,9 @@ def online_sector_cli(args):
     print("ONLINE_GPMC_RESULT "+status,flush=True)
 
 
-def run_predicate_moment_gpmc(directory, exe, tmp):
+def run_predicate_moment_gpmc(directory, exe, tmp, sat_exe):
     """Matched bounded moment routes, exact MPZ packed Z8, no oracle routing."""
-    fields="case route primary vars clauses phase den legal build_ns encoding_ns expected truth".split()
+    fields="case route primary vars clauses phase den legal build_ns encoding_ns expected truth full_target".split()
     with (directory/"predicate-moments.tsv").open() as f:
         plans=list(csv.DictReader(f,fieldnames=fields,delimiter="\t"))
     cases={}
@@ -4640,8 +4640,8 @@ def run_predicate_moment_gpmc(directory, exe, tmp):
             p[k]=int(p[k])
         assert p["route"] not in cases.setdefault(p["case"],{})
         cases[p["case"]][p["route"]]=p
-    assert len(cases)==8 and all(set(v)=={"two","four","collision"} for v in cases.values())
-    spent={"fourth":0.0,"staged":0.0}
+    assert len(cases)==8 and all(set(v)=={"two","four","collision","structural"} for v in cases.values())
+    spent={"fourth":0.0,"staged":0.0,"screened":0.0}
     results=[]
     def solve(p,end,receipts):
         started=time.monotonic()
@@ -4665,8 +4665,25 @@ def run_predicate_moment_gpmc(directory, exe, tmp):
         assert coeff==tuple(map(int,p["expected"].split(","))),(p["case"],p["route"],coeff)
         row.update(status="EXACT",coefficients=coeff,wall_s=time.monotonic()-started)
         return coeff
+    def screen(p,end,receipts):
+        start=time.monotonic()
+        query=directory/("predicate-"+p["case"]+"-structural.cnf")
+        base=query.read_text()
+        assert base.splitlines()[0]==f'p cnf {p["vars"]} {p["clauses"]}'
+        row=dict(route="structural",base_sha256=hashlib.sha256(base.encode()).hexdigest(),
+                 encoding_ns=p["encoding_ns"],status="UNKNOWN")
+        receipts.append(row)
+        remaining=min(3.0,end-time.monotonic())
+        if remaining<=0:raise TimeoutError("screen budget")
+        result=subprocess.run([str(sat_exe),str(query)],capture_output=True,text=True,timeout=remaining)
+        if result.returncode not in (10,20):
+            raise ValueError("invalid structural SAT status")
+        sat=result.returncode==10
+        assert sat==(p["expected"]=="true")
+        row.update(status="SAT" if sat else "UNSAT",wall_s=time.monotonic()-start)
+        return sat
     for i,(case,p) in enumerate(cases.items()):
-        for route in (("fourth","staged") if i%2==0 else ("staged","fourth")):
+        for route in ("fourth","staged","screened")[i%3:]+("fourth","staged","screened")[:i%3]:
             start=time.monotonic()
             end=start+min(6.0,max(0.0,24.0-spent[route]))
             row=dict(case=case,route=route,verdict="UNKNOWN",receipts=[],reason="RESOURCE")
@@ -4677,6 +4694,19 @@ def run_predicate_moment_gpmc(directory, exe, tmp):
                     coeff=solve(p["four"],end,row["receipts"])
                     proved=coeff==(legal*den*den,0,0,0)
                     row["reason"]="FOURTH_MOMENT"
+                elif route=="screened":
+                    if legal==0:
+                        proved=True
+                        row["reason"]="EMPTY_PRE"
+                    else:
+                        possible=screen(p["structural"],end,row["receipts"])
+                        if not possible:
+                            proved=p["two"]["full_target"]=="true" or solve(p["two"],end,row["receipts"])==(legal*den,0,0,0)
+                            row["reason"]="STRUCTURAL_UNSAT"
+                        else:
+                            coeff=solve(p["four"],end,row["receipts"])
+                            proved=coeff==(legal*den*den,0,0,0)
+                            row["reason"]="STRUCTURAL_FALLBACK"
                 else:
                     coeff=solve(p["two"],end,row["receipts"])
                     if coeff!=(legal*den,0,0,0):
@@ -4700,7 +4730,7 @@ def run_predicate_moment_gpmc(directory, exe, tmp):
         unknown=sum(r["verdict"]=="UNKNOWN" for r in results),
         fourth_calls=sum(len(r["receipts"]) for r in results if r["route"]=="fourth"),
         staged_calls=sum(len(r["receipts"]) for r in results if r["route"]=="staged"),
-        staged_leakage_stops=sum(r["reason"]=="LEAKAGE" for r in results),spent=spent)),flush=True)
+        staged_leakage_stops=sum(r["reason"]=="LEAKAGE" for r in results),screened_structural=sum(r["reason"]=="STRUCTURAL_UNSAT" for r in results),screened_empty=sum(r["reason"]=="EMPTY_PRE" for r in results),screened_gpmc_calls=sum(q["route"]!="structural" for r in results if r["route"]=="screened" for q in r["receipts"]),spent=spent)),flush=True)
 
 if __name__ == "__main__":
     if len(sys.argv)>1 and sys.argv[1]=="--online-sector":

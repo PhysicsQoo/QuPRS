@@ -237,10 +237,10 @@ fn compare_gpmc(original:&PathSum,t:&Trace,iterated:&Trace,multiplier_power:usiz
     use std::time::{Instant,Duration};
     let solver_secs=std::env::var("CRR_SOLVER_SECS").ok()
         .map(|s|s.parse::<u64>().expect("solver seconds")).unwrap_or(8);
-    assert!((8..=12).contains(&solver_secs));
+    assert!((8..=60).contains(&solver_secs));
     let reduced=t.encoding_view(original);
     let original_twice=(2*original.v.num_qubits+original.v.path_vars.len()-original.v.num_qubits) as i32;
-    let encode=|ps:&PathSum,arm:&str|->WmcManager{
+    let encode=|ps:&PathSum,arm:&str|->(WmcManager,usize,usize){
         let start=Instant::now();
         let mut mgr=WmcManager::new(ps);
         mgr.enable_precise_gpmc_weights(256);
@@ -250,10 +250,17 @@ fn compare_gpmc(original:&PathSum,t:&Trace,iterated:&Trace,multiplier_power:usiz
         let sizes:Vec<_>=header.split_whitespace().collect();
         println!("CRR_CNF case={case} arm={arm} vars={} clauses={} weights={} bytes={} encode_and_serialize_s={} normalization_twice={original_twice}",
             sizes[2],sizes[3],mgr.numerical_weight_count(),dimacs.len(),start.elapsed().as_secs_f64());
-        mgr
+        (mgr,sizes[2].parse().expect("vars"),sizes[3].parse().expect("clauses"))
     };
-    let a=encode(original,"baseline");let b=encode(&reduced,"conditioned");
-    let c=encode(&iterated.encoding_view(original),"iterated");
+    let (a,av,ac)=encode(original,"baseline");let (b,bv,bc)=encode(&reduced,"conditioned");
+    let (c,cv,cc)=encode(&iterated.encoding_view(original),"iterated");
+    // Diagnostic routing only: prefer baseline unless both dimensions
+    // are nonincreasing and at least one strictly improves.
+    let mut route=("baseline",ac,av);
+    for (arm,v,k) in [("conditioned",bv,bc),("iterated",cv,cc)]{
+        if v<=av&&k<=ac&&(k,v)<(route.1,route.2){route=(arm,k,v);}
+    }
+    println!("CRR_ROUTE case={case} predicted_arm={} vars={} clauses={} policy=nonincreasing_cnf",route.0,route.2,route.1);
     let solve=|mgr:&WmcManager,arm:&str|->Option<PrintedCount>{
         let start=Instant::now();
         let result=mgr.solve_with_deadline_distance_printed_precision("gpmc",Some(start+Duration::from_secs(solver_secs)),90);
@@ -270,31 +277,29 @@ fn compare_gpmc(original:&PathSum,t:&Trace,iterated:&Trace,multiplier_power:usiz
             }
         }
     };
-    // Rotate order deterministically; this is a pilot, not repeated timing.
-    let (x,y)=if case.as_bytes().iter().map(|&b|b as usize).sum::<usize>()%2==0{
-        (solve(&a,"baseline"),solve(&b,"conditioned"))
-    }else{let y=solve(&b,"conditioned");(solve(&a,"baseline"),y)};
-    let z=solve(&c,"iterated");
-    let (Some(x),Some(y),Some(mut z))=(x,y,z)else{
+    let repeat=std::env::var("CRR_REPEAT").ok().map(|r|r.parse::<usize>().expect("repeat")).unwrap_or(0);
+    let arms=[(&a,"baseline"),(&b,"conditioned"),(&c,"iterated")];
+    let mut counts:[Option<PrintedCount>;3]=[None,None,None];
+    println!("CRR_ORDER case={case} repeat={repeat} first={} second={} third={}",arms[repeat%3].1,arms[(repeat+1)%3].1,arms[(repeat+2)%3].1);
+    for k in 0..3{
+        let idx=(repeat+k)%3;
+        counts[idx]=solve(arms[idx].0,arms[idx].1);
+    }
+    let [x,y,z]=counts;
+    let (Some(y),Some(mut z))=(y,z)else{
+        println!("CRR_PAIR case={case} status=incomplete");
         println!("CRR_COMPARE case={case} status=incomplete");return;
     };
-    // Normalize conservatively with floor(log2 normalization), using
-    // exact rational printed centers. A 1e-50 comparison guard is an
-    // empirical parity criterion, NOT a certified arithmetic error bound.
     let scale=BigRational::from_integer(BigInt::from(1u8)<<(original_twice as usize/2));
     let bound=&scale/BigRational::from_integer(BigInt::from(10u8).pow(50));
-    let delta=(&x.real-&y.real).abs()+(&x.imag-&y.imag).abs();
-    assert!(delta<=bound,"raw complex count disagreement for {case}");
-    let dx=observed_distance_verdict(&x,original_twice,"1e-8").expect("baseline distance");
     let dy=observed_distance_verdict(&y,original_twice,"1e-8").expect("conditioned distance");
-    assert!(std::mem::discriminant(&dx)==std::mem::discriminant(&dy));
     let factor=BigRational::from_integer(BigInt::from(1u8)<<(multiplier_power+omega/2));
     z.real*=&factor;z.imag*=&factor;
     z.real_half_unit*=&factor;z.imag_half_unit*=&factor;
     // Exact rational midpoint distance: absorb only the residual odd
     // sqrt(2) into the squared normalization exponent, not the count.
     let vz=observed_distance_verdict(&z,original_twice-(omega%2) as i32,"1e-8").expect("iterated distance");
-    assert!(std::mem::discriminant(&dx)==std::mem::discriminant(&vz));
+    assert!(std::mem::discriminant(&dy)==std::mem::discriminant(&vz));
     // For the complex count parity observation, use a rational lower
     // enclosure of sqrt(2) with width 2^-384, constructed by integer
     // bisection and verified. This is not a solver error certificate.
@@ -310,6 +315,16 @@ fn compare_gpmc(original:&PathSum,t:&Trace,iterated:&Trace,multiplier_power:usiz
         let root=BigRational::new(lo,den);
         z.real*=&root;z.imag*=&root;
     }
+    let pair=(&y.real-&z.real).abs()+(&y.imag-&z.imag).abs();
+    assert!(pair<=bound,"conditioned/iterated count disagreement for {case}");
+    println!("CRR_PAIR case={case} status=matched normalized_l1_delta={:.5e}",(pair/&scale).to_f64().unwrap_or(f64::INFINITY));
+    let Some(x)=x else{
+        println!("CRR_COMPARE case={case} status=incomplete");return;
+    };
+    let delta=(&x.real-&y.real).abs()+(&x.imag-&y.imag).abs();
+    assert!(delta<=bound,"raw complex count disagreement for {case}");
+    let dx=observed_distance_verdict(&x,original_twice,"1e-8").expect("baseline distance");
+    assert!(std::mem::discriminant(&dx)==std::mem::discriminant(&dy));
     let dz=(&x.real-&z.real).abs()+(&x.imag-&z.imag).abs();
     assert!(dz<=bound,"iterated raw complex count disagreement for {case}");
     println!("CRR_COMPARE case={case} status=matched normalized_l1_delta={:.5e} iterated_normalized_l1_delta={:.5e} distance_midpoint_match=true normalization_twice={original_twice}",

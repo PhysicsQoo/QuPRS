@@ -14,10 +14,17 @@ EXPANDED_IDS = ("qft_16", "qft_20", "qpeexact_16", "qpeinexact_8",
 manifest = json.loads((ROOT / "docs/development/paper-corpus-manifest.json").read_text())
 cases = {x["id"]: x for x in manifest["cohorts"]["table2_mqt"]["cases"]}
 failed = False
-for case_id in IDS + EXPANDED_IDS:
+rows = []
+import statistics
+# Fixed cohort selected from CRR-2A before this run. Three cyclic
+# orders balance each arm's position, not all six permutations.
+REPEAT_IDS = ("qft_16", "qft_20", "qpeexact_16", "qpeinexact_16",
+              "wstate_8", "grover-noancilla_5", "qnn_8", "vqe_8",
+              "qaoa_7", "ghz_32")
+for case_id, repeat in ((c, r) for c in REPEAT_IDS for r in range(3)):
     expanded = case_id in EXPANDED_IDS
-    solver_secs = 12 if expanded else 8
-    process_secs = 65 if expanded else 35
+    solver_secs = 60 if case_id == "qft_20" else 12
+    process_secs = 210 if case_id == "qft_20" else 65
     case = cases[case_id]
     paths = {}
     hashes = {}
@@ -32,10 +39,8 @@ for case_id in IDS + EXPANDED_IDS:
     env = dict(os.environ, CRR_CASE=case_id, CRR_SOURCE=paths["source"],
                CRR_TARGET=paths["transpiled"])
     env["CRR_SOLVER_SECS"] = str(solver_secs)
-    if expanded:
-        env["CRR_TRACE_ONLY"] = "1"
-    else:
-        env.pop("CRR_TRACE_ONLY", None)
+    env["CRR_TRACE_ONLY"] = "1"
+    env["CRR_REPEAT"] = str(repeat)
     cmd = ["timeout", "--kill-after=3s", f"{process_secs}s", "cargo", "test", "--locked",
            "--manifest-path", "rust/Cargo.toml", "-p", "quprs",
            "--test", "conditional_rr_experiment", "native_eq_residual_incidence",
@@ -68,12 +73,33 @@ for case_id in IDS + EXPANDED_IDS:
         solver_status = "INCONSISTENT_EVIDENCE"
         status = "ERROR"
     failed |= status == "ERROR"
-    print(json.dumps(dict(case=case_id, cohort="expanded" if expanded else "regression",
+    row = dict(case=case_id, repeat=repeat, cohort="repeat_pilot",
                           status=status, solver_status=solver_status,
                           complete_calls=complete_calls, solver_secs=solver_secs,
                           process_secs=process_secs, returncode=run.returncode,
                           sha256=hashes, records=records,
-                          stderr=run.stderr[-3000:], stdout_tail=run.stdout[-1500:])),
-          flush=True)
+                          stderr=run.stderr[-3000:], stdout_tail=run.stdout[-1500:])
+    rows.append(row)
+    print(json.dumps(row), flush=True)
+# Explicitly retain all incomplete runs; summarize only completed calls,
+# never turn censored baseline time into an exact speedup.
+for case_id in REPEAT_IDS:
+    group = [r for r in rows if r["case"] == case_id]
+    by_arm = {a: [] for a in ("baseline", "conditioned", "iterated")}
+    for row in group:
+        for line in row["records"]:
+            if line.startswith("CRR_GPMC "):
+                fields = dict(t.split("=", 1) for t in line.split() if "=" in t)
+                if fields["status"] == "complete":
+                    by_arm[fields["arm"]].append(float(fields["call_s"]))
+    stats = {a: dict(n=len(v), median_s=statistics.median(v) if v else None,
+                     min_s=min(v) if v else None, max_s=max(v) if v else None)
+             for a, v in by_arm.items()}
+    matched = sum(r["solver_status"] == "MATCHED" for r in group)
+    speedup = (stats["baseline"]["median_s"] / stats["iterated"]["median_s"]
+               if matched == 3 else None)
+    print(json.dumps(dict(summary_case=case_id, matched_repeats=matched,
+                          statuses=[r["solver_status"] for r in group],
+                          call_stats=stats, median_call_ratio=speedup)), flush=True)
 if failed:
     raise SystemExit(1)

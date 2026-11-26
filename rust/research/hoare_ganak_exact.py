@@ -1929,7 +1929,9 @@ def run_gpmc_pure(directory, exe, tmp, deadline):
         run_native_gse_wmc(directory,solve,deadline,long_metrics)
         long_metrics=None
         query_cap=5
-    if (directory/"paper-sector-inputs.tsv").is_file():
+    if (directory/"general-predicate.tsv").is_file():
+        run_general_predicate(directory,exe,tmp)
+    elif (directory/"paper-sector-inputs.tsv").is_file():
         run_paper_sector_inputs(directory,exe,tmp)
     elif (directory/"paper-blind-fibre.tsv").is_file():
         run_paper_blind_fibres(directory,exe,tmp)
@@ -1939,7 +1941,7 @@ def run_gpmc_pure(directory, exe, tmp, deadline):
         run_paper_single_fibre(directory,exe,tmp)
     # Freeze previously accepted timeout baselines instead of repeatedly
     # spending six additional 30s queries during conditioned-RR research.
-    if (directory/"paper-projected.tsv").is_file() and not any((directory/p).is_file() for p in ("paper-conditioned-fibre.tsv","paper-blind-fibre.tsv","paper-sector-inputs.tsv")):
+    if (directory/"paper-projected.tsv").is_file() and not any((directory/p).is_file() for p in ("paper-conditioned-fibre.tsv","paper-blind-fibre.tsv","paper-sector-inputs.tsv","general-predicate.tsv")):
         query_cap=30
         deadline=time.monotonic()+240
         long_metrics=[]
@@ -2434,6 +2436,68 @@ def run_paper_sector_inputs(directory,exe,tmp):
                 assert a["normalized"]==b["normalized"],(case,a["x"],a["normalized"],b["normalized"])
                 paired+=1
     print("HOARE_PAPER_SECTOR_PARITY paired="+str(paired),flush=True)
+
+
+def run_general_predicate(directory,exe,tmp):
+    fields="key case route x prefix_h h vars clauses sign denominator scale common_ns prefix_ns prep_ns encoding_ns pivots rr_steps expected".split()
+    with (directory/"general-predicate.tsv").open() as f:
+        plans=list(csv.DictReader(f,fieldnames=fields,delimiter="\t"))
+    assert len(plans)==64
+    groups={}
+    for p in plans:groups.setdefault((p["case"],p["route"]),[]).append(p)
+    assert len(groups)==16 and all(len(v)==4 for v in groups.values())
+    all_rows={}
+    for (case,route),group in groups.items():
+        assert len({int(p["x"]) for p in group})==4
+        spent=int(group[0]["common_ns"])/1e9
+        records=[]
+        for p in group:
+            row=dict(p)
+            for k in fields[3:]:
+                row[k]=int(p[k])
+            spent+=(row["prefix_ns"]+row["prep_ns"]+row["encoding_ns"])/1e9
+            row.update(status="UNKNOWN",normalized=None,metrics=[],query_s=0.0)
+            start=time.monotonic()
+            if spent<30:
+                base=(directory/(p["key"]+".cnf")).read_text()
+                assert base.splitlines()[0]==f'p cnf {row["vars"]} {row["clauses"]}'
+                data,radix,bound=single_fibre_pack(base,[row["sign"]],3+2*row["h"])
+                query=pathlib.Path(tmp)/"general-predicate.cnf"
+                query.write_text(data)
+                row["query_sha256"]=hashlib.sha256(data.encode()).hexdigest()
+                t=time.monotonic()
+                try:
+                    remaining=30-spent-(t-start)
+                    if remaining<=0:raise TimeoutError("predicate budget")
+                    stdout=profile_gpmc([str(exe),"-mode=1","-natw",str(query)],min(30,remaining),
+                                       pathlib.Path(tmp)/"general-predicate-time.tsv",row["metrics"])
+                    val=parse_gpmc_integer(stdout,"wmc",bound*radix)
+                    a,b=single_fibre_decode(val,radix,bound,2)
+                    assert a>=b
+                    result=(a-b)<<row["scale"]
+                    assert result==row["expected"],(p["key"],result,row["expected"])
+                    row.update(status="EXACT",normalized=result)
+                except (TimeoutError,subprocess.TimeoutExpired):row["status"]="TIMEOUT"
+                except SolverSignalKilled:row["status"]="SIGNAL_KILL"
+                row["query_s"]=time.monotonic()-t
+                spent+=time.monotonic()-start
+            records.append(row)
+            print("HOARE_GENERAL_PREDICATE_GPMC "+json.dumps(row),flush=True)
+        exact=[r for r in records if r["normalized"] is not None]
+        positives=[r["x"] for r in exact if r["normalized"]]
+        verdict="REFUTED" if positives else "PROVED" if len(exact)==4 else "UNKNOWN"
+        print("HOARE_GENERAL_PREDICATE_SUMMARY "+json.dumps(dict(case=case,route=route,exact=len(exact),
+              verdict=verdict,positive=positives,accounted_s=spent,pivots=sum(r["pivots"] for r in records),
+              max_h=max(r["h"] for r in records))),flush=True)
+        all_rows[case,route]=records
+    paired=0
+    for case in {k[0] for k in groups}:
+        for a,b in zip(all_rows[case,"input-only"],all_rows[case,"predicate-rr"]):
+            assert a["x"]==b["x"]
+            if a["normalized"] is not None and b["normalized"] is not None:
+                assert a["normalized"]==b["normalized"]
+                paired+=1
+    print("HOARE_GENERAL_PREDICATE_PARITY paired="+str(paired),flush=True)
 
 def run_paper_projected_optimized(directory,count,deadline,metrics):
     fields="case mode n h0 h scale vars clauses sign denominator status build_ns rr_ns encoding_ns expected_bad".split()

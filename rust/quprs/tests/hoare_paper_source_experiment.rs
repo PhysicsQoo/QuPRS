@@ -663,6 +663,139 @@ fn export_sector_inputs(dir:&std::path::Path,name:&str,residual:&PathSum,raw_sca
     }
 }
 
+
+// Compose a bounded Boolean output predicate with the complete native
+// output map. A single false postcondition is one exact forbidden guard.
+fn composed_post(ps:&PathSum,post:&Anf)->Option<Poly>{
+    if post.iter().any(|m|m>>ps.v.num_qubits!=0){return None;}
+    let mut out=Poly::default();
+    for &m in post{
+        let mut term=Poly::from_iter([vec![]]);
+        for i in 0..ps.v.num_qubits{
+            if m>>i&1==0{continue;}
+            let f=&ps.f.functions[i];
+            if term.len().checked_mul(f.len())?>32768{return None;}
+            let mut next=Poly::default();
+            for a in &term{for b in f{
+                let mut p=a.clone();p.extend(b);toggle(&mut next,p);
+            }}
+            if next.len()>8192{return None;}
+            term=next;
+        }
+        for p in term{toggle(&mut out,p);}
+        if out.len()>8192{return None;}
+    }
+    Some(out)
+}
+fn predicate_pivot(ps:&PathSum,post:&Anf)->Option<(PathSum,usize)>{
+    let guard=composed_post(ps,post)?;
+    let mut candidates=Vec::new();
+    for m in guard.iter().filter(|m|m.len()==1&&(m[0] as usize)>=ps.v.num_qubits){
+        let y=m[0];
+        if guard.iter().any(|p|p!=m&&p.contains(&y)){continue;}
+        let mut sel=guard.clone();sel.remove(m); // post(f)=0, so y=sel
+        if sel.len()>8{continue;}
+        let work=ps.p.terms.keys().filter(|m|m.contains(&y)).count().checked_mul(1usize<<sel.len())?;
+        let bw=ps.f.functions.iter().flatten().filter(|m|m.contains(&y)).count().checked_mul(sel.len().max(1))?;
+        if work>32768||bw>32768{continue;}
+        candidates.push((work+bw,sel.len(),y,sel));
+    }
+    candidates.sort_by_key(|c|(c.0,c.1,c.2));
+    for (_,size,y,sel) in candidates{
+        let mut t=ps.clone();
+        t.f.substitute_var_with_poly(y,&sel);t.p.substitute_var_with_poly(y,&sel);
+        assert!(t.v.path_vars.remove(&y));
+        if admitted(&t)&&composed_post(&t,post).is_some_and(|g|g.is_empty()){
+            return Some((t,size));
+        }
+    }
+    None
+}
+fn anf_value(p:&Anf,x:u64)->bool{
+    p.iter().fold(false,|a,&m|a^(x&m==m))
+}
+#[test]
+fn native_general_predicate_gate_cohort(){
+    use QuantumOp as G;
+    // Generated gate families, not a claim of reproduction of external
+    // artifacts. Pre/post are independently specified Boolean ANFs.
+    let qft_like=vec![G::H(0),G::T(0),G::T(1),G::CX(0,1),G::TDG(1),G::CX(0,1),G::H(1),
+        G::H(1),G::CX(0,1),G::T(1),G::CX(0,1),G::TDG(1),G::TDG(0),G::H(0)];
+    let families=[
+        ("ghz",vec![G::H(0),G::CX(0,1),G::CX(0,2)],G::X(1),
+            Anf::from([0,2]),Anf::from([0,1,2])),
+        ("ancilla-and",vec![G::H(0),G::H(1),G::CCX(0,1,2)],G::X(2),
+            Anf::from([0,4]),Anf::from([0,3,4])),
+        ("bv",vec![G::H(0),G::H(1),G::Z(0),G::Z(1),G::H(0),G::H(1)],G::X(1),
+            Anf::from([0,1,2]),Anf::from([0,1,2])),
+        ("fourier-echo",qft_like,G::X(2),
+            Anf::from([0,3,4]),Anf::from([0,3,4])),
+    ];
+    let mut rows=String::new();let mut checks=0;let mut hits=0;let mut positive=0;let mut zero=0;
+    let dir=std::env::var_os("HOARE_PAPER_PROJECTED_DIR").map(std::path::PathBuf::from);
+    for (family,ops,mutation,pre,post) in families{
+        for mutant in [false,true]{
+            let case=format!("{family}-{}",if mutant{"mutant"}else{"valid"});
+            let t=std::time::Instant::now();
+            let mut raw=PathSum::new(3);raw.set_auto_reduce(false);
+            for op in &ops{op.apply(&mut raw,false);}
+            if mutant{mutation.apply(&mut raw,false);}
+            let build_ns=t.elapsed().as_nanos();
+            let original=entries(&raw).unwrap();
+            let norm=|a:&[Root],x:usize|->i128{
+                (0..8).filter(|&z|!anf_value(&post,z as u64))
+                    .flat_map(|z|a[8*x+z]).map(|v|i128::from(v)*i128::from(v)).sum()
+            };
+            let legal:Vec<_>=(0..8u64).filter(|&x|anf_value(&pre,x)).collect();
+            assert_eq!(legal.len(),4);
+            let t=std::time::Instant::now();let (general,gr)=reduce(raw);
+            let common_ns=build_ns+t.elapsed().as_nanos();
+            assert!(!gr.limit);
+            let mut bad=0;
+            for x in legal{
+                let want=norm(&original,x as usize);
+                if want>0{bad+=1;positive+=1;}else{zero+=1;}
+                let t=std::time::Instant::now();
+                let (prefix,pr)=reduce(fixed_input(general.clone(),x));
+                let prefix_ns=t.elapsed().as_nanos();
+                assert!(!pr.limit);
+                let fixed:Vec<Anf>=(0..3).map(|i|if x>>i&1==1{Anf::from([1u64<<i])}
+                    else{Anf::from([0,1u64<<i])}).collect();
+                for conditioned in [false,true]{
+                    let t=std::time::Instant::now();
+                    let (out,s,hit,steps)=if conditioned{
+                        if let Some((t,_))=predicate_pivot(&prefix,&post){
+                            let (out,r)=reduce(t);assert!(!r.limit);
+                            (out,r.scale2,1usize,r.elim+r.hh+r.omega)
+                        }else{(prefix.clone(),0,0,0)}
+                    }else{(prefix.clone(),0,0,0)};
+                    let prep_ns=t.elapsed().as_nanos();
+                    hits+=hit;
+                    let scale=gr.scale2+pr.scale2+s;
+                    assert_eq!(norm(&entries(&out).unwrap(),x as usize).checked_shl(scale).unwrap(),want);
+                    checks+=1;
+                    if let Some(dir)=&dir{
+                        let route=if conditioned{"predicate-rr"}else{"input-only"};
+                        let key=format!("predicate-{case}-{route}-{x}");
+                        let t=std::time::Instant::now();
+                        let (c,sign,d)=native_dyadic_projection_variant(&out,&fixed,&[post.clone()],32768,262144,true).unwrap();
+                        let enc=t.elapsed().as_nanos();
+                        let mut text=format!("p cnf {} {}\n",c.vars,c.clauses.len());
+                        for row in &c.clauses{for l in row{text.push_str(&format!("{l} "));}text.push_str("0\n");}
+                        std::fs::write(dir.join(format!("{key}.cnf")),text).unwrap();
+                        rows.push_str(&format!("{key}\t{case}\t{route}\t{x}\t{}\t{}\t{}\t{}\t{sign}\t{d}\t{scale}\t{common_ns}\t{prefix_ns}\t{prep_ns}\t{enc}\t{hit}\t{steps}\t{want}\n",
+                            h(&prefix),h(&out),c.vars,c.clauses.len()));
+                    }
+                }
+            }
+            assert_eq!(bad>0,mutant,"{case}");
+        }
+    }
+    assert!(hits>0&&positive>0&&zero>0);
+    if let Some(dir)=dir{std::fs::write(dir.join("general-predicate.tsv"),rows).unwrap();}
+    println!("HOARE_NATIVE_GENERAL_PREDICATE checks={checks} hits={hits} positive={positive} zero={zero}");
+}
+
 #[test]
 fn paper_qwalk_native_source_admission(){
     let Some(dir)=std::env::var_os("HOARE_PAPER_QWALK_DIR") else{
@@ -714,7 +847,8 @@ fn paper_qwalk_native_source_admission(){
                 if specialize{export_projected(dir,name,"hybrid-pre-heap",&out,initial_h,r.scale2,build_ns,rr_ns,expected_bad,&mut rows);
                     export_single_fibres(dir,name,&out,r.scale2,build_ns,rr_ns,&mut single_rows);
                     // Keep old exporter callable, but freeze its prior measured baseline.
-                    export_sector_inputs(dir,name,&out,r.scale2,build_ns,rr_ns,&mut sector_rows); }
+                    // Frozen source sector baseline; do not repeat the 64 queries.
+                    let _ = &mut sector_rows; }
             }
             let mut bad=0usize;let mut checks=0usize;
             let status=if let Some(a)=entries(&out){
@@ -732,5 +866,5 @@ fn paper_qwalk_native_source_admission(){
     }
     if let Some(dir)=&export{std::fs::write(dir.join("paper-projected.tsv"),rows).unwrap();
         std::fs::write(dir.join("paper-single-fibre.tsv"),single_rows).unwrap();
-        std::fs::write(dir.join("paper-sector-inputs.tsv"),sector_rows).unwrap();}
+        let _=sector_rows;}
 }

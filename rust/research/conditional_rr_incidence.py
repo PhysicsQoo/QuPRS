@@ -16,13 +16,13 @@ cases = {x["id"]: x for x in manifest["cohorts"]["table2_mqt"]["cases"]}
 failed = False
 rows = []
 import statistics
-# Fixed cohort selected from CRR-2A before this run. Three cyclic
-# orders balance each arm's position, not all six permutations.
-REPEAT_IDS = ("qft_16", "qft_20", "qpeexact_16", "qpeinexact_16",
+# CRR-2C: one pass over positive/negative controls and held-out sizes.
+# Retain CRR-2B repeats in their original evidence; this is a structural pilot.
+REPEAT_IDS = ("qft_16", "qft_20", "qft_22", "qft_24",
+              "qpeexact_16", "qpeinexact_16", "qpeexact_20", "qpeinexact_20",
               "wstate_8", "grover-noancilla_5", "qnn_8", "vqe_8",
               "qaoa_7", "ghz_32")
-for case_id, repeat in ((c, r) for c in REPEAT_IDS for r in range(3)):
-    expanded = case_id in EXPANDED_IDS
+for case_id, repeat in ((c, 0) for c in REPEAT_IDS):
     solver_secs = 60 if case_id == "qft_20" else 12
     process_secs = 210 if case_id == "qft_20" else 65
     case = cases[case_id]
@@ -41,6 +41,7 @@ for case_id, repeat in ((c, r) for c in REPEAT_IDS for r in range(3)):
     env["CRR_SOLVER_SECS"] = str(solver_secs)
     env["CRR_TRACE_ONLY"] = "1"
     env["CRR_REPEAT"] = str(repeat)
+    env["CRR_COST_AWARE"] = "1"
     cmd = ["timeout", "--kill-after=3s", f"{process_secs}s", "cargo", "test", "--locked",
            "--manifest-path", "rust/Cargo.toml", "-p", "quprs",
            "--test", "conditional_rr_experiment", "native_eq_residual_incidence",
@@ -73,7 +74,7 @@ for case_id, repeat in ((c, r) for c in REPEAT_IDS for r in range(3)):
         solver_status = "INCONSISTENT_EVIDENCE"
         status = "ERROR"
     failed |= status == "ERROR"
-    row = dict(case=case_id, repeat=repeat, cohort="repeat_pilot",
+    row = dict(case=case_id, repeat=repeat, cohort="cost_aware_pilot",
                           status=status, solver_status=solver_status,
                           complete_calls=complete_calls, solver_secs=solver_secs,
                           process_secs=process_secs, returncode=run.returncode,
@@ -97,7 +98,7 @@ for case_id in REPEAT_IDS:
              for a, v in by_arm.items()}
     matched = sum(r["solver_status"] == "MATCHED" for r in group)
     speedup = (stats["baseline"]["median_s"] / stats["iterated"]["median_s"]
-               if matched == 3 else None)
+               if matched == 1 else None)
     print(json.dumps(dict(summary_case=case_id, matched_repeats=matched,
                           statuses=[r["solver_status"] for r in group],
                           call_stats=stats, median_call_ratio=speedup)), flush=True)

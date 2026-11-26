@@ -56,7 +56,20 @@ impl Trace{
     }
     fn size(&self)->usize{self.p.terms.len()+self.constraints.iter().map(|p|p.len()).sum::<usize>()}
     fn empty(&self)->bool{self.constraints.iter().any(|p|p.len()==1&&p.contains(&Vec::new()))}
+    // Cheap structural proxies; not actual CNF size or solver time.
+    fn cost(&self)->(usize,usize){
+        let phase=self.p.terms.keys().map(|m|1+m.len()).sum::<usize>();
+        let constraints=self.constraints.iter().flatten().map(|m|1+m.len()).sum::<usize>();
+        (phase,phase+constraints+self.live.len())
+    }
+    fn accepts(&self,trial:&Trace)->bool{
+        let a=self.cost();let b=trial.cost();
+        b.0<=a.0&&b.1<a.1
+    }
     fn step(&mut self)->Option<(u32,usize)>{
+        self.step_policy(false,&mut 0usize)
+    }
+    fn step_policy(&mut self,guarded:bool,rejected:&mut usize)->Option<(u32,usize)>{
         if self.empty()||self.size()>TERM_CAP{return None;}
         // Each equation is q=0. y XOR r=0 admits exactly one y for
         // every remaining assignment; no factor of two is introduced.
@@ -75,7 +88,8 @@ impl Trace{
             }
         }
         choices.sort_unstable();
-        for (_,len,y,i) in choices{
+        let limit=if guarded{16}else{usize::MAX};
+        for (_,len,y,i) in choices.into_iter().take(limit){
             let mut rhs=self.constraints[i].clone();rhs.remove(&vec![y]);
             let mut trial=self.clone();
             trial.p.substitute_var_with_poly(y,&rhs);
@@ -85,6 +99,7 @@ impl Trace{
             assert!(trial.live.remove(&y));
             assert!(trial.p.terms.keys().all(|m|m.iter().all(|v|trial.live.contains(v))));
             assert!(trial.constraints.iter().flatten().all(|m|m.iter().all(|v|trial.live.contains(v))));
+            if guarded&&!self.accepts(&trial){*rejected+=1;continue;}
             *self=trial;
             return Some((y,len));
         }
@@ -182,19 +197,33 @@ fn iterate(t:&mut Trace)->(usize,usize,usize){
 // Full alternation; keep the earlier Elim/HH oracle on its original
 // routine so its results remain comparable.
 fn iterate_all(t:&mut Trace)->(usize,usize,usize,usize){
-    let (mut subs,mut elim,mut hh,mut omega)=(0,0,0,0);
-    for _ in 0..STEP_CAP{
-        if t.step().is_some(){subs+=1;continue;}
-        match t.integrate(){
-            Some(("elim",_))=>{elim+=1;continue;},
-            Some(("hh",_))=>{hh+=1;continue;},
-            None=>{},
-            _=>unreachable!(),
+    let (s,e,h,o,_)=iterate_policy(t,STEP_CAP,false);
+    (s,e,h,o)
+}
+// Guard each transition transactionally. For integration we inspect
+// only the first native-eligible candidate per rule family; a rejected
+// integration is not evidence that all alternatives are unprofitable.
+fn iterate_policy(t:&mut Trace,fuel:usize,guarded:bool)->(usize,usize,usize,usize,usize){
+    assert!(fuel<=64);
+    let (mut subs,mut elim,mut hh,mut omega,mut rejected)=(0,0,0,0,0);
+    for _ in 0..fuel{
+        if t.step_policy(guarded,&mut rejected).is_some(){subs+=1;continue;}
+        let mut q=t.clone();
+        if let Some((rule,_))=q.integrate(){
+            if !guarded||t.accepts(&q){
+                match rule{"elim"=>elim+=1,"hh"=>hh+=1,_=>unreachable!()}
+                *t=q;continue;
+            }
+            rejected+=1;
         }
-        if t.omega().is_some(){omega+=1;continue;}
+        let mut q=t.clone();
+        if q.omega().is_some(){
+            if !guarded||t.accepts(&q){omega+=1;*t=q;continue;}
+            rejected+=1;
+        }
         break;
     }
-    (subs,elim,hh,omega)
+    (subs,elim,hh,omega,rejected)
 }
 pub(super) fn profile(ps:&PathSum,case:&str){
     let start=std::time::Instant::now();
@@ -216,11 +245,25 @@ pub(super) fn profile(ps:&PathSum,case:&str){
         if t.empty(){"empty"}else{"profiled"},t.live.len(),t.p.terms.len(),
         t.constraints.iter().filter(|q|!q.is_empty()).count(),before-t.n,start.elapsed().as_secs_f64());
     if std::env::var_os("CRR_GPMC_COMPARE").is_some(){
-        let mut iterated=Trace::from_native(ps).expect("admitted");
+        let aware=std::env::var_os("CRR_COST_AWARE").is_some();
+        let original=Trace::from_native(ps).expect("admitted");
+        if aware{
+            for fuel in [32,64]{
+                for guarded in [false,true]{
+                    let mut q=original.clone();let start=std::time::Instant::now();
+                    let (a,b,c,d,rejected)=iterate_policy(&mut q,fuel,guarded);
+                    let cost=q.cost();
+                    println!("CRR_FUEL case={case} fuel={fuel} guarded={guarded} subs={a} elim={b} hh={c} omega={d} rejected={rejected} fuel_exhausted={} hidden={} phase_terms={} phase_proxy={} total_proxy={} original_phase_proxy={} original_total_proxy={} elapsed_s={}",
+                        a+b+c+d==fuel,q.live.len()-q.n,q.p.terms.len(),cost.0,cost.1,original.cost().0,original.cost().1,start.elapsed().as_secs_f64());
+                }
+            }
+        }
+        let mut iterated=original.clone();
         let it_start=std::time::Instant::now();
-        let (subs,elim,hh,omega)=iterate_all(&mut iterated);
+        let fuel=if aware{64}else{STEP_CAP};
+        let (subs,elim,hh,omega,rejected)=iterate_policy(&mut iterated,fuel,aware);
         let multiplier_power=elim+hh;
-        println!("CRR_ITERATE case={case} subs={subs} elim={elim} hh={hh} omega={omega} multiplier_power={multiplier_power} multiplier_sqrt2_power={omega} hidden_after={} phase_after={} constraints_after={} iterate_s={}",
+        println!("CRR_ITERATE case={case} subs={subs} elim={elim} hh={hh} omega={omega} multiplier_power={multiplier_power} multiplier_sqrt2_power={omega} hidden_after={} phase_after={} constraints_after={} iterate_s={} guarded={aware} fuel={fuel} rejected={rejected}",
             iterated.live.len()-iterated.n,iterated.p.terms.len(),iterated.constraints.iter().filter(|q|!q.is_empty()).count(),it_start.elapsed().as_secs_f64());
         compare_gpmc(ps,&t,&iterated,multiplier_power,omega,case);
     }
@@ -484,6 +527,10 @@ fn exact_trace_iterated_omega(){
         if k&256!=0{ps.p.add_term(vec![5],PhaseCoeff::HALF);}
         let orig=Trace::from_native(&ps).unwrap();let mut t=orig.clone();
         let (_,e,h,o)=iterate_all(&mut t);
+        let mut guarded=orig.clone();
+        let (_,ge,gh,go,_)=iterate_policy(&mut guarded,64,true);
+        assert!(guarded.cost().0<=orig.cost().0&&guarded.cost().1<=orig.cost().1);
+        for x in 0..4{assert_eq!(coeff(&orig,x,0,0),coeff(&guarded,x,ge+gh,go));}
         total_omega+=o;if o%2==1{odd+=1;}else{even+=1;}
         let round=Trace::from_native(&t.encoding_view(&ps)).unwrap();
         for x in 0..4{
@@ -506,4 +553,42 @@ fn exact_trace_iterated_omega(){
     assert_ne!(coeff(&orig,0,0,0),coeff(&t,0,0,0));
     assert_eq!(coeff(&orig,0,0,0),coeff(&t,0,0,1));
     println!("CRR_OMEGA_ORACLE models=512 checks={checks} omega={total_omega} odd_models={odd} even_models={even}");
+}
+
+
+#[test]
+fn exact_trace_cost_policy_rejects_growth(){
+    use quprs::rational::{PhaseCoeff,Rational};
+    let mut ps=PathSum::new(1);ps.rr_tolerance=0.0;
+    let y=ps.v.get_fresh_var();
+    let z=ps.v.get_fresh_var();
+    let w=ps.v.get_fresh_var();
+    // Sole isolated internal pivot y = x*z XOR x*w. An eighth-cycle
+    // coefficient expands to three nonzero arithmetic monomials.
+    ps.f.functions[0].insert(vec![y]);
+    ps.f.functions[0].insert(vec![0,z]);
+    ps.f.functions[0].insert(vec![0,w]);
+    ps.p.add_term(vec![y],PhaseCoeff::new_constant(Rational::new(1,8)));
+    let orig=Trace::from_native(&ps).unwrap();
+    let mut greedy=orig.clone();assert!(greedy.step().is_some());
+    assert!(greedy.cost().0>orig.cost().0);
+    let mut guarded=orig.clone();let mut rejected=0;
+    assert!(guarded.step_policy(true,&mut rejected).is_none());
+    assert_eq!(rejected,1);
+    assert_eq!(guarded.cost(),orig.cost());
+    for x in 0..2{assert_eq!(hist(&orig,x),hist(&guarded,x));}
+    // Safe one-monomial substitution must not be rejected.
+    ps.f.functions[0].remove(&vec![0,w]);
+    let orig=Trace::from_native(&ps).unwrap();
+    // Use a singleton input RHS to avoid a phase-degree increase.
+    ps.f.functions[0].remove(&vec![0,z]);
+    ps.f.functions[0].remove(&vec![0]); // q = y XOR x
+    let orig2=Trace::from_native(&ps).unwrap();
+    let mut q=orig2.clone();let mut rejected=0;
+    assert!(q.step_policy(true,&mut rejected).is_some());
+    assert_eq!(rejected,0);
+    for x in 0..2{assert_eq!(hist(&orig2,x),hist(&q,x));}
+    assert!(q.cost().0<=orig2.cost().0&&q.cost().1<orig2.cost().1);
+    assert!(orig.cost().1>0);
+    println!("CRR_COST_ORACLE reject_growth=1 accept_nonincrease=1 guarded_omega_models=512");
 }

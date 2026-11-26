@@ -10,7 +10,7 @@ on:
       suite:
         description: Experimental evidence suite
         type: choice
-        options: [legacy, cross-family, source-admission, root-profile, factor-classes, sparse-anchor, prefix-memo, axis-profile, direct-binary, operand-profile, pool-profile, last-use-donor, masked-donor, descendant-units, inplace-scan, inplace-branch, move-components, borrowed-cache, general-cumulative, general-simulation-repair, general-native-gpmc, scope-scratch, streaming-large-general, large-root-closure, large-descendant-closure, fixed-work-descendant, large-general-candidate, long-native-candidate, default-parser-isolation, scope-scratch-fair, scope-scratch-candidate, large-root-ownership, root-ownership-port, packed-index-scratch, owned-entry-isolation, root-long-regression, reversible-index-state, reversible-canonical-boundary, historical-gap-baseline, reversible-frontier-transitions, reversible-ordered-frontier, historical-grover5, grover5-precision-audit, grover5-seven-pairs, reversible-rank-generation, reversible-single-unit-queue, component-scoped-trail-wmc, scoped-complete-ablation, scoped-adaptive-ablation, scoped-local-allocation, scoped-canonical-reuse, scoped-preindex-cache, general-pivot-scout, general-separator-scout, general-separator-paired, general-separator-transfer, general-separator-cli, general-separator-admission, general-separator-prehash, general-auto-fallback-scout]
+        options: [legacy, cross-family, source-admission, root-profile, factor-classes, sparse-anchor, prefix-memo, axis-profile, direct-binary, operand-profile, pool-profile, last-use-donor, masked-donor, descendant-units, inplace-scan, inplace-branch, move-components, borrowed-cache, general-cumulative, general-simulation-repair, general-native-gpmc, scope-scratch, streaming-large-general, large-root-closure, large-descendant-closure, fixed-work-descendant, large-general-candidate, long-native-candidate, default-parser-isolation, scope-scratch-fair, scope-scratch-candidate, large-root-ownership, root-ownership-port, packed-index-scratch, owned-entry-isolation, root-long-regression, reversible-index-state, reversible-canonical-boundary, historical-gap-baseline, reversible-frontier-transitions, reversible-ordered-frontier, historical-grover5, grover5-precision-audit, grover5-seven-pairs, reversible-rank-generation, reversible-single-unit-queue, component-scoped-trail-wmc, scoped-complete-ablation, scoped-adaptive-ablation, scoped-local-allocation, scoped-canonical-reuse, scoped-preindex-cache, general-pivot-scout, general-separator-scout, general-separator-paired, general-separator-transfer, general-separator-cli, general-separator-admission, general-separator-prehash, general-auto-fallback-scout, general-fallback-witness]
         default: legacy
 permissions:
   contents: read
@@ -6526,7 +6526,7 @@ jobs:
           if-no-files-found: warn
 
   general-auto-fallback-scout:
-    if: github.event_name == 'push' || inputs.suite == 'general-auto-fallback-scout'
+    if: github.event_name == 'workflow_dispatch' && inputs.suite == 'general-auto-fallback-scout'
     name: Actual auto fallback scout / ${{ matrix.case }}
     runs-on: ubuntu-24.04
     timeout-minutes: 15
@@ -6740,5 +6740,170 @@ jobs:
         with:
           name: rawmocs-auto-fallback-scout-${{ matrix.case }}
           path: .auto-fallback-evidence/
+          include-hidden-files: true
+          if-no-files-found: warn
+
+  general-fallback-witness:
+    if: github.event_name == 'push' || inputs.suite == 'general-fallback-witness'
+    name: Actual fallback witness / ${{ matrix.case }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - case: qaoa11
+            artifact: 15140185389
+            zip_sha: 8c9c49e09c2ebb921989c22330f6a82bd3c310db9a5258a36c756d70f2c865a0
+            cnf_sha: 5630e7e76550c29cd424f3b97195cea0990fc1ecd87f2856c5aba133aa018367
+          - case: qft24
+            artifact: 15139118520
+            zip_sha: 4bccb5ac270567fbef7c70cf1f2d697975ee57b6d5ed8e0d1f5441eafbdb1b1a
+            cnf_sha: e06d6a673e664fcfe4d39dad8cafe42d309438be2951014208ffa2e329059485
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: PhysicsQoo/RaWMoCS
+          ref: 6503c86536c1f7e37e5de72d85b5782af83df214
+          path: .classes-candidate
+          persist-credentials: false
+      - name: Retrieve source-locked scout receipt
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT: ${{ matrix.artifact }}
+          ZIP_SHA: ${{ matrix.zip_sha }}
+        run: |
+          set -euo pipefail
+          zip="$RUNNER_TEMP/fallback-scout.zip"
+          gh api "repos/PhysicsQoo/QuPRS/actions/artifacts/$ARTIFACT/zip" > "$zip"
+          echo "$ZIP_SHA  $zip" | sha256sum -c -
+          unzip -q "$zip" -d .fallback-original
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: .classes-candidate/crates/rawmocs-cli -> target
+          shared-key: rawmocs-general-dependencies
+          cache-workspace-crates: 'false'
+      - name: Build exact candidate and ordinary tests
+        run: |
+          set -euo pipefail
+          test "$(git -C .classes-candidate rev-parse HEAD)" = 6503c86536c1f7e37e5de72d85b5782af83df214
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libgmp-dev libmpfr-dev m4 make gcc time pkg-config
+          mkdir -p .fallback-witness
+          cargo test --locked --release --manifest-path .classes-candidate/crates/rawmocs-cli/Cargo.toml 2>&1 | tee .fallback-witness/science.log
+          cargo build --locked --release --manifest-path .classes-candidate/crates/rawmocs-cli/Cargo.toml
+      - name: Exact frontier diagnostic and independent witness
+        env:
+          CASE: ${{ matrix.case }}
+          CNF_SHA: ${{ matrix.cnf_sha }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib,json,os,re,subprocess,sys,time
+          from fractions import Fraction
+          from pathlib import Path
+          root=Path(".fallback-witness").resolve()
+          cli=Path(".classes-candidate/crates/rawmocs-cli").resolve()
+          sys.path.insert(0,str(cli/"tools"))
+          from release_native_paired import parse
+          from release_transfer import check_count
+          case=os.environ["CASE"]
+          expected=os.environ["CNF_SHA"]
+          src=Path(".fallback-original")
+          cnf,=src.rglob("extended_"+case+"-gpmc.cnf")
+          cnf=cnf.resolve()
+          receipt,=src.rglob("report.json")
+          old=json.loads(receipt.read_text())
+          def sha(p): return hashlib.sha256(p.read_bytes()).hexdigest()
+          assert old["case"]==case and old["cnf_sha256"]==expected==sha(cnf)
+          assert old["status"]=="SHORT_GPMC_COMPLETER_NOT_LONG_COHORT"
+          assert old["digits"]==130 and old["bits"]==432 and old["target"]==100
+          assert old["rows"]["gpmc"]["status"]=="COMPLETE_UNWITNESSED"
+          assert old["rows"]["auto"]["fallback_reasons"]==[{"qaoa11":"exact local bit cap","qft24":"no bounded prejoin plan"}[case]]
+          report={"case":case,"source_sha256":expected,"status":"IN_PROGRESS","previous_scout":old,"rows":{},"scope":"single source-locked witness and frontier diagnostic; no speed ratio"}
+          def save(): (root/"report.json").write_text(json.dumps(report,indent=2)+"\n")
+          def finish(status):
+              report["status"]=status
+              save()
+              print("FALLBACK_WITNESS_REPORT",json.dumps(report),flush=True)
+          def bounded(cmd,seconds,tag,env=None):
+              start=time.monotonic_ns()
+              p=subprocess.run(["timeout","-k","2s",str(seconds),"prlimit","--as=3221225472","--",*map(str,cmd)],capture_output=True,text=True,timeout=seconds+7,env=env)
+              (root/f"{tag}.stdout").write_text(p.stdout)
+              (root/f"{tag}.stderr").write_text(p.stderr)
+              return p,(time.monotonic_ns()-start)/1e9
+          save()
+          # No modification to production exact-bit, planner or memory limits.
+          env=dict(os.environ,RAWMOCS_TEST_ORIGINAL=str(cnf))
+          p,elapsed=bounded(["cargo","test","--locked","--release","--manifest-path",cli/"Cargo.toml","factor_prejoin::tests::original_exact_frontier_scout","--","--exact","--ignored","--nocapture","--test-threads=1"],55,"frontier",env)
+          lines=re.findall(r"FRONTIER_[A-Z_]+[^\r\n]*",p.stdout)
+          report["frontier"]={"exit":p.returncode,"wall_s":elapsed,"lines":lines}
+          assert p.returncode==0 and lines, (p.returncode,p.stderr[-2000:])
+          save()
+          ref=None
+          for name in ("original_exact_prejoin.py","original_fixed_interval.py"):
+              p,elapsed=bounded([sys.executable,cli/"tools/repro"/name,cnf,expected],90,name)
+              report.setdefault("oracle_attempts",[]).append({"name":name,"exit":p.returncode,"wall_s":elapsed})
+              save()
+              if p.returncode: continue
+              candidate=json.loads(p.stdout)
+              if name=="original_fixed_interval.py":
+                  assert "FIXED_INTERVAL_SELF_TEST PASS" in p.stderr
+                  candidate["status"]="INDEPENDENT_FIXED_INTERVAL_COMPLETE"
+              if candidate.get("status") not in ("INDEPENDENT_INTERVAL_COMPLETE","INDEPENDENT_FIXED_INTERVAL_COMPLETE"): continue
+              assert candidate["source_sha256"]==expected and candidate["bits"]==550 and type(candidate["sat"]) is bool
+              assert candidate["width"]<=19 and candidate["work"]<=40000000 and candidate["peak"]<=2000000
+              for k in ("real","imag"):
+                  a,b=map(Fraction,candidate[k]); assert a<=b
+              ref=candidate
+              break
+          if ref is None:
+              finish("WITNESS_UNAVAILABLE_DIAGNOSTIC_ONLY")
+              sys.exit(0)
+          (root/"independent-reference.json").write_text(json.dumps(ref,indent=2)+"\n")
+          report["witness_sha256"]=sha(root/"independent-reference.json")
+          for arm,row in old["rows"].items():
+              if row["status"]=="COMPLETE_UNWITNESSED":
+                  report["rows"][arm]={"status":"WITNESSED_HISTORICAL_SCOUT","witness_upper":check_count(row,ref,100),"wall_s":row["wall_s"]}
+          matched=[re.fullmatch(r"FRONTIER_RESULT sat=(true|false) real=(\S+) imag=(\S+) diagnostic_ns=(\d+)",l) for l in lines if l.startswith("FRONTIER_RESULT ")]
+          if matched:
+              assert len(matched)==1 and matched[0]
+              sat,r,i,ns=matched[0].groups()
+              row={"sat":sat=="true","real":r,"imag":i,"diagnostic_ns":int(ns)}
+              row["witness_upper"]=check_count(row,ref,100)
+              row["status"]="WITNESSED_FRONTIER_DIAGNOSTIC"
+              report["rows"]["frontier"]=row
+          save()
+          binary=cli/"target/release/rawmocs"
+          report["binary_sha256"]=sha(binary)
+          seconds=90 if case=="qft24" else 10
+          rss=root/"auto-separator.rss"
+          p,elapsed=bounded(["/usr/bin/time","-f","%M","-o",rss,binary,"--digits","130","--solver","auto-separator","--timeout-ms",str((seconds-2)*1000),cnf],seconds,"auto-separator")
+          row={"exit":p.returncode,"wall_s":elapsed,"fallback_reasons":re.findall(r"^RAWMOCS_FALLBACK reason=(.+)$",p.stderr,re.M)}
+          assert row["fallback_reasons"]==old["rows"]["auto"]["fallback_reasons"]
+          if rss.exists():
+              vals=[int(x) for x in rss.read_text().splitlines() if x.isdigit()]
+              if len(vals)==1: row["rss_kib"]=vals[0]
+          if p.returncode==0:
+              row.update(parse(p.stdout,"rawmocs"))
+              assert re.findall(r"^RAWMOCS_COMPLETE route=([a-z-]+) digits=130 bits=432 ",p.stderr,re.M)==["general-separator"]
+              checks,overrides=re.findall(r"^RAWMOCS_SEPARATOR_COMPLETE checks=(\d+) overrides=(\d+)$",p.stderr,re.M)[0]
+              row.update(checks=int(checks),overrides=int(overrides),witness_upper=check_count(row,ref,100),status="WITNESSED_PASS")
+          elif p.returncode==124 or (p.returncode==4 and "RAWMOCS_FAILURE kind=TIMEOUT" in p.stderr):
+              assert not p.stdout
+              row["status"]="CENSORED_TIMEOUT"
+          else:
+              assert not p.stdout
+              row["status"]="EXECUTION_ERROR"
+          report["rows"]["auto-separator"]=row
+          assert sha(cnf)==expected
+          finish("WITNESSED_SCOUT_COMPLETE" if row["status"]=="WITNESSED_PASS" else "WITNESSED_GPMC_SEPARATOR_NOT_COMPLETE")
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: rawmocs-fallback-witness-${{ matrix.case }}
+          path: .fallback-witness/
           include-hidden-files: true
           if-no-files-found: warn

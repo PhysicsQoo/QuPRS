@@ -4578,11 +4578,11 @@ theorem canonical_ledger_coefficient_binding (s : LedgerSnap) (h : canonicalLedg
   cases he : (s.phaseText == [126]) with
   | true =>
     rw [ledger_bool_true _ _ _ he] at hp
-    exact ⟨[], ledger_bool_true _ _ _ he, Option.some.inj hp⟩
+    exact ⟨[], rfl, Option.some.inj hp⟩
   | false =>
     rw [ledger_bool_false _ _ _ he] at hp
     obtain ⟨es, hes, hs⟩ := ledger_phase_entries_lift _ _ hp
-    exact ⟨es, (ledger_bool_false _ _ _ he).trans hes, hs⟩
+    exact ⟨es, hes, hs⟩
 
 -- The lookup is assignment independent and retains exact pairs
 -- (Int numerator, Nat denominator) until interpretation.
@@ -4644,6 +4644,148 @@ theorem ledger_accepted_free_exact {P A : Type} [Zero P] [Add P] [Zero A] [Add A
   have hp := ledger_advance_free_obligations t next s hc hk h
   exact ⟨ledger_free_exact_entries s.before s.trial ha hb hp.2.1,
     ledger_accepted_free_polynomial zl zr shuffle (ledgerExactCoeff interpret) ex t next s ha hb hc hk h⟩
+
+
+-- An abstract sqrt(2)-scale action: two exponent units equal one
+-- exact doubling. No concrete complex or irrational model assumed.
+theorem ledger_free_double_scale {A : Type} [Add A]
+    (scale : Nat → A → A) (h0 : ∀ a, scale 0 a = a)
+    (ha : ∀ i j a, scale i (scale j a) = scale (i+j) a)
+    (h2 : ∀ a, scale 2 a = a+a) (d : Nat) (v : A) :
+    freeDouble d v = scale (2*d) v := by
+  induction d with
+  | zero => exact (h0 v).symm
+  | succ d ih =>
+    change freeDouble d v + freeDouble d v = scale (2*(d+1)) v
+    rw [ih, ← h2, ha]
+    have he : 2+2*d = 2*(d+1) := by omega
+    rw [he]
+
+theorem ledger_accepted_free_scale {P A : Type} [Zero P] [Add P] [Zero A] [Add A]
+    (zl : ∀ a : A, 0+a=a) (zr : ∀ a : A, a+0=a)
+    (shuffle : ∀ a b c d : A, (a+b)+(c+d) = (a+c)+(b+d))
+    (interpret : DecimalValue → DecimalValue → P) (ex : P → A)
+    (scale : Nat → A → A) (h0 : ∀ a, scale 0 a = a)
+    (ha : ∀ i j a, scale i (scale j a) = scale (i+j) a)
+    (h2 : ∀ a, scale 2 a = a+a)
+    (t next : LedgerTally) (s : LedgerStep)
+    (hb : canonicalLedgerSnap s.before) (ht : canonicalLedgerSnap s.trial)
+    (hc : s.commit = true) (hk : s.kind = 1 ∨ s.kind = 3)
+    (h : ledgerAdvance t s = some next) :
+    ledgerExactValue interpret ex s.before =
+      scale (ledgerStepExponent s) (ledgerExactValue interpret ex s.trial) := by
+  have hp := ledger_accepted_free_exact zl zr shuffle interpret ex t next s hb ht hc hk h
+  rw [hp.2.1, ledger_free_double_scale scale h0 ha h2, ← hp.2.2]
+
+theorem replay_ledger_admitted_scale {A : Type} (scale : Nat → A → A)
+    (h0 : ∀ a, scale 0 a = a)
+    (ha : ∀ i j a, scale i (scale j a) = scale (i+j) a)
+    (value : LedgerSnap → A) (current : LedgerSnap) (t : LedgerTally)
+    (steps : List LedgerStep) (final : LedgerSnap) (out : LedgerTally)
+    (hc : canonicalLedgerSnap current)
+    (hs : ∀ s, s ∈ steps → canonicalLedgerSnap s.before ∧ canonicalLedgerSnap s.trial)
+    (stepSound : ∀ t' next' s, s ∈ steps → s.commit = true →
+      ledgerAdvance t' s = some next' →
+      value s.before = scale (ledgerStepExponent s) (value s.trial))
+    (h : replayLedger current t steps = some (final,out)) :
+    value current = scale (steps.map ledgerStepExponent).sum (value final) := by
+  induction steps generalizing current t with
+  | nil =>
+    change some (current,t) = some (final,out) at h
+    cases h
+    exact (h0 (value final)).symm
+  | cons s ss ih =>
+    obtain ⟨next, hchain, hadv, _, htail⟩ := replay_ledger_cons current t s ss final out h
+    have hstep := hs s (List.mem_cons.mpr (Or.inl rfl))
+    have he := canonical_ledger_snap_eq current s.before hc hstep.1 hchain
+    have hlocal : value current = scale (ledgerStepExponent s) (value (ledgerNext current s)) := by
+      cases hcommit : s.commit with
+      | false => simp [ledgerStepExponent, ledgerNext, hcommit, h0]
+      | true =>
+        rw [committed_ledger_next current s hcommit]
+        exact (congrArg value he).trans (stepSound t next s (List.mem_cons.mpr (Or.inl rfl)) hcommit hadv)
+    have ht := ih (ledgerNext current s) next
+      (ledger_next_canonical current s hc hstep.2)
+      (fun q hm => hs q (List.mem_cons.mpr (Or.inr hm)))
+      (fun u v q hm => stepSound u v q (List.mem_cons.mpr (Or.inr hm))) htail
+    exact hlocal.trans ((congrArg (scale (ledgerStepExponent s)) ht).trans
+      (ha (ledgerStepExponent s) (ss.map ledgerStepExponent).sum (value final)))
+
+theorem replay_ledger_admitted_scale_from_zero {A : Type} (scale : Nat → A → A)
+    (h0 : ∀ a, scale 0 a = a)
+    (ha : ∀ i j a, scale i (scale j a) = scale (i+j) a)
+    (value : LedgerSnap → A) (current : LedgerSnap)
+    (steps : List LedgerStep) (final : LedgerSnap) (out : LedgerTally)
+    (hc : canonicalLedgerSnap current)
+    (hs : ∀ s, s ∈ steps → canonicalLedgerSnap s.before ∧ canonicalLedgerSnap s.trial)
+    (stepSound : ∀ t' next' s, s ∈ steps → s.commit = true →
+      ledgerAdvance t' s = some next' →
+      value s.before = scale (ledgerStepExponent s) (value s.trial))
+    (h : replayLedger current {} steps = some (final,out)) :
+    value current = scale (ledgerMultiplier out) (value final) := by
+  have hm := replay_ledger_multiplier current {} steps final out h
+  change ledgerMultiplier out = 0 + (steps.map ledgerStepExponent).sum at hm
+  rw [Nat.zero_add] at hm
+  rw [hm]
+  exact replay_ledger_admitted_scale scale h0 ha value current {} steps final out hc hs stepSound h
+
+theorem check_ledger_admitted_scale {A : Type} (scale : Nat → A → A)
+    (h0 : ∀ a, scale 0 a = a)
+    (ha : ∀ i j a, scale i (scale j a) = scale (i+j) a)
+    (value : LedgerSnap → A) (bytes : List Nat)
+    (h : checkLedger bytes = true)
+    (localSound : ∀ (t next : LedgerTally) (s : LedgerStep), canonicalLedgerSnap s.before →
+      canonicalLedgerSnap s.trial → s.commit = true →
+      ledgerAdvance t s = some next →
+      value s.before = scale (ledgerStepExponent s) (value s.trial)) :
+    ∃ (initial final : LedgerSnap) (steps : List LedgerStep) (t : LedgerTally)
+      (n mult : Nat) (start last : Token),
+      parseLedgerSnap start = some initial ∧ parseLedgerSnap last = some final ∧
+      n = initial.n + initial.live.length ∧
+      replayLedger initial {} steps = some (final,t) ∧
+      ledgerMultiplier t = mult ∧ value initial = scale mult (value final) := by
+  obtain ⟨_tag,_norm,_k,_counts,_st,start,_rest,_et,last,rev,n,mult,_expected,
+    initial,steps,final,t,_ascii,_rows,_head,_hn,_hm,_hcounts,hi,_rev,_end,hnorm,hs,hf,hr,_ht,hmult⟩ :=
+    check_ledger_byte_witness bytes h
+  have hc := parsed_ledger_snap_canonical start initial hi
+  have hsteps := parse_ledger_steps_canonical rev.reverse steps hs
+  have hv := replay_ledger_admitted_scale_from_zero scale h0 ha value initial steps final t
+    hc hsteps (fun u v s hm hcommit hadv => localSound u v s (hsteps s hm).1 (hsteps s hm).2 hcommit hadv) hr
+  rw [hmult] at hv
+  exact ⟨initial,final,steps,t,n,mult,start,last,hi,hf,hnorm,hr,hmult,hv⟩
+
+-- A mixed-rule composition where Free/Batch Free is discharged by
+-- the accepted local theorem; all other committed rules remain an
+-- explicit accepted-transition-specific proof obligation.
+theorem check_ledger_exact_free_composition {P A : Type} [Zero P] [Add P] [Zero A] [Add A]
+    (zl : ∀ a : A, 0+a=a) (zr : ∀ a : A, a+0=a)
+    (shuffle : ∀ a b c d : A, (a+b)+(c+d) = (a+c)+(b+d))
+    (interpret : DecimalValue → DecimalValue → P) (ex : P → A)
+    (scale : Nat → A → A) (h0 : ∀ a, scale 0 a = a)
+    (ha : ∀ i j a, scale i (scale j a) = scale (i+j) a)
+    (h2 : ∀ a, scale 2 a = a+a)
+    (bytes : List Nat) (h : checkLedger bytes = true)
+    (otherSound : ∀ (t next : LedgerTally) (s : LedgerStep),
+      canonicalLedgerSnap s.before → canonicalLedgerSnap s.trial →
+      s.commit = true → s.kind ≠ 1 → s.kind ≠ 3 →
+      ledgerAdvance t s = some next →
+      ledgerExactValue interpret ex s.before =
+        scale (ledgerStepExponent s) (ledgerExactValue interpret ex s.trial)) :
+    ∃ (initial final : LedgerSnap) (steps : List LedgerStep) (t : LedgerTally)
+      (n mult : Nat) (start last : Token),
+      parseLedgerSnap start = some initial ∧ parseLedgerSnap last = some final ∧
+      n = initial.n + initial.live.length ∧
+      replayLedger initial {} steps = some (final,t) ∧ ledgerMultiplier t = mult ∧
+      ledgerExactValue interpret ex initial = scale mult (ledgerExactValue interpret ex final) := by
+  apply check_ledger_admitted_scale scale h0 ha (ledgerExactValue interpret ex) bytes h
+  intro t next s hb ht hc hadv
+  by_cases hk1 : s.kind = 1
+  · exact ledger_accepted_free_scale zl zr shuffle interpret ex scale h0 ha h2 t next s
+      hb ht hc (Or.inl hk1) hadv
+  · by_cases hk3 : s.kind = 3
+    · exact ledger_accepted_free_scale zl zr shuffle interpret ex scale h0 ha h2 t next s
+        hb ht hc (Or.inr hk3) hadv
+    · exact otherSound t next s hb ht hc hk1 hk3 hadv
 
 -- Localize any unexpected dependency to a definition vs theorem.
 #print axioms splitBytes
@@ -4983,6 +5125,12 @@ theorem ledger_accepted_free_exact {P A : Type} [Zero P] [Add P] [Zero A] [Add A
 #print axioms canonical_ledger_coeff_count
 #print axioms ledger_free_exact_entries
 #print axioms ledger_accepted_free_exact
+#print axioms ledger_free_double_scale
+#print axioms ledger_accepted_free_scale
+#print axioms replay_ledger_admitted_scale
+#print axioms replay_ledger_admitted_scale_from_zero
+#print axioms check_ledger_admitted_scale
+#print axioms check_ledger_exact_free_composition
 end QuPRS.CnfReplay
 
 def main (args : List String) : IO Unit := do

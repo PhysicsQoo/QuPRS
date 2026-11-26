@@ -4,9 +4,11 @@ Omega adds 1. Trace composition is conditional on local scalar
 relations; this does not prove native RR or a physical norm identity.
 -/
 import Std
+import NativeGuardedPathSum
 set_option autoImplicit false
 set_option warningAsError true
 namespace QuPRS.AffineRRNormalization
+open QuPRS.NativeGuardedPathSum
 
 inductive Rule where
   | elim | hh | omega
@@ -105,6 +107,43 @@ theorem omega_pair_square (a b : Int) :
   rw [Int.mul_comm b a]
   omega
 
+/-- Reuse the guarded entry semantics: these are integer-coordinate
+    identities, not a proof of arbitrary cyclotomic phase embedding. -/
+theorem guarded_elim_square {Z : Type} [DecidableEq Z]
+    (g : Bool) (out z : Z) (a : Int) :
+    entry g out z (a+a) * entry g out z (a+a) =
+      factor (delta .elim) * (entry g out z a * entry g out z a) := by
+  have he := elim_entry (A := Int) (by decide) g out z a
+  rw [← he]
+  exact double_square (entry g out z a)
+
+theorem guarded_hh_square {Z : Type} [DecidableEq Z]
+    (g : Bool → Bool) (out : Bool → Z) (a : Bool → Int)
+    (q : Bool) (z : Z) :
+    (hhBranch g out a q false z + hhBranch g out a q true z) *
+      (hhBranch g out a q false z + hhBranch g out a q true z) =
+        factor (delta .hh) * (entry (g q) (out q) z (a q) *
+          entry (g q) (out q) z (a q)) := by
+  rw [hh_substitute (A := Int) (by decide) (fun v => by omega)
+      (fun v => by omega) (fun v => by omega) g out a q z]
+  exact guarded_elim_square (g q) (out q) z (a q)
+
+/-- The same guard and output apply to both components of the modeled
+    multiplication by 1+i. The actual omega phase premise is separate. -/
+theorem guarded_omega_square {Z : Type} [DecidableEq Z]
+    (g : Bool) (out z : Z) (a b : Int) :
+    entry g out z (a-b) * entry g out z (a-b) +
+      entry g out z (a+b) * entry g out z (a+b) =
+      factor (delta .omega) * (entry g out z a * entry g out z a +
+        entry g out z b * entry g out z b) := by
+  unfold entry mask
+  cases (g && decide (out = z)) with
+  | false => decide
+  | true => exact omega_pair_square a b
+
+#print axioms guarded_elim_square
+#print axioms guarded_hh_square
+#print axioms guarded_omega_square
 #print axioms double_square
 #print axioms hh_double_square
 #print axioms omega_pair_square

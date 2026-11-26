@@ -874,7 +874,7 @@ jobs:
             test "$(grep -Ec "^'QuPRS[.]HoareComposition[.]$theorem' (does not depend on any axioms|depends on axioms)" /tmp/qasm-lean-hoare-composition.log)" -eq 1
           done
           echo 'LEAN4_HOARE_COMPOSITION_PROOFS_PASS theorem_axiom_reports=17 natural_mass=true negacyclic_coefficients=true conditional_dispatch=true complex_embedding_formalized=false'
-          lean NativeGuardedPathSum.lean 2>&1 | tee /tmp/qasm-lean-native-guarded.log
+          lean -o NativeGuardedPathSum.olean NativeGuardedPathSum.lean 2>&1 | tee /tmp/qasm-lean-native-guarded.log
           if grep -E 'sorryAx|Lean[.]trustCompiler|Classical[.]choice' /tmp/qasm-lean-native-guarded.log; then
             echo 'Unexpected native guarded Path-sum theorem axiom dependency' >&2
             exit 1
@@ -942,16 +942,16 @@ jobs:
           echo 'LEAN4_AFFINE_WORD_CERTIFICATE_PASS theorem_axiom_reports=8 supported_basis=true word_certificate=true coefficient_fibres=true native_incidence_refinement=false'
 
           normalization_status=0
-          lean AffineRRNormalization.lean 2>&1 | tee /tmp/qasm-lean-affine-normalization.log || normalization_status=$?
+          LEAN_PATH=. lean AffineRRNormalization.lean 2>&1 | tee /tmp/qasm-lean-affine-normalization.log || normalization_status=$?
           if grep -E 'sorryAx|Lean[.]trustCompiler|Classical[.]choice' /tmp/qasm-lean-affine-normalization.log; then
             normalization_status=1
           fi
-          test "$(grep -Ec 'does not depend on any axioms|depends on axioms' /tmp/qasm-lean-affine-normalization.log)" -eq 9 || normalization_status=1
-          for theorem in double_square hh_double_square omega_pair_square scale2_counts scale2_append factor_add factor_nonzero trace_scale trace_zero_iff; do
+          test "$(grep -Ec 'does not depend on any axioms|depends on axioms' /tmp/qasm-lean-affine-normalization.log)" -eq 12 || normalization_status=1
+          for theorem in guarded_elim_square guarded_hh_square guarded_omega_square double_square hh_double_square omega_pair_square scale2_counts scale2_append factor_add factor_nonzero trace_scale trace_zero_iff; do
             test "$(grep -Ec "^'QuPRS[.]AffineRRNormalization[.]$theorem' (does not depend on any axioms|depends on axioms)" /tmp/qasm-lean-affine-normalization.log)" -eq 1 || normalization_status=1
           done
           if test "$normalization_status" -eq 0; then
-            echo 'LEAN4_AFFINE_RR_NORMALIZATION_PASS theorem_axiom_reports=9 receipt_counts=true scale_composition=true conditional_trace_zero=true local_coordinate_identities=true local_rule_semantics=false'
+            echo 'LEAN4_AFFINE_RR_NORMALIZATION_PASS theorem_axiom_reports=12 receipt_counts=true scale_composition=true conditional_trace_zero=true local_coordinate_identities=true guarded_coordinate_identities=true native_rule_semantics=false'
           else
             echo 'LEAN4_AFFINE_RR_NORMALIZATION_FAIL' >&2
           fi

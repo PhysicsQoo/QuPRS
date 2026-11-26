@@ -41,41 +41,43 @@ inductive Record where
   | phase (out : Nat) (source : List Nat)
 deriving Repr
 
--- Small ASCII transport parser. Avoid library split/decimal parsing
--- and implicit proposition-to-Bool coercions in admission predicates.
--- This grammar is intentionally restricted to the Rust export format.
-def splitChars (separator : Nat) (cs : List Char) : List (List Char) :=
+-- Raw-byte transport. The checked kernel consumes lists of natural
+-- byte values, with no String/Char conversion or Unicode library.
+-- IO reads the original file bytes; only the outer runner converts
+-- UInt8 to Nat. The wire format is unchanged.
+abbrev Token := List Nat
+
+def splitBytes (separator : Nat) (cs : List Nat) : List (List Nat) :=
   let (pieces, current) := cs.foldl
-    (fun (acc : List (List Char) × List Char) c =>
-      if c.toNat == separator then (acc.2.reverse :: acc.1, [])
+    (fun (acc : List (List Nat) × List Nat) c =>
+      if c == separator then (acc.2.reverse :: acc.1, [])
       else (acc.1, c :: acc.2)) ([], [])
   (current.reverse :: pieces).reverse
 
-def rows (s : String) : List (List String) :=
+def rows (s : List Nat) : List (List Token) :=
   List.filter (fun ts => !ts.isEmpty)
-    ((splitChars 10 s.toList).map (fun line =>
-      ((splitChars 32 line).filter (fun cs => !cs.isEmpty)).map String.ofList))
+    ((splitBytes 10 s).map (fun line =>
+      (splitBytes 32 line).filter (fun cs => !cs.isEmpty)))
 
 def natLE (a b : Nat) : Bool := Nat.ble a b
 
-def digits (cs : List Char) (acc : Nat) : Option Nat :=
+def digits (cs : List Nat) (acc : Nat) : Option Nat :=
   match cs with
   | [] => some acc
-  | c :: rest =>
-    let d := c.toNat
+  | d :: rest =>
     if natLE 48 d && natLE d 57 then digits rest (10 * acc + (d - 48))
     else none
 
-def parseNatToken (s : String) : Option Nat :=
-  match s.toList with
+def parseNatToken (s : Token) : Option Nat :=
+  match s with
   | [] => none
   | c :: cs => digits (c :: cs) 0
 
-def parseIntToken (s : String) : Option Int :=
-  match s.toList with
+def parseIntToken (s : Token) : Option Int :=
+  match s with
   | [] => none
   | c :: cs =>
-    if c.toNat == 45 then
+    if c == 45 then
       match cs with
       | [] => none
       | d :: ds => (digits (d :: ds) 0).map (fun n => -(Int.ofNat n))
@@ -86,19 +88,41 @@ def negative (v : Int) : Bool :=
   | .ofNat _ => false
   | .negSucc _ => true
 
-def parseRecord : List String → Option Record
-  | ["live", a, b] => do return .live (← parseNatToken a) (← parseNatToken b)
-  | ["false", z] => do return .zero (← parseNatToken z)
-  | "and" :: z :: xs => do return .andGate (← parseNatToken z) (← xs.mapM parseNatToken)
-  | ["xor", z, a, b] => do return .xorGate (← parseNatToken z) (← parseNatToken a) (← parseNatToken b)
-  | ["eq", a, b] => do return .eqGate (← parseNatToken a) (← parseNatToken b)
-  | "phase" :: z :: xs => do return .phase (← parseNatToken z) (← xs.mapM parseNatToken)
-  | _ => none
+def parseRecord : List Token → Option Record
+  | tag :: rest =>
+    if tag == [108, 105, 118, 101] then
+      match rest with
+      | [a, b] => do return .live (← parseNatToken a) (← parseNatToken b)
+      | _ => none
+    else if tag == [102, 97, 108, 115, 101] then
+      match rest with
+      | [z] => do return .zero (← parseNatToken z)
+      | _ => none
+    else if tag == [97, 110, 100] then
+      match rest with
+      | z :: xs => do return .andGate (← parseNatToken z) (← xs.mapM parseNatToken)
+      | _ => none
+    else if tag == [120, 111, 114] then
+      match rest with
+      | [z, a, b] => do return .xorGate (← parseNatToken z) (← parseNatToken a) (← parseNatToken b)
+      | _ => none
+    else if tag == [101, 113] then
+      match rest with
+      | [a, b] => do return .eqGate (← parseNatToken a) (← parseNatToken b)
+      | _ => none
+    else if tag == [112, 104, 97, 115, 101] then
+      match rest with
+      | z :: xs => do return .phase (← parseNatToken z) (← xs.mapM parseNatToken)
+      | _ => none
+    else none
+  | [] => none
 
-def parseGate (s : String) : Option (Nat × List Record) :=
+def parseGate (s : List Nat) : Option (Nat × List Record) :=
   match rows s with
-  | ["crr-gate-v1", n] :: rest => do
-    return (← parseNatToken n, ← rest.mapM parseRecord)
+  | [tag, n] :: rest =>
+    if tag == [99, 114, 114, 45, 103, 97, 116, 101, 45, 118, 49] then do
+      return (← parseNatToken n, ← rest.mapM parseRecord)
+    else none
   | _ => none
 
 def pos (n : Nat) : Int := Int.ofNat n
@@ -106,7 +130,7 @@ def pos (n : Nat) : Int := Int.ofNat n
 def clauseSort (xs : List Int) : List Int :=
   xs.mergeSort (fun a b => decide (a ≤ b))
 
-def parseClause (n : Nat) (xs : List String) : Option (List Int) := do
+def parseClause (n : Nat) (xs : List Token) : Option (List Int) := do
   let ints ← xs.mapM parseIntToken
   match ints.reverse with
   | 0 :: rev =>
@@ -123,27 +147,34 @@ structure ParsedCnf where
   weights : List Int
 
 def parseCnfRows (n : Nat) :
-    List (List String) → Bool → List (List Int) → List Int →
+    List (List Token) → Bool → List (List Int) → List Int →
     Option (List (List Int) × List Int)
   | [], _, cs, ws => some (cs, ws)
   | row :: rest, inClauses, cs, ws =>
     match row with
-    | ["c", "p", "weight", id, re, im, "0"] => do
-      let v ← parseIntToken id
-      if inClauses || v == 0 || !natLE v.natAbs n || ws.contains v ||
-          (negative v && (re != "1.0" || im != "0.0")) then none
-      else parseCnfRows n rest false cs (v :: ws)
+    | [c, p, tag, id, re, im, zero] =>
+      if c == [99] && p == [112] && tag == [119, 101, 105, 103, 104, 116] && zero == [48] then do
+        let v ← parseIntToken id
+        if inClauses || v == 0 || !natLE v.natAbs n || ws.contains v ||
+            (negative v && (re != [49, 46, 48] || im != [48, 46, 48])) then none
+        else parseCnfRows n rest false cs (v :: ws)
+      else do
+        let clause ← parseClause n row
+        parseCnfRows n rest true (clause :: cs) ws
     | _ => do
       let c ← parseClause n row
       parseCnfRows n rest true (c :: cs) ws
 
-def parseCnf (s : String) : Option ParsedCnf := do
+def parseCnf (s : List Nat) : Option ParsedCnf :=
   match rows s with
-  | ["p", "cnf", n, m] :: ["c", "t", "wmc"] :: rest =>
-    let n ← parseNatToken n
-    let m ← parseNatToken m
-    let (cs, ws) ← parseCnfRows n rest false [] []
-    if cs.length == m then some { vars := n, clauses := cs, weights := ws } else none
+  | [p, cnf, n, m] :: [c, t, wmc] :: rest =>
+    if p == [112] && cnf == [99, 110, 102] && c == [99] &&
+        t == [116] && wmc == [119, 109, 99] then do
+      let n ← parseNatToken n
+      let m ← parseNatToken m
+      let (cs, ws) ← parseCnfRows n rest false [] []
+      if cs.length == m then some { vars := n, clauses := cs, weights := ws } else none
+    else none
   | _ => none
 
 -- Explicit comparator, no inferred equality instances. Remove one
@@ -314,10 +345,15 @@ def acceptResult (n : Nat) (p : ParsedCnf) :
       bagEqBy intEq (weightIds ws) p.weights) && checkRows cs p.clauses
   | none => false
 
-def check (gate cnf : String) : Bool :=
-  match parseGate gate, parseCnf cnf with
-  | some (n, rs), some p => acceptResult n p (replayRows n rs)
-  | _, _ => false
+def ascii (bytes : List Nat) : Bool :=
+  bytes.all (fun b => natLE b 127)
+
+def check (gate cnf : List Nat) : Bool :=
+  if ascii gate && ascii cnf then
+    match parseGate gate, parseCnf cnf with
+    | some (n, rs), some p => acceptResult n p (replayRows n rs)
+    | _, _ => false
+  else false
 
 -- Typed replay boundary: acceptance implies clause satisfaction
 -- equivalence for every literal valuation. Use only explicit
@@ -336,6 +372,9 @@ theorem accepted_rows_sound (n : Nat) (rs : List Record)
   check_rows_sound generated p.clauses (and_true_parts hc).2 value
 
 -- Localize any unexpected dependency to a definition vs theorem.
+#print axioms splitBytes
+#print axioms digits
+#print axioms ascii
 #print axioms rows
 #print axioms parseNatToken
 #print axioms parseIntToken
@@ -362,25 +401,27 @@ theorem accepted_rows_sound (n : Nat) (rs : List Record)
 end QuPRS.CnfReplay
 
 def main (args : List String) : IO Unit := do
-  -- Exercise the actual token grammar before the file cohort.
-  if QuPRS.CnfReplay.parseNatToken "123" != some 123 ||
-      QuPRS.CnfReplay.parseNatToken "" != none ||
-      QuPRS.CnfReplay.parseNatToken "12x" != none ||
-      QuPRS.CnfReplay.parseIntToken "-37" != some (-37) ||
-      QuPRS.CnfReplay.parseIntToken "-" != none ||
-      QuPRS.CnfReplay.parseIntToken "1-2" != none ||
-      QuPRS.CnfReplay.rows "p  cnf 3 1\n\n-1 2 0\n" !=
-        [["p", "cnf", "3", "1"], ["-1", "2", "0"]] then
+  -- Exercise the same byte parser used for real files.
+  if QuPRS.CnfReplay.parseNatToken [49, 50, 51] != some 123 ||
+      QuPRS.CnfReplay.parseNatToken [] != none ||
+      QuPRS.CnfReplay.parseNatToken [49, 50, 120] != none ||
+      QuPRS.CnfReplay.parseIntToken [45, 51, 55] != some (-37) ||
+      QuPRS.CnfReplay.parseIntToken [45] != none ||
+      QuPRS.CnfReplay.parseIntToken [49, 45, 50] != none ||
+      QuPRS.CnfReplay.rows [112, 32, 32, 99, 110, 102, 32, 51, 32, 49, 10, 10, 45, 49, 32, 50, 32, 48, 10] !=
+        [[[112], [99, 110, 102], [51], [49]], [[45, 49], [50], [48]]] ||
+      QuPRS.CnfReplay.ascii [128] then
     throw (IO.userError "portable parser grammar regression")
-  IO.println "CRR_LEAN_PARSER_GRAMMAR_PASS controls=7"
+  IO.println "CRR_LEAN_PARSER_GRAMMAR_PASS controls=8"
   let mode :: paths := args | throw (IO.userError "usage: CnfReplay accept|reject files")
   if (mode != "accept" && mode != "reject") || paths.isEmpty then
     throw (IO.userError "bad replay mode or empty cohort")
   let want := mode == "accept"
   for path in paths do
-    let gate ← IO.FS.readFile path
-    let cnf ← IO.FS.readFile (path ++ ".cnf")
-    let got := QuPRS.CnfReplay.check gate cnf
+    let gate ← IO.FS.readBinFile path
+    let cnf ← IO.FS.readBinFile (path ++ ".cnf")
+    let got := QuPRS.CnfReplay.check
+      (gate.data.toList.map UInt8.toNat) (cnf.data.toList.map UInt8.toNat)
     if got != want then throw (IO.userError s!"unexpected replay result {path}: {got}")
     IO.println s!"CRR_LEAN_PORTABLE_GATE mode={mode} path={path} matched=true"
   IO.println s!"CRR_LEAN_PORTABLE_SUMMARY mode={mode} count={paths.length}"

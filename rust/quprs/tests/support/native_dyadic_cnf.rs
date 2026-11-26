@@ -209,3 +209,110 @@ pub(crate) fn native_dyadic_projection_variant(ps:&PathSum,pre:&[Anf],post:&[Anf
 pub(crate) fn native_dyadic_projection(ps:&PathSum,pre:&[Anf],post:&[Anf])->Option<(Cnf,Lit,u32)>{
     native_dyadic_projection_with_limits(ps,pre,post,4096,32768)
 }
+
+
+// Fixed original input/output fibre, one path copy. Exact dyadic phase
+// bins in little-endian order. No survivor-mask support in this first
+// lane: callers must pass an unguarded PathSum or separately establish
+// that its external survivor is true. Never use a zero fibre alone to
+// prove an entire Hoare property.
+pub(crate) fn native_dyadic_fibre(
+    ps: &PathSum, x: u64, z: u64, affine: bool,
+    max_vars: usize, max_clauses: usize,
+) -> Option<(Cnf, Vec<Lit>, u32, usize)> {
+    let n = ps.v.num_qubits;
+    if n == 0 || n > 16 || x >> n != 0 || z >> n != 0 ||
+        ps.rr_approximate || ps.rr_tolerance != 0.0 ||
+        !ps.v.continuous_vars.is_empty() || ps.f.functions.len() != n {
+        return None;
+    }
+    let mut ids: Vec<_> = ps.v.path_vars.iter().copied().collect();
+    ids.sort_unstable();
+    if ids.len() < n || ids.len() > 512 ||
+        (0..n).any(|i| ids[i] != i as u32) ||
+        ps.p.terms.len() + ps.f.functions.iter().map(|f| f.len()).sum::<usize>() > 8192 {
+        return None;
+    }
+    let mut d = 2u32;
+    for (m, c) in &ps.p.terms {
+        if c.radians.is_some() || !c.symbols.is_empty() ||
+            m.iter().any(|v| !ps.v.path_vars.contains(v)) { return None; }
+        let den = u32::try_from(c.constant.denom).ok()?;
+        if !den.is_power_of_two() || den > 64 { return None; }
+        d = d.max(den);
+    }
+    // Specialize all original input bits before allocating primary
+    // literals. Canonical XOR parity must be maintained after substitution.
+    let mut outputs = Vec::<BTreeSet<Vec<u32>>>::new();
+    for f in &ps.f.functions {
+        let mut terms = BTreeSet::new();
+        for m in f {
+            if m.iter().any(|id| !ps.v.path_vars.contains(id)) { return None; }
+            if m.iter().any(|&id| (id as usize) < n && x >> id & 1 == 0) { continue; }
+            let mut rest: Vec<_> = m.iter().copied().filter(|&id| id as usize >= n).collect();
+            rest.sort_unstable(); rest.dedup();
+            if !terms.insert(rest.clone()) { terms.remove(&rest); }
+        }
+        outputs.push(terms);
+    }
+    // One affine output row gives a unique pivot assignment for every
+    // remaining hidden assignment. Do not introduce a free selector.
+    let pivot = if affine {
+        outputs.iter().enumerate().find_map(|(i, row)| {
+            if row.iter().any(|m| m.len() > 1) { return None; }
+            row.iter().find(|m| m.len() == 1).map(|m| (i, m[0]))
+        })
+    } else { None };
+    let h = ids.len() - n - usize::from(pivot.is_some());
+    let mut c = Cnf::new(h);
+    let mut map = BTreeMap::<u32, Lit>::new();
+    for i in 0..n { map.insert(i as u32, if x >> i & 1 == 1 { ONE } else { ZERO }); }
+    let mut next = 2;
+    for &id in &ids[n..] {
+        if pivot.is_some_and(|(_, p)| p == id) { continue; }
+        map.insert(id, next); next += 1;
+    }
+    if let Some((i, p)) = pivot {
+        let mut v = if z >> i & 1 == 1 { ONE } else { ZERO };
+        for m in &outputs[i] {
+            if m.is_empty() { v = -v; }
+            else if m[0] != p { v = c.xor(v, *map.get(&m[0])?); }
+        }
+        map.insert(p, v);
+    }
+    for (i, row) in outputs.iter().enumerate() {
+        let mut v = ZERO;
+        for m in row {
+            let mut t = ONE;
+            for id in m { t = c.and(t, *map.get(id)?); }
+            v = c.xor(v, t);
+        }
+        c.enforce(if z >> i & 1 == 1 { v } else { -v });
+        if c.vars > max_vars || c.clauses.len() > max_clauses { return None; }
+    }
+    let k = d.trailing_zeros() as usize;
+    let mut acc = vec![ZERO; k];
+    let mut ts: Vec<_> = ps.p.terms.iter().collect();
+    ts.sort_by(|a, b| a.0.cmp(b.0));
+    for (m, coeff) in ts {
+        let w = (d as i128 * coeff.constant.numer as i128 / coeff.constant.denom as i128)
+            .rem_euclid(d as i128) as u32;
+        if w == 0 { continue; }
+        let mut term = ONE;
+        for id in m { term = c.and(term, *map.get(id)?); }
+        let mut carry = ZERO;
+        for i in 0..k {
+            let b = if w >> i & 1 == 1 { term } else { ZERO };
+            let a = acc[i];
+            let t = c.xor(a, b);
+            acc[i] = c.xor(t, carry);
+            if i + 1 < k {
+                let ab = c.and(a, b); let tc = c.and(t, carry);
+                carry = c.or(ab, tc);
+            }
+        }
+        if c.vars > max_vars || c.clauses.len() > max_clauses { return None; }
+    }
+    if c.vars > max_vars || c.clauses.len() > max_clauses { return None; }
+    Some((c, acc, d, h))
+}

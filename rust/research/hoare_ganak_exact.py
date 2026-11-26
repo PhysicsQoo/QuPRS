@@ -2442,10 +2442,10 @@ def run_general_predicate(directory,exe,tmp):
     fields="key case route x prefix_h h vars clauses sign denominator scale common_ns prefix_ns prep_ns encoding_ns pivots rr_steps expected".split()
     with (directory/"general-predicate.tsv").open() as f:
         plans=list(csv.DictReader(f,fieldnames=fields,delimiter="\t"))
-    assert len(plans)==64
+    assert len(plans)==80
     groups={}
     for p in plans:groups.setdefault((p["case"],p["route"]),[]).append(p)
-    assert len(groups)==16 and all(len(v)==4 for v in groups.values())
+    assert len(groups)==20 and all(len(v)==4 for v in groups.values())
     all_rows={}
     for (case,route),group in groups.items():
         assert len({int(p["x"]) for p in group})==4

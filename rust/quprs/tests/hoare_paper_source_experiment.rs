@@ -730,6 +730,10 @@ fn native_general_predicate_gate_cohort(){
             Anf::from([0,1,2]),Anf::from([0,1,2])),
         ("fourier-echo",qft_like,G::X(2),
             Anf::from([0,3,4]),Anf::from([0,3,4])),
+        // Positive admission control: H on the computed ancilla exposes
+        // an isolated hidden bit in a nonlinear forbidden predicate.
+        ("ancilla-mixing",vec![G::H(0),G::H(1),G::CCX(0,1,2)],G::H(2),
+            Anf::from([0,4]),Anf::from([0,3,4])),
     ];
     let mut rows=String::new();let mut checks=0;let mut hits=0;let mut positive=0;let mut zero=0;
     let dir=std::env::var_os("HOARE_PAPER_PROJECTED_DIR").map(std::path::PathBuf::from);
@@ -751,7 +755,7 @@ fn native_general_predicate_gate_cohort(){
             let t=std::time::Instant::now();let (general,gr)=reduce(raw);
             let common_ns=build_ns+t.elapsed().as_nanos();
             assert!(!gr.limit);
-            let mut bad=0;
+            let mut bad=0;let mut case_hits=0;
             for x in legal{
                 let want=norm(&original,x as usize);
                 if want>0{bad+=1;positive+=1;}else{zero+=1;}
@@ -770,7 +774,7 @@ fn native_general_predicate_gate_cohort(){
                         }else{(prefix.clone(),0,0,0)}
                     }else{(prefix.clone(),0,0,0)};
                     let prep_ns=t.elapsed().as_nanos();
-                    hits+=hit;
+                    hits+=hit;case_hits+=hit;
                     let scale=gr.scale2+pr.scale2+s;
                     assert_eq!(norm(&entries(&out).unwrap(),x as usize).checked_shl(scale).unwrap(),want);
                     checks+=1;
@@ -788,12 +792,88 @@ fn native_general_predicate_gate_cohort(){
                     }
                 }
             }
+            println!("HOARE_NATIVE_GENERAL_PREDICATE_CASE case={case} hits={case_hits} bad_inputs={bad}");
             assert_eq!(bad>0,mutant,"{case}");
+            if family=="ancilla-mixing"&&mutant{assert_eq!(case_hits,4,"positive pivot admission control");}
         }
     }
+    println!("HOARE_NATIVE_GENERAL_PREDICATE_DIAGNOSTIC checks={checks} hits={hits} positive={positive} zero={zero}");
     assert!(hits>0&&positive>0&&zero>0);
     if let Some(dir)=dir{std::fs::write(dir.join("general-predicate.tsv"),rows).unwrap();}
     println!("HOARE_NATIVE_GENERAL_PREDICATE checks={checks} hits={hits} positive={positive} zero={zero}");
+}
+
+
+// First failed conjuncts are disjoint and cover exactly NOT(all Q_i).
+// Encode each branch as a single good predicate R_j whose false set is
+// (all earlier Q_i) AND NOT(Q_j). Preserve the complete output map.
+fn anf_product(a:&Anf,b:&Anf)->Option<Anf>{
+    if a.len().checked_mul(b.len())?>32768{return None;}
+    let mut p=Anf::new();
+    for &u in a{for &v in b{
+        let m=u|v;if !p.insert(m){p.remove(&m);}
+    }}
+    if p.len()>8192{return None;}Some(p)
+}
+fn anf_not(p:&Anf)->Anf{
+    let mut r=p.clone();if !r.insert(0){r.remove(&0);}r
+}
+fn first_failed_post(q:&[Anf])->Option<Vec<Anf>>{
+    let mut prefix=Anf::from([0]);let mut branches=Vec::new();
+    for p in q{
+        branches.push(anf_not(&anf_product(&prefix,&anf_not(p))?));
+        prefix=anf_product(&prefix,p)?;
+    }
+    Some(branches)
+}
+#[test]
+fn native_disjoint_predicate_partition(){
+    use QuantumOp as G;
+    let qs=[Anf::from([0,1,2]),Anf::from([0,3,4]),Anf::from([0,4])];
+    // All orderings and degenerate guards (false, true, repeated).
+    let lists=vec![qs.to_vec(),vec![qs[1].clone(),qs[0].clone(),qs[2].clone()],
+        vec![qs[0].clone(),qs[0].clone()],vec![Anf::new(),qs[1].clone()],
+        vec![Anf::from([0]),qs[1].clone()],vec![]];
+    let circuits=[
+        vec![G::H(0),G::H(1),G::CCX(0,1,2)],
+        vec![G::H(0),G::H(1),G::CCX(0,1,2),G::H(2)],
+        vec![G::H(0),G::T(0),G::H(0),G::CX(0,1),G::H(2)],
+        vec![G::H(0),G::H(0),G::X(1)]
+    ];
+    let norm=|a:&[Root],x:u64,post:&Anf|->i128{
+        (0..8u64).filter(|&z|!anf_value(post,z))
+            .flat_map(|z|a[(8*x+z) as usize])
+            .map(|v|i128::from(v)*i128::from(v)).sum()
+    };
+    let mut checks=0;let mut partitions=0;let mut hits=0;
+    for ops in circuits{
+        let mut raw=PathSum::new(3);raw.set_auto_reduce(false);
+        for op in ops{op.apply(&mut raw,false);}
+        let original=entries(&raw).unwrap();
+        let (general,gr)=reduce(raw);assert!(!gr.limit);
+        for q in &lists{
+            let branches=first_failed_post(q).unwrap();
+            let all=q.iter().try_fold(Anf::from([0]),|a,b|anf_product(&a,b)).unwrap();
+            for z in 0..8u64{
+                assert_eq!(branches.iter().filter(|b|!anf_value(b,z)).count(),usize::from(!anf_value(&all,z)));
+            }
+            for x in 0..8u64{
+                let (prefix,pr)=reduce(fixed_input(general.clone(),x));assert!(!pr.limit);
+                let mut sum=0;
+                for branch in &branches{
+                    let (out,s)=if let Some((t,_))=predicate_pivot(&prefix,branch){
+                        hits+=1;let (out,r)=reduce(t);assert!(!r.limit);(out,r.scale2)
+                    }else{(prefix.clone(),0)};
+                    let got=norm(&entries(&out).unwrap(),x,branch).checked_shl(gr.scale2+pr.scale2+s).unwrap();
+                    assert_eq!(got,norm(&original,x,branch));
+                    sum+=got;checks+=1;
+                }
+                assert_eq!(sum,norm(&original,x,&all));partitions+=1;
+            }
+        }
+    }
+    assert!(hits>0);
+    println!("HOARE_NATIVE_DISJOINT_PREDICATE checks={checks} partitions={partitions} pivots={hits}");
 }
 
 #[test]

@@ -41,25 +41,64 @@ inductive Record where
   | phase (out : Nat) (source : List Nat)
 deriving Repr
 
-def tokens (s : String) : List String :=
-  (s.splitOn " ").filter (fun t => !t.isEmpty)
+-- Small ASCII transport parser. Avoid library split/decimal parsing
+-- and implicit proposition-to-Bool coercions in admission predicates.
+-- This grammar is intentionally restricted to the Rust export format.
+def splitChars (separator : Nat) (cs : List Char) : List (List Char) :=
+  let (pieces, current) := cs.foldl
+    (fun (acc : List (List Char) × List Char) c =>
+      if c.toNat == separator then (acc.2.reverse :: acc.1, [])
+      else (acc.1, c :: acc.2)) ([], [])
+  (current.reverse :: pieces).reverse
 
 def rows (s : String) : List (List String) :=
-  ((s.splitOn "\n").map tokens).filter (fun t => !t.isEmpty)
+  List.filter (fun ts => !ts.isEmpty)
+    ((splitChars 10 s.toList).map (fun line =>
+      ((splitChars 32 line).filter (fun cs => !cs.isEmpty)).map String.ofList))
+
+def natLE (a b : Nat) : Bool := Nat.ble a b
+
+def digits (cs : List Char) (acc : Nat) : Option Nat :=
+  match cs with
+  | [] => some acc
+  | c :: rest =>
+    let d := c.toNat
+    if natLE 48 d && natLE d 57 then digits rest (10 * acc + (d - 48))
+    else none
+
+def parseNatToken (s : String) : Option Nat :=
+  match s.toList with
+  | [] => none
+  | c :: cs => digits (c :: cs) 0
+
+def parseIntToken (s : String) : Option Int :=
+  match s.toList with
+  | [] => none
+  | c :: cs =>
+    if c.toNat == 45 then
+      match cs with
+      | [] => none
+      | d :: ds => (digits (d :: ds) 0).map (fun n => -(Int.ofNat n))
+    else (digits (c :: cs) 0).map Int.ofNat
+
+def negative (v : Int) : Bool :=
+  match v with
+  | .ofNat _ => false
+  | .negSucc _ => true
 
 def parseRecord : List String → Option Record
-  | ["live", a, b] => do return .live (← a.toNat?) (← b.toNat?)
-  | ["false", z] => do return .zero (← z.toNat?)
-  | "and" :: z :: xs => do return .andGate (← z.toNat?) (← xs.mapM String.toNat?)
-  | ["xor", z, a, b] => do return .xorGate (← z.toNat?) (← a.toNat?) (← b.toNat?)
-  | ["eq", a, b] => do return .eqGate (← a.toNat?) (← b.toNat?)
-  | "phase" :: z :: xs => do return .phase (← z.toNat?) (← xs.mapM String.toNat?)
+  | ["live", a, b] => do return .live (← parseNatToken a) (← parseNatToken b)
+  | ["false", z] => do return .zero (← parseNatToken z)
+  | "and" :: z :: xs => do return .andGate (← parseNatToken z) (← xs.mapM parseNatToken)
+  | ["xor", z, a, b] => do return .xorGate (← parseNatToken z) (← parseNatToken a) (← parseNatToken b)
+  | ["eq", a, b] => do return .eqGate (← parseNatToken a) (← parseNatToken b)
+  | "phase" :: z :: xs => do return .phase (← parseNatToken z) (← xs.mapM parseNatToken)
   | _ => none
 
 def parseGate (s : String) : Option (Nat × List Record) :=
   match rows s with
   | ["crr-gate-v1", n] :: rest => do
-    return (← n.toNat?, ← rest.mapM parseRecord)
+    return (← parseNatToken n, ← rest.mapM parseRecord)
   | _ => none
 
 def pos (n : Nat) : Int := Int.ofNat n
@@ -68,10 +107,10 @@ def clauseSort (xs : List Int) : List Int :=
   xs.mergeSort (fun a b => decide (a ≤ b))
 
 def parseClause (n : Nat) (xs : List String) : Option (List Int) := do
-  let ints ← xs.mapM String.toInt?
+  let ints ← xs.mapM parseIntToken
   match ints.reverse with
   | 0 :: rev =>
-    if rev.all (fun x => x != 0 && x.natAbs ≤ n) then
+    if rev.all (fun x => x != 0 && natLE x.natAbs n) then
       some (clauseSort rev)
     else none
   | _ => none
@@ -90,9 +129,9 @@ def parseCnfRows (n : Nat) :
   | row :: rest, inClauses, cs, ws =>
     match row with
     | ["c", "p", "weight", id, re, im, "0"] => do
-      let v ← id.toInt?
-      if inClauses || v == 0 || v.natAbs > n || ws.contains v ||
-          (v < 0 && (re != "1.0" || im != "0.0")) then none
+      let v ← parseIntToken id
+      if inClauses || v == 0 || !natLE v.natAbs n || ws.contains v ||
+          (negative v && (re != "1.0" || im != "0.0")) then none
       else parseCnfRows n rest false cs (v :: ws)
     | _ => do
       let c ← parseClause n row
@@ -101,10 +140,10 @@ def parseCnfRows (n : Nat) :
 def parseCnf (s : String) : Option ParsedCnf := do
   match rows s with
   | ["p", "cnf", n, m] :: ["c", "t", "wmc"] :: rest =>
-    let n ← n.toNat?
-    let m ← m.toNat?
+    let n ← parseNatToken n
+    let m ← parseNatToken m
     let (cs, ws) ← parseCnfRows n rest false [] []
-    if cs.length = m then some { vars := n, clauses := cs, weights := ws } else none
+    if cs.length == m then some { vars := n, clauses := cs, weights := ws } else none
   | _ => none
 
 -- Explicit comparator, no inferred equality instances. Remove one
@@ -297,6 +336,14 @@ theorem accepted_rows_sound (n : Nat) (rs : List Record)
   check_rows_sound generated p.clauses (and_true_parts hc).2 value
 
 -- Localize any unexpected dependency to a definition vs theorem.
+#print axioms rows
+#print axioms parseNatToken
+#print axioms parseIntToken
+#print axioms parseRecord
+#print axioms parseGate
+#print axioms parseClause
+#print axioms parseCnfRows
+#print axioms parseCnf
 #print axioms bagEqBy
 #print axioms covers
 #print axioms satisfies
@@ -315,6 +362,17 @@ theorem accepted_rows_sound (n : Nat) (rs : List Record)
 end QuPRS.CnfReplay
 
 def main (args : List String) : IO Unit := do
+  -- Exercise the actual token grammar before the file cohort.
+  if QuPRS.CnfReplay.parseNatToken "123" != some 123 ||
+      QuPRS.CnfReplay.parseNatToken "" != none ||
+      QuPRS.CnfReplay.parseNatToken "12x" != none ||
+      QuPRS.CnfReplay.parseIntToken "-37" != some (-37) ||
+      QuPRS.CnfReplay.parseIntToken "-" != none ||
+      QuPRS.CnfReplay.parseIntToken "1-2" != none ||
+      QuPRS.CnfReplay.rows "p  cnf 3 1\n\n-1 2 0\n" !=
+        [["p", "cnf", "3", "1"], ["-1", "2", "0"]] then
+    throw (IO.userError "portable parser grammar regression")
+  IO.println "CRR_LEAN_PARSER_GRAMMAR_PASS controls=7"
   let mode :: paths := args | throw (IO.userError "usage: CnfReplay accept|reject files")
   if (mode != "accept" && mode != "reject") || paths.isEmpty then
     throw (IO.userError "bad replay mode or empty cohort")

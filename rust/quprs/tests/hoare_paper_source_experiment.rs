@@ -1109,8 +1109,10 @@ fn cyclo_add<const N:usize>(a:[i128;N],b:[i128;N])->Option<[i128;N]>{
 }
 fn cyclo_mul<const N:usize>(a:[i128;N],b:[i128;N])->Option<[i128;N]>{
     let mut c=[0i128;N];
-    for i in 0..N{for j in 0..N{
-        if a[i]==0||b[j]==0{continue;}
+    for i in 0..N{
+        if a[i]==0{continue;}
+        for j in 0..N{
+        if b[j]==0{continue;}
         let p=a[i].checked_mul(b[j])?;
         let k=i+j;
         c[k%N]=if k<N{c[k%N].checked_add(p)?}else{c[k%N].checked_sub(p)?};
@@ -1162,7 +1164,7 @@ enum FactorSpec8{Phase(u64,usize),Output(u64,Vec<u64>,Option<u64>,usize)}
 struct BoundaryPlan8{degree:usize,specs:Vec<FactorSpec8>,order:Vec<usize>,free:u64,fixed:u64,peak:usize,work:usize}
 fn prepare_cyclo_boundary(ps:&PathSum,fixed_mask:u64,degree:usize,deadline:std::time::Instant)
     ->Result<BoundaryPlan8,&'static str>{
-    if !matches!(degree,4|32){return Err("UNSUPPORTED_PHASE");}
+    if !matches!(degree,1|2|4|8|16|32){return Err("UNSUPPORTED_PHASE");}
     let n=ps.v.num_qubits;let hidden=h(ps);
     if hidden>60||n>16||hidden+n>63||!admitted(ps)||fixed_mask>>n!=0{return Err("UNSUPPORTED");}
     if std::time::Instant::now()>=deadline{return Err("DEADLINE");}
@@ -1195,7 +1197,7 @@ fn prepare_cyclo_boundary(ps:&PathSum,fixed_mask:u64,degree:usize,deadline:std::
     }
     let (order,peak,work)=plan_factor8(scopes,hidden,free,initial_work)?;
     // Charge worst-case dense coefficient multiplication relative to D8.
-    let work=work.checked_mul((degree/4).pow(2)).ok_or("WORK_LIMIT")?;
+    let work=work.checked_mul((degree/4).max(1).pow(2)).ok_or("WORK_LIMIT")?;
     if work>2_000_000{return Err("WORK_LIMIT");}
     Ok(BoundaryPlan8{degree,specs,order,free,fixed:fixed_mask,peak,work})
 }
@@ -1256,6 +1258,46 @@ fn execute_cyclo_boundary<const N:usize>(plan:&BoundaryPlan8,z:u64,deadline:std:
     }
     Ok((result,*peak,*work))
 }
+
+// Determine the smallest supported power-of-two order from exact phase
+// coefficients, including constant phase; no tolerance or value sampling.
+fn minimum_cyclo_degree(ps:&PathSum)->Result<usize,&'static str>{
+    if !admitted(ps){return Err("UNSUPPORTED");}
+    let mut degree=1usize;
+    for c in ps.p.terms.values(){
+        let den=c.constant.denom as i128;
+        if den<=0{return Err("UNSUPPORTED_PHASE");}
+        let d=[1usize,2,4,8,16,32].into_iter().find(|&d|
+            ((2*d) as i128*c.constant.numer as i128)%den==0).ok_or("UNSUPPORTED_PHASE")?;
+        degree=degree.max(d);
+    }
+    Ok(degree)
+}
+type Z64=[i128;32];
+fn execute_lifted<const N:usize>(plan:&BoundaryPlan8,z:u64,deadline:std::time::Instant)
+    ->Result<(Vec<Z64>,usize,usize),&'static str>{
+    let (a,w,c)=execute_cyclo_boundary::<N>(plan,z,deadline)?;
+    let mut lifted=Vec::with_capacity(a.len());
+    for v in a{
+        let mut r=[0;32];
+        for i in 0..N{r[i*(32/N)]=v[i];}
+        lifted.push(r);
+    }
+    Ok((lifted,w,c))
+}
+fn execute_minimum_boundary(plan:&BoundaryPlan8,z:u64,deadline:std::time::Instant)
+    ->Result<(Vec<Z64>,usize,usize),&'static str>{
+    match plan.degree{
+        1=>execute_lifted::<1>(plan,z,deadline),
+        2=>execute_lifted::<2>(plan,z,deadline),
+        4=>execute_lifted::<4>(plan,z,deadline),
+        8=>execute_lifted::<8>(plan,z,deadline),
+        16=>execute_lifted::<16>(plan,z,deadline),
+        32=>execute_cyclo_boundary::<32>(plan,z,deadline),
+        _=>Err("UNSUPPORTED_PHASE"),
+    }
+}
+
 const Z8_ONE:Z8=[1,0,0,0];
 fn prepare_boundary8(ps:&PathSum,fixed_mask:u64,deadline:std::time::Instant)->Result<BoundaryPlan8,&'static str>{
     prepare_cyclo_boundary(ps,fixed_mask,4,deadline)
@@ -1495,11 +1537,15 @@ fn native_cyclo64_reference(){
         ps.p.add_term(vec![a,b],PhaseCoeff::new_constant(Rational::new(3,d)));
         let expected=entries(&ps).unwrap();
         let fixed=fixed_input(ps,0);
+        let degree=minimum_cyclo_degree(&fixed).unwrap();assert_eq!(degree,d as usize/2);
         let deadline=std::time::Instant::now()+std::time::Duration::from_secs(5);
         for mask in 0..4u64{for z in 0..4u64{
             if z&!mask!=0{continue;}
             let plan=prepare_cyclo_boundary(&fixed,mask,32,deadline).unwrap();
             let (got,_,_)=execute_cyclo_boundary::<32>(&plan,z,deadline).unwrap();
+            let min=prepare_cyclo_boundary(&fixed,mask,degree,deadline).unwrap();
+            let (small,_,_)=execute_minimum_boundary(&min,z,deadline).unwrap();
+            assert_eq!(small,got);
             for (i,r) in got.iter().enumerate(){
                 let out=z|deposit8(i,3&!mask);
                 assert_eq!(*r,expected[out as usize].map(i128::from));checks+=1;
@@ -1510,6 +1556,10 @@ fn native_cyclo64_reference(){
     }
     assert_eq!(checks,96);
     println!("HOARE_NATIVE_CYCLO64_REFERENCE vectors={checks} orders=6 basis_mismatch_rejected=true");
+    let mut ps=PathSum::new(1);ps.set_auto_reduce(false);
+    ps.p.add_term(vec![],PhaseCoeff::new_constant(Rational::new(1,3)));
+    assert_eq!(minimum_cyclo_degree(&ps),Err("UNSUPPORTED_PHASE"));
+    println!("HOARE_NATIVE_MINIMUM_BASIS vectors={checks} orders=6 unsupported_rejected=true");
 }
 
 #[test]
@@ -1701,6 +1751,78 @@ fn native_qwalk_cyclo64_pilot(){
         }
         let verdict=if positive>0{"REFUTED"}else if exact==256{"PROVED"}else{"UNKNOWN"};
         println!("HOARE_QWALK_CYCLO64_SUMMARY name={name} exact={exact} positive={positive} verdict={verdict} calls={calls} width={peak} work={work} elapsed_ns={} failures={failures:?}",t.elapsed().as_nanos());
+    }
+}
+
+
+// Matched D64 vs minimum-order kernels on exactly the same checkpoint.
+// Oracle support is held out from planning. Full coefficient vectors
+// are compared in a common Z[zeta64] basis, including complex phase.
+#[test]
+fn native_qwalk_minimum_basis_pilot(){
+    let Some(dir)=std::env::var_os("HOARE_PAPER_QWALK_DIR") else{return;};
+    for name in ["vchain","noancilla"]{
+        let src=std::fs::read_to_string(std::path::Path::new(&dir).join(format!("{name}.qasm"))).unwrap();
+        let (ops,n,_)=source_ops(&src);assert_eq!(n,5);
+        let (native,width)=parse_qasm_str(&src).unwrap();assert_eq!((native,width),(ops.clone(),n));
+        let t=std::time::Instant::now();
+        let mut raw=PathSum::new(n);raw.set_auto_reduce(false);
+        for op in &ops{op.apply(&mut raw,false);}
+        let build_ns=t.elapsed().as_nanos();
+        let t=std::time::Instant::now();
+        let zero=Poly::default();raw.p.substitute_var_with_poly(4,&zero);raw.f.substitute_var_with_poly(4,&zero);
+        let (general,gr)=reduce(raw);assert!(!gr.limit);
+        let general_ns=t.elapsed().as_nanos();
+        let common=build_ns+general_ns;
+        let mut spent=[common;2];let mut prefix_ns=0u128;let mut plan_ns=[0u128;2];let mut exec_ns=[0u128;2];
+        let mut works=[0usize;2];let mut exact=[0usize;2];let mut positives=[0usize;2];
+        let mut degree_hist=BTreeMap::<usize,usize>::new();
+        let mut failures=[BTreeMap::<&str,usize>::new(),BTreeMap::<&str,usize>::new()];
+        let mut paired=0;let mut first=[None;2];
+        let budget=30_000_000_000u128;
+        for x in 0..16u64{
+            if spent.iter().all(|&v|v>=budget){break;}
+            let t=std::time::Instant::now();
+            let (prefix,pr)=reduce(fixed_input(general.clone(),x));assert!(!pr.limit);
+            let ns=t.elapsed().as_nanos();prefix_ns+=ns;
+            let mut out:[Option<Vec<Z64>>;2]=[None,None];
+            // Alternate execution order to reduce systematic warm-cache bias.
+            for arm in [x as usize%2,1-x as usize%2]{
+                if spent[arm]>=budget{continue;}
+                spent[arm]+=ns;
+                if spent[arm]>=budget{*failures[arm].entry("DEADLINE").or_default()+=1;continue;}
+                let start=std::time::Instant::now();
+                let deadline=start+std::time::Duration::from_nanos((budget-spent[arm]) as u64);
+                let p=(||{
+                    let d=if arm==0{32}else{minimum_cyclo_degree(&prefix)?};
+                    if arm==1{*degree_hist.entry(2*d).or_default()+=1;}
+                    prepare_cyclo_boundary(&prefix,16,d,deadline)
+                })();
+                plan_ns[arm]+=start.elapsed().as_nanos();
+                let t=std::time::Instant::now();
+                let result=p.and_then(|p|execute_minimum_boundary(&p,16,deadline));
+                exec_ns[arm]+=t.elapsed().as_nanos();
+                spent[arm]+=start.elapsed().as_nanos();
+                match result{
+                    Ok((a,_,w))=>{
+                        assert_eq!(a.len(),16);works[arm]+=w;exact[arm]+=a.len();
+                        let nonzero:Vec<_>=a.iter().enumerate().filter(|(_,r)|**r!=[0;32]).map(|(i,_)|16+i).collect();
+                        if name=="vchain"{assert!(nonzero.is_empty());}
+                        else{assert_eq!(nonzero.len(),2);if x==0{assert_eq!(nonzero,vec![28,31]);}}
+                        if !nonzero.is_empty()&&first[arm].is_none(){first[arm]=Some(spent[arm]);}
+                        positives[arm]+=nonzero.len();out[arm]=Some(a);
+                    }
+                    Err(reason)=>{*failures[arm].entry(reason).or_default()+=1;}
+                }
+            }
+            if let [Some(a),Some(b)]=&out{assert_eq!(a,b);paired+=a.len();}
+        }
+        for arm in 0..2{
+            let verdict=if positives[arm]>0{"REFUTED"}else if exact[arm]==256{"PROVED"}else{"UNKNOWN"};
+            println!("HOARE_QWALK_MIN_BASIS name={name} arm={} exact={} positive={} verdict={verdict} work={} build_ns={build_ns} general_ns={general_ns} shared_prefix_ns={prefix_ns} plan_ns={} exec_ns={} accounted_ns={} first_ns={:?} failures={:?}",
+                if arm==0{"d64"}else{"minimum"},exact[arm],positives[arm],works[arm],plan_ns[arm],exec_ns[arm],spent[arm],first[arm],failures[arm]);
+        }
+        println!("HOARE_QWALK_MIN_BASIS_PARITY name={name} paired={paired} orders={degree_hist:?}");
     }
 }
 

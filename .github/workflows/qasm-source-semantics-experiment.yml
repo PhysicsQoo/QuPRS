@@ -133,10 +133,14 @@ jobs:
           grep -F 'HOARE_NATIVE_FACTOR8_REFERENCE checks=192' evidence/hoare-paper-source.log
           grep -Fx 'HOARE_NATIVE_BOUNDARY_CAPS width_work_free_deadline=true' evidence/hoare-paper-source.log
           grep -Fx 'HOARE_NATIVE_CYCLO64_REFERENCE vectors=96 orders=6 basis_mismatch_rejected=true' evidence/hoare-paper-source.log
+          grep -Fx 'HOARE_NATIVE_MINIMUM_BASIS vectors=96 orders=6 unsupported_rejected=true' evidence/hoare-paper-source.log
           grep -Fx 'HOARE_NATIVE_TILING8_FAILURE recovered=4 partial_positive=3 partial_zero=3 unresolved=1' evidence/hoare-paper-source.log
           grep -Fx 'HOARE_NATIVE_TILING8_PARTIAL_RECOVERY retained=2048 recovered=2048 duplicate=0' evidence/hoare-paper-source.log
           for source in vchain noancilla; do
             grep -F "HOARE_QWALK_CYCLO64_SUMMARY name=$source " evidence/hoare-paper-source.log
+            grep -F "HOARE_QWALK_MIN_BASIS name=$source arm=d64 " evidence/hoare-paper-source.log
+            grep -F "HOARE_QWALK_MIN_BASIS name=$source arm=minimum " evidence/hoare-paper-source.log
+            grep -F "HOARE_QWALK_MIN_BASIS_PARITY name=$source " evidence/hoare-paper-source.log
           done
           for source in qft4 hwb6 mod5 barenco5; do
             for arm in false true; do

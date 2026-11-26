@@ -4102,10 +4102,10 @@ theorem ledger_filter_nodup (p : Nat → Bool) (xs : List Nat) (h : xs.Nodup) :
     have hp := List.nodup_cons.mp h
     cases he : p x with
     | false =>
-      simpa only [List.filter_cons, he, Bool.false_eq_true, if_false] using ih hp.2
+      simpa only [List.filter_cons, he, Bool.false_eq_true, ite_false] using ih hp.2
     | true =>
       have hf : x ∉ xs.filter p := fun hm => hp.1 (List.mem_filter.mp hm).1
-      simpa only [List.filter_cons, he, if_true] using
+      simpa only [List.filter_cons, he, ite_true] using
         (List.nodup_cons.mpr ⟨hf, ih hp.2⟩ : (x :: xs.filter p).Nodup)
 
 theorem ledger_nodup_perm (xs ys : List Nat) (hx : xs.Nodup) (hy : ys.Nodup)
@@ -4209,6 +4209,108 @@ theorem ledger_partition_assignment_roundtrip (a b : LedgerSnap)
   have hp := ledger_live_partition a b ha hb hs
   exact ledger_reindex_roundtrip _ _ bits (canonical_ledger_live_admission a ha).1 hl
     (fun _ hx => hp.mem_iff.mp hx)
+
+
+-- Reverse uniqueness conversion, needed for the partitioned live list.
+theorem ledger_nodup_unique (xs : List Nat) (h : xs.Nodup) :
+    uniqueIds xs = true := by
+  induction xs with
+  | nil => rfl
+  | cons x xs ih =>
+    have hp := List.nodup_cons.mp h
+    have hf : (!natMem x xs) = true := by
+      cases he : natMem x xs with
+      | false => rfl
+      | true => exact False.elim (hp.1 ((nat_mem_iff x xs).mp he))
+    change (!natMem x xs && uniqueIds xs) = true
+    rw [hf, ih hp.2]
+    rfl
+
+theorem ledger_reindex_length (src dst : List Nat) (bits : List Bool) :
+    (reindexLedgerBits src dst bits).length = dst.length :=
+  List.length_map _
+
+theorem ledger_partition_assignment_reverse (a b : LedgerSnap)
+    (ha : canonicalLedgerSnap a) (hb : canonicalLedgerSnap b)
+    (hs : ∀ x, x ∈ b.live → x ∈ a.live) (bits : List Bool)
+    (hl : bits.length = (removedIds a b ++ b.live).length) :
+    reindexLedgerBits a.live (removedIds a b ++ b.live)
+      (reindexLedgerBits (removedIds a b ++ b.live) a.live bits) = bits := by
+  have hp := ledger_live_partition a b ha hb hs
+  have hn := hp.nodup (ledger_unique_nodup _ (canonical_ledger_live_admission a ha).1)
+  exact ledger_reindex_roundtrip _ _ bits (ledger_nodup_unique _ hn) hl
+    (fun _ hx => hp.mem_iff.mpr hx)
+
+-- Finite change of variables via single nonzero fibers and Fubini.
+-- Both length and inverse laws are required only on valid vectors.
+theorem sum_bits_bijection {A : Type} [Zero A] [Add A]
+    (zl : ∀ a : A, 0+a=a) (zr : ∀ a : A, a+0=a)
+    (shuffle : ∀ a b c d : A, (a+b)+(c+d) = (a+c)+(b+d))
+    (m n : Nat) (f g : List Bool → List Bool) (w : List Bool → A)
+    (hf : ∀ xs, xs.length = m → (f xs).length = n)
+    (hg : ∀ ys, ys.length = n → (g ys).length = m)
+    (hl : ∀ xs, xs.length = m → g (f xs) = xs)
+    (hr : ∀ ys, ys.length = n → f (g ys) = ys) :
+    sumBits m (fun xs => w (f xs)) = sumBits n w := by
+  let term := fun xs ys => if f xs = ys then w ys else 0
+  have hrow : ∀ xs, xs.length = m →
+      sumBits n (term xs) = w (f xs) := by
+    intro xs hx
+    have ht : term xs (f xs) = w (f xs) := by simp [term]
+    have hz : ∀ ys, ys.length = (f xs).length → ys ≠ f xs → term xs ys = 0 := by
+      intro ys _ hn
+      have he : f xs ≠ ys := fun h => hn h.symm
+      simp [term, he]
+    have hsum := sum_bits_single zl zr (f xs) (term xs) _ ht hz
+    rw [hf xs hx] at hsum
+    exact hsum
+  have hcol : ∀ ys, ys.length = n →
+      sumBits m (fun xs => term xs ys) = w ys := by
+    intro ys hy
+    have ht : term (g ys) ys = w ys := by simp [term, hr ys hy]
+    have hz : ∀ xs, xs.length = (g ys).length → xs ≠ g ys → term xs ys = 0 := by
+      intro xs hx hn
+      have he : f xs ≠ ys := by
+        intro he
+        have hx' := hl xs (hx.trans (hg ys hy))
+        rw [he] at hx'
+        exact hn hx'.symm
+      simp [term, he]
+    have hsum := sum_bits_single zl zr (g ys) (fun xs => term xs ys) _ ht hz
+    rw [hg ys hy] at hsum
+    exact hsum
+  exact (sum_bits_congr m _ _ hrow).symm.trans
+    ((sum_bits_swap shuffle m n term).trans (sum_bits_congr n _ _ hcol))
+
+theorem ledger_reindex_sum {A : Type} [Zero A] [Add A]
+    (zl : ∀ a : A, 0+a=a) (zr : ∀ a : A, a+0=a)
+    (shuffle : ∀ a b c d : A, (a+b)+(c+d) = (a+c)+(b+d))
+    (src dst : List Nat) (hu : uniqueIds src = true) (hv : uniqueIds dst = true)
+    (he : ∀ x, x ∈ src ↔ x ∈ dst) (w : List Bool → A) :
+    sumBits src.length (fun xs => w (reindexLedgerBits src dst xs)) =
+      sumBits dst.length w := by
+  exact sum_bits_bijection zl zr shuffle src.length dst.length
+    (reindexLedgerBits src dst) (reindexLedgerBits dst src) w
+    (fun xs _ => ledger_reindex_length src dst xs)
+    (fun ys _ => ledger_reindex_length dst src ys)
+    (fun xs hx => ledger_reindex_roundtrip src dst xs hu hx (fun x hx' => (he x).mp hx'))
+    (fun ys hy => ledger_reindex_roundtrip dst src ys hv hy (fun y hy' => (he y).mpr hy'))
+
+theorem ledger_partition_sum {A : Type} [Zero A] [Add A]
+    (zl : ∀ a : A, 0+a=a) (zr : ∀ a : A, a+0=a)
+    (shuffle : ∀ a b c d : A, (a+b)+(c+d) = (a+c)+(b+d))
+    (a b : LedgerSnap) (ha : canonicalLedgerSnap a) (hb : canonicalLedgerSnap b)
+    (hs : ∀ x, x ∈ b.live → x ∈ a.live) (w : List Bool → A) :
+    sumBits a.live.length
+      (fun xs => w (reindexLedgerBits a.live (removedIds a b ++ b.live) xs)) =
+    sumBits ((removedIds a b).length + b.live.length) w := by
+  have hp := ledger_live_partition a b ha hb hs
+  have hu := (canonical_ledger_live_admission a ha).1
+  have hv := ledger_nodup_unique _ (hp.nodup (ledger_unique_nodup _ hu))
+  have hsum := ledger_reindex_sum zl zr shuffle a.live (removedIds a b ++ b.live)
+    hu hv (fun _ => hp.mem_iff) w
+  rw [List.length_append] at hsum
+  exact hsum
 
 -- Localize any unexpected dependency to a definition vs theorem.
 #print axioms splitBytes
@@ -4516,6 +4618,12 @@ theorem ledger_partition_assignment_roundtrip (a b : LedgerSnap)
 #print axioms reindexLedgerBits
 #print axioms ledger_reindex_roundtrip
 #print axioms ledger_partition_assignment_roundtrip
+#print axioms ledger_nodup_unique
+#print axioms ledger_reindex_length
+#print axioms ledger_partition_assignment_reverse
+#print axioms sum_bits_bijection
+#print axioms ledger_reindex_sum
+#print axioms ledger_partition_sum
 end QuPRS.CnfReplay
 
 def main (args : List String) : IO Unit := do

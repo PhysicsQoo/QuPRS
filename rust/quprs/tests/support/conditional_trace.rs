@@ -543,7 +543,26 @@ fn exact_trace_iterated_omega(){
         if k&128!=0{ps.p.add_term(vec![0,1],PhaseCoeff::new_constant(Rational::new(3,8)));}
         if k&256!=0{ps.p.add_term(vec![5],PhaseCoeff::HALF);}
         let orig=Trace::from_native(&ps).unwrap();let mut t=orig.clone();
-        let (_,e,h,o)=iterate_all(&mut t);
+        let (mut subs,mut e,mut h,mut o)=(0,0,0,0);
+        for _ in 0..STEP_CAP{
+            let b=t.clone();
+            if let Some((y,len))=t.step(){assert!(check_observed_substitution(&b,&t,y,len));subs+=1;continue;}
+            match t.integrate(){
+                Some(("elim",_))=>{check_free_elim(&b,&t,1,0).unwrap();e+=1;continue;},
+                Some(("hh",y))=>{check_hh(&b,&t,y,1,0).unwrap();h+=1;continue;},
+                None=>{},
+                _=>unreachable!(),
+            }
+            if let Some(y)=t.omega(){check_omega(&b,&t,y,0,1).unwrap();o+=1;continue;}
+            break;
+        }
+        // Preserve parity against the original unguarded policy, not
+        // just the independently replayed local sequence.
+        let mut reference=orig.clone();
+        assert_eq!(iterate_all(&mut reference),(subs,e,h,o));
+        assert_eq!(reference.live,t.live);
+        assert_eq!(reference.p.terms,t.p.terms);
+        assert_eq!(reference.constraints,t.constraints);
         let mut guarded=orig.clone();
         let (_,ge,gh,go,_)=iterate_policy(&mut guarded,64,true);
         assert!(guarded.cost().0<=orig.cost().0&&guarded.cost().1<=orig.cost().1);
@@ -569,7 +588,7 @@ fn exact_trace_iterated_omega(){
     assert_eq!(t.omega(),Some(y));
     assert_ne!(coeff(&orig,0,0,0),coeff(&t,0,0,0));
     assert_eq!(coeff(&orig,0,0,0),coeff(&t,0,0,1));
-    println!("CRR_OMEGA_ORACLE models=512 checks={checks} omega={total_omega} odd_models={odd} even_models={even}");
+    println!("CRR_OMEGA_ORACLE models=512 checks={checks} omega={total_omega} odd_models={odd} even_models={even} independent_omega_checks={total_omega} policy_parity_models=512");
 }
 
 
@@ -1221,6 +1240,117 @@ fn exact_trace_hh_certificate(){
     let mut bad=after.clone();bad.live.insert(z);
     assert_eq!(check_hh(&before,&bad,y,1,0),Err("HH domain mismatch"));
     println!("CRR_HH_CERTIFICATE positive=1 rejected=8 exact_signed_histogram_checks=4 multiplier_power=1");
+}
+
+// Exact omega certificate: independently reconstruct the two signs of
+// the correction in Q/Z x Q, using subset expansion rather than the
+// reducer's phase addition or shared XOR expansion.
+#[cfg(test)]
+fn check_omega(before:&Trace,after:&Trace,y:u32,m:usize,o:usize)->Result<(), &'static str>{
+    use std::collections::{BTreeMap,BTreeSet};
+    use num_bigint::BigInt;
+    use num_integer::Integer;
+    use num_traits::Zero;
+    if m!=0||o!=1{return Err("omega multiplier mismatch");}
+    if before.n!=after.n||(y as usize)<before.n||!before.live.contains(&y)
+        ||before.constraints.iter().flatten().any(|p|p.contains(&y)){
+        return Err("invalid omega integrator");
+    }
+    if (0..before.n).any(|i|u32::try_from(i).ok().map_or(true,|v|!before.live.contains(&v))){
+        return Err("missing input");
+    }
+    let live:BTreeSet<_>=before.live.iter().copied().filter(|&v|v!=y).collect();
+    if live!=after.live.iter().copied().collect(){return Err("omega domain mismatch");}
+    if before.constraints!=after.constraints{return Err("omega ANF mismatch");}
+    if before.p.terms.keys().chain(before.constraints.iter().flatten())
+        .any(|p|!p.windows(2).all(|w|w[0]<w[1])||p.iter().any(|v|!before.live.contains(v))){
+        return Err("invalid omega support");
+    }
+    let (turns,rad)=exact_pair(before.p.terms.get(&vec![y]).ok_or("missing omega singleton")?)?;
+    let sign:i64=if rad.is_zero()&&turns==Rat::new(1.into(),4.into()){1}
+        else if rad.is_zero()&&turns==Rat::new(3.into(),4.into()){-1}
+        else{return Err("invalid omega singleton");};
+    let mut phi=BTreeSet::new();
+    let mut expected:BTreeMap<Vec<u32>,ExactPair>=BTreeMap::new();
+    for (mono,c) in &before.p.terms{
+        let c=exact_pair(c)?;
+        if mono.contains(&y){
+            if mono.len()==1{continue;}
+            if c.0!=Rat::new(1.into(),2.into())||!c.1.is_zero(){return Err("omega nonhalf interaction");}
+            phi.insert(mono.iter().copied().filter(|&v|v!=y).collect::<Vec<_>>());
+        }else{expected.insert(mono.clone(),c);}
+    }
+    if phi.len()>8||before.size()>4096{return Err("certificate expansion cap");}
+    let phi:Vec<_>=phi.into_iter().collect();
+    let mut add=|key:Vec<u32>,delta:Rat|{
+        let e=expected.entry(key).or_insert_with(||(Rat::zero(),Rat::zero()));
+        e.0+=delta;e.0=Rat::new(e.0.numer().mod_floor(e.0.denom()),e.0.denom().clone());
+    };
+    add(Vec::new(),Rat::new(BigInt::from(sign),BigInt::from(8)));
+    for mask in 1usize..(1usize<<phi.len()){
+        let mut support=BTreeSet::new();
+        for (i,p) in phi.iter().enumerate(){
+            if mask&(1usize<<i)!=0{support.extend(p.iter().copied());}
+        }
+        // (-2)^(|J|-1) times -sign/4, exact for bounded RHS.
+        let factor=(-2i64).pow(mask.count_ones()-1);
+        add(support.into_iter().collect(),Rat::new(BigInt::from(-sign*factor),BigInt::from(4)));
+    }
+    expected.retain(|_,(a,b)|!a.is_zero()||!b.is_zero());
+    let mut actual=BTreeMap::new();
+    for (mono,c) in &after.p.terms{actual.insert(mono.clone(),exact_pair(c)?);}
+    if expected!=actual{return Err("omega phase mismatch");}
+    Ok(())
+}
+
+#[test]
+fn exact_trace_omega_certificate(){
+    use quprs::rational::{PhaseCoeff,Rational};
+    let mut ps=PathSum::new(2);ps.rr_tolerance=0.0;
+    let y=ps.v.get_fresh_var();
+    let mut before=Trace::from_native(&ps).unwrap();
+    before.constraints=vec![[vec![0],vec![1]].into_iter().collect()];
+    for p in [vec![0,y],vec![1,y],vec![0,1,y]]{before.p.add_term(p,PhaseCoeff::HALF);}
+    // Preserve the exact rational radians on an overlapping support
+    // while modifying only its turns component.
+    let mut c=PhaseCoeff::QUARTER;c.radians=Some(Rat::new(7.into(),19.into()));
+    before.p.add_term(vec![0],c);
+    before.p.add_term(vec![],PhaseCoeff::new_constant(Rational::new(7,8)));
+    before.p.add_term(vec![y],PhaseCoeff::QUARTER);
+    let mut after=before.clone();assert_eq!(after.omega(),Some(y));
+    assert_eq!(check_omega(&before,&after,y,0,1),Ok(()));
+    assert!(!after.p.terms.contains_key(&Vec::new()));
+    assert_eq!(after.p.terms[&vec![0]].radians,Some(Rat::new(7.into(),19.into())));
+    let mut negative=before.clone();negative.p.terms.get_mut(&vec![y]).unwrap().constant=Rational::THREE_QUARTERS;
+    let mut out=negative.clone();assert_eq!(out.omega(),Some(y));
+    assert_eq!(check_omega(&negative,&out,y,0,1),Ok(()));
+    for quarter in [Rational::QUARTER,Rational::THREE_QUARTERS]{
+        let mut b=before.clone();b.p=PhasePolynomial::new();b.p.add_term(vec![y],PhaseCoeff::new_constant(quarter));
+        let mut a=b.clone();assert_eq!(a.omega(),Some(y));
+        assert_eq!(check_omega(&b,&a,y,0,1),Ok(()));
+    }
+    assert_eq!(check_omega(&before,&after,y,0,0),Err("omega multiplier mismatch"));
+    assert_eq!(check_omega(&before,&after,y,1,1),Err("omega multiplier mismatch"));
+    let mut bad=before.clone();bad.constraints.push([vec![y]].into_iter().collect());
+    assert_eq!(check_omega(&bad,&after,y,0,1),Err("invalid omega integrator"));
+    let mut bad=before.clone();bad.p.terms.remove(&vec![y]);
+    assert_eq!(check_omega(&bad,&after,y,0,1),Err("missing omega singleton"));
+    let mut bad=before.clone();bad.p.terms.get_mut(&vec![y]).unwrap().constant=Rational::HALF;
+    assert_eq!(check_omega(&bad,&after,y,0,1),Err("invalid omega singleton"));
+    let mut bad=before.clone();bad.p.terms.get_mut(&vec![0,y]).unwrap().constant=Rational::QUARTER;
+    assert_eq!(check_omega(&bad,&after,y,0,1),Err("omega nonhalf interaction"));
+    let mut bad=after.clone();bad.p.add_term(vec![],PhaseCoeff::HALF);
+    assert_eq!(check_omega(&before,&bad,y,0,1),Err("omega phase mismatch"));
+    let mut bad=after.clone();bad.p.terms.get_mut(&vec![0]).unwrap().radians=None;
+    bad.p.terms.retain(|_,c|!(c.constant==Rational::new(0,1)&&c.radians.is_none()&&c.symbols.is_empty()));
+    assert_eq!(check_omega(&before,&bad,y,0,1),Err("omega phase mismatch"));
+    let mut bad=after.clone();bad.constraints.clear();
+    assert_eq!(check_omega(&before,&bad,y,0,1),Err("omega ANF mismatch"));
+    let mut bad=after.clone();bad.live.insert(y);
+    assert_eq!(check_omega(&before,&bad,y,0,1),Err("omega domain mismatch"));
+    let mut bad=after.clone();bad.live.insert(99);
+    assert_eq!(check_omega(&before,&bad,y,0,1),Err("omega domain mismatch"));
+    println!("CRR_OMEGA_CERTIFICATE positive_sign=1 negative_sign=1 empty_phi=2 rejected=11 multiplier_sqrt2_power=1");
 }
 
 // Free hidden variables contribute exactly 2 per variable, regardless

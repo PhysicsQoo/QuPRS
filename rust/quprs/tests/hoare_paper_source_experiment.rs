@@ -880,11 +880,12 @@ fn native_disjoint_predicate_partition(){
 // Independent unnormalized Clifford+T gate recurrence. This reference
 // never constructs PathSum, CNF or an RR checkpoint. H contributes its
 // integer sign and branches; the common H normalization is omitted.
-fn gate_reference(ops:&[QuantumOp],x:u64)->Vec<Root>{
+fn gate_reference(ops:&[QuantumOp],x:u64)->Vec<Root>{gate_reference_width(ops,x,3)}
+fn gate_reference_width(ops:&[QuantumOp],x:u64,n:usize)->Vec<Root>{
     use QuantumOp as G;
-    let mut a=vec![[0i64;32];8];a[x as usize][0]=1;
+    let mut a=vec![[0i64;32];1usize<<n];a[x as usize][0]=1;
     for g in ops{
-        let mut b=vec![[0i64;32];8];
+        let mut b=vec![[0i64;32];1usize<<n];
         for (z,r) in a.iter().enumerate(){
             let mut add=|w:usize,phase:usize|{
                 for (j,&v) in r.iter().enumerate(){
@@ -900,6 +901,8 @@ fn gate_reference(ops:&[QuantumOp],x:u64)->Vec<Root>{
                 G::T(q)=>add(z,8*((z>>q)&1)),
                 G::TDG(q)=>add(z,56*((z>>q)&1)),
                 G::Z(q)=>add(z,32*((z>>q)&1)),
+                G::S(q)=>add(z,16*((z>>q)&1)),
+                G::SDG(q)=>add(z,48*((z>>q)&1)),
                 _=>panic!("unsupported independent gate reference"),
             }
         }
@@ -993,6 +996,107 @@ fn native_disjoint_gpmc_ablation(){
     assert_eq!((checks,partitions),(72,24));
     if let Some(dir)=dir{std::fs::write(dir.join("disjoint-ablation.tsv"),rows).unwrap();}
     println!("HOARE_NATIVE_DISJOINT_ABLATION checks={checks} partitions={partitions} pivots={hits} independent_gate_oracle=true");
+}
+
+
+// A conservative, predeclared router: retain the global route for
+// small residuals. A fixed-input probe is charged even if rejected.
+fn structural_route(h0:usize,probe_h:usize,legal:usize)->bool{
+    h0>12&&h0.saturating_sub(probe_h)>=4&&legal<=16
+}
+#[test]
+fn native_router_boundary(){
+    assert!(!structural_route(12,0,4));
+    assert!(!structural_route(20,17,4));
+    assert!(!structural_route(20,0,17));
+    assert!(structural_route(20,16,4));
+}
+fn feynman_source_ops(src:&str)->(Vec<QuantumOp>,usize){
+    use QuantumOp as G;
+    let mut lines=src.lines().filter(|s|!s.trim().is_empty());
+    assert_eq!(lines.next().unwrap(),"OPENQASM 2.0;");
+    assert_eq!(lines.next().unwrap(),"include \"qelib1.inc\";");
+    let n:usize=lines.next().unwrap().strip_prefix("qreg qubits[").unwrap().strip_suffix("];").unwrap().parse().unwrap();
+    let mut ops=Vec::new();
+    for line in lines{
+        let (g,args)=line.strip_suffix(';').unwrap().split_once(' ').unwrap();
+        let q:Vec<usize>=args.split(',').map(|a|a.trim().strip_prefix("qubits[").unwrap().strip_suffix(']').unwrap().parse().unwrap()).collect();
+        assert!(q.iter().all(|&i|i<n));
+        let op=match (g,q.as_slice()){
+            ("h",[a])=>G::H(*a),("x",[a])=>G::X(*a),("z",[a])=>G::Z(*a),
+            ("t",[a])=>G::T(*a),("tdg",[a])=>G::TDG(*a),("s",[a])=>G::S(*a),("sdg",[a])=>G::SDG(*a),
+            ("cx",[a,b])=>G::CX(*a,*b),("ccx",[a,b,c])=>G::CCX(*a,*b,*c),
+            _=>panic!("unsupported source gate {line}"),
+        };ops.push(op);
+    }
+    (ops,n)
+}
+#[test]
+fn native_feynman_router_pilot(){
+    // Existing repository source fixtures, not newly generated circuits.
+    // Research-defined P: all bits except q0,q1 zero; Q: top bit zero.
+    // These are NOT claims about the original paper's specification.
+    let sources=[
+        ("qft4",include_str!("../../../benchmarks/Feynman/qft_4.qasm"),[21599390531584i128;4]),
+        ("hwb6",include_str!("../../../benchmarks/Feynman/hwb6.qasm"),[0i128;4]),
+        ("mod5",include_str!("../../../benchmarks/Feynman/mod5_4.qasm"),[16384i128,0,0,0]),
+        ("barenco5",include_str!("../../../benchmarks/Feynman/barenco_tof_5.qasm"),[0i128;4]),
+    ];
+    let dir=std::env::var_os("HOARE_PAPER_PROJECTED_DIR").map(std::path::PathBuf::from);
+    let mut rows=String::new();let mut plans=String::new();
+    for (name,src,expected) in sources{
+        let (ops,n)=feynman_source_ops(src);
+        let (native,width)=parse_qasm_str(src).unwrap();
+        assert_eq!((native,width),(ops.clone(),n));
+        assert!(ops.iter().filter(|op|matches!(op,QuantumOp::H(_))).count()<=60);
+        let mask=1u64<<(n-1);
+        for x in 0..4u64{
+            let a=gate_reference_width(&ops,x,n);
+            let score=a.iter().enumerate().filter(|(z,_)|*z as u64&mask!=0)
+                .flat_map(|(_,r)|*r).map(|v|i128::from(v)*i128::from(v)).sum::<i128>();
+            assert_eq!(score,expected[x as usize],"{name} {x}");
+        }
+        let t=std::time::Instant::now();
+        let mut raw=PathSum::new(n);raw.set_auto_reduce(false);
+        for op in &ops{op.apply(&mut raw,false);}
+        let build=t.elapsed().as_nanos();assert!(admitted(&raw));
+        let t=std::time::Instant::now();let (general,gr)=reduce(raw);
+        let common=build+t.elapsed().as_nanos();
+        let pre:Vec<Anf>=(2..n).map(|i|Anf::from([0,1u64<<i])).collect();
+        let post=vec![Anf::from([0,mask])];
+        let mut emit=|route:&str,x:i64,out:&PathSum,pred:&[Anf],scale:u32,prefix_ns:u128,want:i128|{
+            let key=format!("router-{name}-{route}-{x}");
+            let t=std::time::Instant::now();
+            let plan=native_dyadic_projection_variant(out,pred,&post,32768,262144,true);
+            let enc=t.elapsed().as_nanos();
+            let (status,v,c,sign,d)=if let Some((c,sign,d))=plan{
+                if let Some(dir)=&dir{
+                    let mut text=format!("p cnf {} {}\n",c.vars,c.clauses.len());
+                    for row in &c.clauses{for l in row{text.push_str(&format!("{l} "));}text.push_str("0\n");}
+                    std::fs::write(dir.join(format!("{key}.cnf")),text).unwrap();
+                }
+                ("READY",c.vars,c.clauses.len(),sign,d)
+            }else{("UNSUPPORTED",0,0,0,0)};
+            rows.push_str(&format!("{key}\t{name}\t{route}\t{x}\t{status}\t{n}\t{}\t{v}\t{c}\t{sign}\t{d}\t{scale}\t{common}\t{prefix_ns}\t{enc}\t{want}\n",h(out)));
+        };
+        emit("global",-1,&general,&pre,gr.scale2,0,expected.iter().sum());
+        let mut first_h=0;let mut first_ns=0;
+        for x in 0..4u64{
+            let t=std::time::Instant::now();let (prefix,pr)=reduce(fixed_input(general.clone(),x));
+            let ns=t.elapsed().as_nanos();
+            if x==0{first_h=h(&prefix);first_ns=ns;}
+            let fixed:Vec<Anf>=(0..n).map(|i|if x>>i&1==1{Anf::from([1u64<<i])}else{Anf::from([0,1u64<<i])}).collect();
+            emit("input",x as i64,&prefix,&fixed,gr.scale2+pr.scale2,ns,expected[x as usize]);
+        }
+        let chosen=if structural_route(h(&general),first_h,4){"input"}else{"global"};
+        let probe_ns=if h(&general)>12&&chosen=="global"{first_ns}else{0};
+        plans.push_str(&format!("{name}\t{}\t{first_h}\t{chosen}\t{probe_ns}\n",h(&general)));
+        println!("HOARE_FEYNMAN_ROUTER_PLAN name={name} n={n} gates={} general_h={} first_h={first_h} selected={chosen} probe_ns={probe_ns} limit={}",ops.len(),h(&general),gr.limit);
+    }
+    if let Some(dir)=dir{
+        std::fs::write(dir.join("feynman-router.tsv"),rows).unwrap();
+        std::fs::write(dir.join("feynman-router-plan.tsv"),plans).unwrap();
+    }
 }
 
 #[test]

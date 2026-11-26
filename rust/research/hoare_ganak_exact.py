@@ -1929,7 +1929,9 @@ def run_gpmc_pure(directory, exe, tmp, deadline):
         run_native_gse_wmc(directory,solve,deadline,long_metrics)
         long_metrics=None
         query_cap=5
-    if (directory/"disjoint-ablation.tsv").is_file():
+    if (directory/"feynman-router.tsv").is_file():
+        run_feynman_router(directory,exe,tmp)
+    elif (directory/"disjoint-ablation.tsv").is_file():
         run_disjoint_ablation(directory,exe,tmp)
     elif (directory/"general-predicate.tsv").is_file():
         run_general_predicate(directory,exe,tmp)
@@ -1943,7 +1945,7 @@ def run_gpmc_pure(directory, exe, tmp, deadline):
         run_paper_single_fibre(directory,exe,tmp)
     # Freeze previously accepted timeout baselines instead of repeatedly
     # spending six additional 30s queries during conditioned-RR research.
-    if (directory/"paper-projected.tsv").is_file() and not any((directory/p).is_file() for p in ("paper-conditioned-fibre.tsv","paper-blind-fibre.tsv","paper-sector-inputs.tsv","general-predicate.tsv","disjoint-ablation.tsv")):
+    if (directory/"paper-projected.tsv").is_file() and not any((directory/p).is_file() for p in ("paper-conditioned-fibre.tsv","paper-blind-fibre.tsv","paper-sector-inputs.tsv","general-predicate.tsv","disjoint-ablation.tsv","feynman-router.tsv")):
         query_cap=30
         deadline=time.monotonic()+240
         long_metrics=[]
@@ -2566,6 +2568,64 @@ def run_disjoint_ablation(directory,exe,tmp):
             assert len(set(exact))==1,(case,exact)
             matches+=1
     print("HOARE_DISJOINT_ABLATION_PARITY complete_cases="+str(matches),flush=True)
+
+
+def run_feynman_router(directory,exe,tmp):
+    fields="key case route x status n h vars clauses sign denominator scale common_ns prefix_ns encoding_ns expected".split()
+    plans=list(csv.DictReader((directory/"feynman-router.tsv").open(),fieldnames=fields,delimiter="\t"))
+    policy={r[0]:r[1:] for r in csv.reader((directory/"feynman-router-plan.tsv").open(),delimiter="\t")}
+    assert len(plans)==20 and len(policy)==4
+    for case,(h0,h1,choice,probe_ns) in policy.items():
+        assert choice==("input" if int(h0)>12 and int(h0)-int(h1)>=4 else "global")
+        summaries={}
+        for arm in ("global","input","adaptive"):
+            route=choice if arm=="adaptive" else arm
+            group=[p for p in plans if p["case"]==case and p["route"]==route]
+            assert [int(p["x"]) for p in group]==([-1] if route=="global" else list(range(4)))
+            spent=int(group[0]["common_ns"])/1e9+(int(probe_ns)/1e9 if arm=="adaptive" else 0)
+            records=[]
+            for p in group:
+                row=dict(p);row["arm"]=arm
+                for k in ("x","n","h","vars","clauses","sign","denominator","scale","common_ns","prefix_ns","encoding_ns","expected"):row[k]=int(p[k])
+                spent+=(row["prefix_ns"]+row["encoding_ns"])/1e9
+                row.update(normalized=None,metrics=[],query_s=0.0)
+                if spent>=30:row["status"]="BUDGET_NOT_RUN"
+                elif p["status"]=="READY":
+                    start=time.monotonic()
+                    base=(directory/(p["key"]+".cnf")).read_text()
+                    assert base.splitlines()[0]==f'p cnf {row["vars"]} {row["clauses"]}'
+                    data,radix,bound=single_fibre_pack(base,[row["sign"]],row["n"]+2*row["h"])
+                    query=pathlib.Path(tmp)/"feynman-router.cnf"
+                    query.write_text(data)
+                    row["query_sha256"]=hashlib.sha256(data.encode()).hexdigest()
+                    t=time.monotonic()
+                    try:
+                        remaining=30-spent-(t-start)
+                        if remaining<=0:raise TimeoutError("router budget")
+                        stdout=profile_gpmc([str(exe),"-mode=1","-natw",str(query)],min(30,remaining),
+                                           pathlib.Path(tmp)/"feynman-router-time.tsv",row["metrics"])
+                        val=parse_gpmc_integer(stdout,"wmc",bound*radix)
+                        a,b=single_fibre_decode(val,radix,bound,2)
+                        assert a>=b
+                        result=(a-b)<<row["scale"]
+                        assert result==row["expected"],(p["key"],result,row["expected"])
+                        row.update(status="EXACT",normalized=result)
+                    except (TimeoutError,subprocess.TimeoutExpired):row["status"]="TIMEOUT"
+                    except SolverSignalKilled:row["status"]="SIGNAL_KILL"
+                    row["query_s"]=time.monotonic()-t
+                    spent+=time.monotonic()-start
+                records.append(row)
+                print("HOARE_FEYNMAN_ROUTER_GPMC "+json.dumps(row),flush=True)
+            exact=[r for r in records if r["normalized"] is not None]
+            total=sum(r["normalized"] for r in exact)
+            complete=len(exact)==len(group)
+            verdict="REFUTED" if total else "PROVED" if complete else "UNKNOWN"
+            summaries[arm]=total if complete else None
+            print("HOARE_FEYNMAN_ROUTER_SUMMARY "+json.dumps(dict(case=case,arm=arm,selected=route,
+                exact=len(exact),planned=len(group),verdict=verdict,total=total if complete else None,
+                accounted_s=spent,max_h=max(r["h"] for r in records))),flush=True)
+        done=[v for v in summaries.values() if v is not None]
+        assert len(set(done))<=1,(case,summaries)
 
 def run_paper_projected_optimized(directory,count,deadline,metrics):
     fields="case mode n h0 h scale vars clauses sign denominator status build_ns rr_ns encoding_ns expected_bad".split()

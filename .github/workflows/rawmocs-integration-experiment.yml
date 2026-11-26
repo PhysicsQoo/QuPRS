@@ -10,7 +10,7 @@ on:
       suite:
         description: Experimental evidence suite
         type: choice
-        options: [legacy, cross-family, source-admission, root-profile, factor-classes, sparse-anchor, prefix-memo, axis-profile, direct-binary, operand-profile, pool-profile, last-use-donor, masked-donor, descendant-units]
+        options: [legacy, cross-family, source-admission, root-profile, factor-classes, sparse-anchor, prefix-memo, axis-profile, direct-binary, operand-profile, pool-profile, last-use-donor, masked-donor, descendant-units, inplace-scan]
         default: legacy
 permissions:
   contents: read
@@ -981,17 +981,18 @@ jobs:
           if-no-files-found: warn
 
   descendant-units:
-    if: github.event_name == 'push' || inputs.suite == 'descendant-units'
+    if: github.event_name == 'push' || (inputs.suite == 'descendant-units' || inputs.suite == 'inplace-scan')
     name: General fallback descendant unit closure
     runs-on: ubuntu-24.04
     timeout-minutes: 8
     env:
-      CANDIDATE_SHA: 762a1da60c70000134b31dd41aee7e0c78068209
+      EXPERIMENT: ${{ inputs.suite == 'descendant-units' && 'descendant-units' || 'inplace-scan' }}
+      CANDIDATE_SHA: ${{ inputs.suite == 'descendant-units' && '762a1da60c70000134b31dd41aee7e0c78068209' || '9b10e04b02637db0eede7e5811f3cd54d054b191' }}
     steps:
       - uses: actions/checkout@v4
         with:
           repository: PhysicsQoo/RaWMoCS
-          ref: 762a1da60c70000134b31dd41aee7e0c78068209
+          ref: ${{ env.CANDIDATE_SHA }}
           path: .classes-candidate
           persist-credentials: false
       - uses: actions/download-artifact@v4
@@ -1054,7 +1055,9 @@ jobs:
               if name in ("vqe8","qaoa9"):
                   assert ref is not None
               cases.append((name,cnf.resolve(),sha,limit,ref))
-          report={"candidate_sha":os.environ["CANDIDATE_SHA"],"binary_sha256":digest(solver),
+          experiment=os.environ["EXPERIMENT"]
+          candidate_arm="adaptive" if experiment=="descendant-units" else "inplace"
+          report={"experiment":experiment,"candidate_sha":os.environ["CANDIDATE_SHA"],"binary_sha256":digest(solver),
                   "working_bits":100,"scope":"Same-binary instrumented general fallback; bounded search progress, not GPMC speedup","cases":{}}
           def save():
               (root/"report.json").write_text(json.dumps(report,indent=2)+"\n")
@@ -1065,9 +1068,12 @@ jobs:
                   label=f"{name}-{arm}-{i}"
                   env=os.environ.copy()
                   env.pop("RAWMOCS_RESEARCH_DESCENDANT_UNITS",None)
+                  env.pop("RAWMOCS_RESEARCH_INPLACE_SCAN",None)
                   env["RAWMOCS_RESEARCH_GENERAL_STATS"]="1"
                   if arm=="adaptive":
                       env["RAWMOCS_RESEARCH_DESCENDANT_UNITS"]="1"
+                  elif arm=="inplace":
+                      env["RAWMOCS_RESEARCH_INPLACE_SCAN"]="1"
                   rss=root/(label+".rss")
                   argv=["timeout","-k","2s",str(limit+3)+"s","prlimit","--as=3221225472","--",
                       "/usr/bin/time","-f","%M","-o",str(rss),str(solver),"--digits","30",
@@ -1092,7 +1098,7 @@ jobs:
                       assert stats["complete"]==int(p.returncode==0)
                       assert stats["root_indexed"]<=stats["indexed_attempts"]
                       assert stats["indexed_complete"]+stats["indexed_conflicts"]<=stats["indexed_attempts"]
-                      if arm=="scan":
+                      if arm in ("scan","inplace"):
                           assert stats["indexed_attempts"]==0
                       if p.returncode==0:
                           sat,count=p.stdout.splitlines()
@@ -1117,28 +1123,32 @@ jobs:
                   save()
                   return row
               a=run("scan",0)
-              b=run("adaptive",1)
+              b=run(candidate_arm,1)
               if name=="chain":
                   assert a["status"]==b["status"]=="ANALYTIC_PASS"
               if a["exit"]==b["exit"]==0:
                   assert a["stdout_sha256"]==b["stdout_sha256"]
                   for k in ("nodes","cache_hits","branches","splits"):
                       assert a["stats"][k]==b["stats"][k], (name,k)
-                  c=run("adaptive",2)
+                  if candidate_arm=="inplace":
+                      assert a["stats"]==b["stats"], name
+                  c=run(candidate_arm,2)
                   d=run("scan",3)
                   assert c["exit"]==d["exit"]==0 and c["stdout_sha256"]==d["stdout_sha256"]==a["stdout_sha256"]
+                  if candidate_arm=="inplace":
+                      assert a["stats"]==c["stats"]==d["stats"], name
                   case["status"]="PAIRED_COUNT_PARITY" if all(r["status"] in ("ANALYTIC_PASS","WITNESSED_PASS") for r in case["rows"]) else "COUNT_PARITY_UNWITNESSED"
               else:
                   case["status"]="CENSORED_COMPARISON"
               save()
           report["status"]="BOUNDED_DIAGNOSTIC_COMPLETE"
           save()
-          print("DESCENDANT_UNITS_FINAL",json.dumps(report),flush=True)
+          print("DESCENDANT_UNITS_FINAL" if experiment=="descendant-units" else "INPLACE_SCAN_FINAL",json.dumps(report),flush=True)
           PY
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: rawmocs-descendant-units
+          name: rawmocs-${{ env.EXPERIMENT }}
           path: .descendant-evidence/
           include-hidden-files: true
           if-no-files-found: warn

@@ -10,7 +10,7 @@ on:
       suite:
         description: Experimental evidence suite
         type: choice
-        options: [legacy, cross-family, source-admission, root-profile, factor-classes, sparse-anchor, prefix-memo, axis-profile, direct-binary, operand-profile, pool-profile, last-use-donor, masked-donor, descendant-units, inplace-scan, inplace-branch, move-components, borrowed-cache, general-cumulative, general-simulation-repair, general-native-gpmc, scope-scratch, streaming-large-general, large-root-closure, large-descendant-closure, fixed-work-descendant, large-general-candidate, long-native-candidate, default-parser-isolation, scope-scratch-fair, scope-scratch-candidate, large-root-ownership, root-ownership-port, packed-index-scratch, owned-entry-isolation, root-long-regression, reversible-index-state, reversible-canonical-boundary, historical-gap-baseline, reversible-frontier-transitions]
+        options: [legacy, cross-family, source-admission, root-profile, factor-classes, sparse-anchor, prefix-memo, axis-profile, direct-binary, operand-profile, pool-profile, last-use-donor, masked-donor, descendant-units, inplace-scan, inplace-branch, move-components, borrowed-cache, general-cumulative, general-simulation-repair, general-native-gpmc, scope-scratch, streaming-large-general, large-root-closure, large-descendant-closure, fixed-work-descendant, large-general-candidate, long-native-candidate, default-parser-isolation, scope-scratch-fair, scope-scratch-candidate, large-root-ownership, root-ownership-port, packed-index-scratch, owned-entry-isolation, root-long-regression, reversible-index-state, reversible-canonical-boundary, historical-gap-baseline, reversible-frontier-transitions, reversible-ordered-frontier, historical-grover5]
         default: legacy
 permissions:
   contents: read
@@ -3731,7 +3731,7 @@ jobs:
           if-no-files-found: warn
 
   reversible-frontier-transitions:
-    if: github.event_name == 'push' || inputs.suite == 'reversible-frontier-transitions'
+    if: github.event_name == 'workflow_dispatch' && inputs.suite == 'reversible-frontier-transitions'
     name: Reversible frontier / five-arm balanced fixed work
     runs-on: ubuntu-24.04
     timeout-minutes: 8
@@ -3766,5 +3766,201 @@ jobs:
         with:
           name: rawmocs-reversible-frontier-transitions
           path: .trail-evidence/
+          include-hidden-files: true
+          if-no-files-found: warn
+
+  reversible-ordered-frontier:
+    if: github.event_name == 'push' || inputs.suite == 'reversible-ordered-frontier'
+    name: Ordered frontier / bitmap and materialized keys
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: PhysicsQoo/RaWMoCS
+          ref: 71771292298537fece59efdba4d59667276dd6b0
+          path: .classes-candidate
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: .classes-candidate/crates/rawmocs-cli -> target
+          shared-key: rawmocs-general-dependencies
+          cache-workspace-crates: 'false'
+      - name: Compile and test primitive on exact source
+        run: |
+          set -euo pipefail
+          test "$(git -C .classes-candidate rev-parse HEAD)" = 71771292298537fece59efdba4d59667276dd6b0
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libgmp-dev libmpfr-dev m4 make gcc time pkg-config
+          mkdir -p .trail-evidence
+          cargo test --locked --release --manifest-path .classes-candidate/crates/rawmocs-cli/Cargo.toml 2>&1 | tee .trail-evidence/science.log
+      - name: Fixed work native diagnostic with reversible branch pairs
+        run: |
+          set -euo pipefail
+          timeout -k 2s 90s prlimit --as=3221225472 -- cargo test --locked --release --manifest-path .classes-candidate/crates/rawmocs-cli/Cargo.toml ordered_frontier_fixed_work -- --ignored --nocapture 2>&1 | tee .trail-evidence/fixed-work.log
+          test "$(grep -c '^ORDERED_FRONTIER_FIXED_WORK ' .trail-evidence/fixed-work.log)" -eq 50
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: rawmocs-reversible-ordered-frontier
+          path: .trail-evidence/
+          include-hidden-files: true
+          if-no-files-found: warn
+
+  historical-grover5:
+    if: github.event_name == 'push' || inputs.suite == 'historical-grover5'
+    name: Historical long case / v0.1.1 vs GPMC / ${{ matrix.case }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    strategy:
+      fail-fast: false
+      matrix:
+        case: [feynman_grover_5]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: PhysicsQoo/RaWMoCS
+          ref: b3d02b2720c2fae5231c0ed5cf44950164a5780d
+          path: .gap-release
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: PhysicsQoo/GPMC
+          ref: 89bbc89d0de918e7a5385740355df55765039230
+          path: .gpmc
+          submodules: recursive
+          persist-credentials: false
+      - name: Recover exact historic original CNFs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          zip="$RUNNER_TEMP/historical-trail.zip"
+          gh api repos/PhysicsQoo/RaWMoCS/actions/artifacts/14234415131/zip > "$zip"
+          echo '5f91528c376448c537e4ff08e26e9bb38b81bb7574c3596c8b0f8f3a50a632f4  '"$zip" | sha256sum -c -
+          unzip -q "$zip" -d .gap-input
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: .gap-release/crates/rawmocs-cli -> target
+          shared-key: rawmocs-general-dependencies
+          cache-workspace-crates: 'false'
+      - name: Build pinned original GPMC and released RaWMoCS
+        run: |
+          set -euo pipefail
+          test "$(git -C .gap-release rev-parse HEAD)" = b3d02b2720c2fae5231c0ed5cf44950164a5780d
+          test "$(git -C .gpmc rev-parse HEAD)" = 89bbc89d0de918e7a5385740355df55765039230
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends cmake ninja-build libgmp-dev libmpfr-dev zlib1g-dev m4 make gcc time pkg-config
+          cargo build --locked --release --manifest-path .gap-release/crates/rawmocs-cli/Cargo.toml
+          cmake -S .gpmc -B .gpmc/build -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake --build .gpmc/build --target gpmc-bin --parallel 2
+      - name: Fresh paired counts, bounded independent oracle, and route attribution
+        env:
+          CASE: ${{ matrix.case }}
+        run: |
+          set -euo pipefail
+          mkdir -p .gap-evidence
+          python3 - <<'PY'
+          import hashlib,json,os,re,statistics,subprocess,sys,time
+          from fractions import Fraction
+          from pathlib import Path
+          root=Path(".gap-evidence").resolve()
+          tools=Path(".gap-release/crates/rawmocs-cli/tools").resolve()
+          sys.path.insert(0,str(tools))
+          from release_transfer import check_count
+          from release_native_paired import parse
+          def digest(p): return hashlib.sha256(p.read_bytes()).hexdigest()
+          name=os.environ["CASE"]
+          expected={"feynman_grover_5":"eeb8e82273b1e9dc105e004d73b3e59f1d48bb893fe768bb4034262224a780b0"}[name]
+          cnf,=Path(".gap-input").rglob(name+"-gpmc.cnf")
+          cnf=cnf.resolve()
+          assert digest(cnf)==expected
+          bins={"rawmocs":Path(".gap-release/crates/rawmocs-cli/target/release/rawmocs").resolve(),"gpmc":Path(".gpmc/build/gpmc").resolve()}
+          report={"case":name,"source_sha256":expected,"source_bytes":cnf.stat().st_size,"header":cnf.open().readline().strip(),"revisions":{"rawmocs":"b3d02b2720c2fae5231c0ed5cf44950164a5780d","gpmc":"89bbc89d0de918e7a5385740355df55765039230","original_quprs":"0b28736651b3740ed3b201edd2efdef3da541e0d"},"binaries":{a:digest(p) for a,p in bins.items()},"oracle_attempts":[],"cohorts":{}}
+          def save(): (root/"report.json").write_text(json.dumps(report,indent=2)+"\n")
+          save()
+          ref=None
+          for script in ("original_exact_prejoin.py","original_fixed_interval.py"):
+              p=subprocess.run(["timeout","-k","2s","45s","prlimit","--as=3221225472","--",sys.executable,str(tools/"repro"/script),str(cnf),expected],capture_output=True,text=True,timeout=50)
+              (root/(script+".stdout")).write_text(p.stdout)
+              (root/(script+".stderr")).write_text(p.stderr)
+              report["oracle_attempts"].append({"script":script,"exit":p.returncode})
+              save()
+              if p.returncode!=0: continue
+              candidate=json.loads(p.stdout)
+              if candidate.get("source_sha256")==expected and candidate.get("bits")==550 and candidate.get("status") in ("INDEPENDENT_INTERVAL_COMPLETE","INDEPENDENT_FIXED_INTERVAL_COMPLETE") and candidate["width"]<=19 and candidate["work"]<=40000000 and candidate["peak"]<=2000000:
+                  if candidate["status"]=="INDEPENDENT_FIXED_INTERVAL_COMPLETE": assert candidate["order_policy"] in ("fill-reverse","degree-reverse")
+                  ref=candidate
+                  break
+          report["witness_status"]="INDEPENDENT_COMPLETE" if ref is not None else "INDEPENDENT_CENSORED_OR_UNAVAILABLE"
+          if ref is not None:
+              path=root/"independent-reference.json"
+              path.write_text(json.dumps(ref,indent=2)+"\n")
+              report["witness_sha256"]=digest(path)
+          save()
+          for digits,bits in ((30,100),):
+              case={"digits":digits,"bits":bits,"rows":[]}
+              report["cohorts"][str(digits)]=case
+              cmds={"gpmc":[str(bins["gpmc"]),"-mode=1",f"-prec={digits}",str(cnf)],"rawmocs":[str(bins["rawmocs"]),"--digits",str(digits),"--timeout-ms","30000",str(cnf)]}
+              for i,arm in enumerate(("gpmc","rawmocs","rawmocs","gpmc")*2):
+                  prefix=root/f"{digits}-{i}-{arm}"
+                  assert digest(cnf)==expected
+                  start=time.monotonic_ns()
+                  p=subprocess.run(["timeout","-k","2s","30s","prlimit","--as=3221225472","--","/usr/bin/time","-f","%M","-o",str(prefix.with_suffix(".rss")),*cmds[arm]],capture_output=True,text=True,timeout=37)
+                  row={"arm":arm,"exit":p.returncode,"wall_ns":time.monotonic_ns()-start}
+                  case["rows"].append(row)
+                  prefix.with_suffix(".stdout").write_text(p.stdout)
+                  prefix.with_suffix(".stderr").write_text(p.stderr)
+                  rss=prefix.with_suffix(".rss")
+                  if rss.exists():
+                      vals=[x for x in rss.read_text().splitlines() if x.strip().isdigit()]
+                      if len(vals)==1: row["rss_kib"]=int(vals[0])
+                  if p.returncode!=0:
+                      row["status"]="CENSORED_OR_FAILED"
+                  else:
+                      try:
+                          row.update(parse(p.stdout,arm))
+                          if arm=="rawmocs":
+                              route,solve=re.findall(r"^RAWMOCS_COMPLETE route=(\w+) digits="+str(digits)+r" bits="+str(bits)+r" solve_ns=(\d+)$",p.stderr,re.M)[0]
+                              row["route"]=route
+                              row["solve_ns"]=int(solve)
+                          else:
+                              # Precision is checked from the configured argv;
+                              # internal MPFR bit mapping is not independently measured.
+                              row["working_digits_requested"]=digits
+                          if ref is not None: row["witness_upper"]=check_count(row,ref,digits)
+                          row["status"]="WITNESSED_PASS" if ref is not None else "COMPLETED_UNWITNESSED"
+                      except (AssertionError,ValueError,IndexError,KeyError) as e:
+                          row["status"]="NUMERIC_OR_PROTOCOL_INCONCLUSIVE"
+                          row["error"]=str(e)
+                  save()
+                  if i%2==1 and any(x["status"] not in ("WITNESSED_PASS","COMPLETED_UNWITNESSED") for x in case["rows"]): break
+              rows=case["rows"]
+              if len(rows)==8 and all(x["status"] in ("WITNESSED_PASS","COMPLETED_UNWITNESSED") for x in rows):
+                  a,b=rows[0],rows[1]
+                  scale=max(Fraction(1),*(abs(Fraction(x[k])) for x in (a,b) for k in ("real","imag")))
+                  error=max(abs(Fraction(a[k])-Fraction(b[k])) for k in ("real","imag"))/scale
+                  agree=a["sat"]==b["sat"] and error<=Fraction(1,10**(digits-6))
+                  stable=all((x["sat"],x["real"],x["imag"])==next((y["sat"],y["real"],y["imag"]) for y in rows if y["arm"]==x["arm"]) for x in rows)
+                  case["paired_agreement"]=agree
+                  case["stable_counts"]=stable
+                  if agree and stable:
+                      case["median"]={a:{k:statistics.median(x[k] for x in rows if x["arm"]==a) for k in ("wall_ns","rss_kib")} for a in bins}
+                      case["status"]="WITNESSED_PAIRS_PASS" if ref is not None else "AGREEMENT_ONLY_NO_INDEPENDENT_WITNESS"
+                      if ref is not None: case["gpmc_over_rawmocs"]=case["median"]["gpmc"]["wall_ns"]/case["median"]["rawmocs"]["wall_ns"]
+                  else: case["status"]="NUMERIC_INCONCLUSIVE"
+              else: case["status"]="CENSORED_OR_FAILED"
+              save()
+          report["status"]="HISTORICAL_GROVER5_DIAGNOSTIC_COMPLETE"
+          save()
+          print("HISTORICAL_GROVER5_FINAL",json.dumps(report),flush=True)
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: rawmocs-historical-gap-${{ matrix.case }}
+          path: .gap-evidence/
           include-hidden-files: true
           if-no-files-found: warn

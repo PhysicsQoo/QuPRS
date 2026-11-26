@@ -899,7 +899,7 @@ jobs:
           git rev-parse HEAD | tee evidence/source-head.txt
           rustc --version | tee evidence/rustc-version.txt
           sha256sum rust/quprs/tests/conditional_rr_experiment.rs rust/quprs/tests/support/conditional_trace.rs rust/research/conditional_rr_incidence.py docs/development/paper-corpus-manifest.json > evidence/source-sha256.txt
-          cargo test --locked --manifest-path rust/Cargo.toml -p quprs --test conditional_rr_experiment exact_ -- --nocapture 2>&1 | tee evidence/conditional-controls.log
+          CRR_GATE_DIR="$PWD/evidence/portable-gates" cargo test --locked --manifest-path rust/Cargo.toml -p quprs --test conditional_rr_experiment exact_ -- --nocapture 2>&1 | tee evidence/conditional-controls.log
       - name: Profile source-locked original EQ pairs
         run: |
           set -euo pipefail
@@ -907,7 +907,7 @@ jobs:
           trap 'rm -rf "$tmp"' EXIT
           python3 scripts/install_gpmc_release.py --dest "$tmp/gpmc" | tee evidence/conditional-gpmc-release.json
           sha256sum "$tmp/gpmc" | tee evidence/conditional-gpmc-sha256.txt
-          QUPRS_GPMC_PATH="$tmp/gpmc" cargo test --locked --manifest-path rust/Cargo.toml -p quprs --test conditional_rr_experiment gpmc_trace_witness -- --nocapture 2>&1 | tee evidence/conditional-gpmc-witness.log
+          CRR_GATE_DIR="$PWD/evidence/portable-gates" QUPRS_GPMC_PATH="$tmp/gpmc" cargo test --locked --manifest-path rust/Cargo.toml -p quprs --test conditional_rr_experiment gpmc_trace_witness -- --nocapture 2>&1 | tee evidence/conditional-gpmc-witness.log
           if [[ "$CRR_PERF_STAGE" == formal_local ]]; then
             echo "Prior reference and performance evidence retained; this stage checks formal local lemmas."
           elif [[ "$CRR_PERF_STAGE" == independent_reference ]]; then
@@ -1019,6 +1019,25 @@ jobs:
             test "$(grep -Ec "^'QuPRS[.]CnfExtension[.]$theorem' (does not depend on any axioms|depends on axioms)" ../../../evidence/conditional-lean-cnf-extension.log)" -eq 1
           done
           echo 'CRR_LEAN_CNF_EXTENSION_PASS theorem_axiom_reports=10 ordered_definitions=true rust_refinement=false'
+          sha256sum CnfReplay.lean >> ../../../evidence/source-sha256.txt
+          LEAN_PATH=. lean CnfReplay.lean 2>&1 | tee ../../../evidence/conditional-lean-cnf-replay.log
+          if grep -E 'sorryAx|Lean[.]trustCompiler|Classical[.]choice' ../../../evidence/conditional-lean-cnf-replay.log; then
+            exit 1
+          fi
+          test "$(grep -Ec 'does not depend on any axioms|depends on axioms' ../../../evidence/conditional-lean-cnf-replay.log)" -eq 2
+          for theorem in and_forward and_nary; do
+            test "$(grep -Ec "^'QuPRS[.]CnfReplay[.]$theorem' (does not depend on any axioms|depends on axioms)" ../../../evidence/conditional-lean-cnf-replay.log)" -eq 1
+          done
+          gates=(../../../evidence/portable-gates/accept/*.gate)
+          rejected=(../../../evidence/portable-gates/reject/*.gate)
+          test "${#gates[@]}" -eq 19
+          test "${#rejected[@]}" -eq 7
+          sha256sum "${gates[@]}" "${rejected[@]}" ../../../evidence/portable-gates/{accept,reject}/*.cnf > ../../../evidence/conditional-portable-sha256.txt
+          LEAN_PATH=. lean --run CnfReplay.lean accept "${gates[@]}" 2>&1 | tee ../../../evidence/conditional-lean-portable-accept.log
+          LEAN_PATH=. lean --run CnfReplay.lean reject "${rejected[@]}" 2>&1 | tee ../../../evidence/conditional-lean-portable-reject.log
+          grep -Fx 'CRR_LEAN_PORTABLE_SUMMARY mode=accept count=19' ../../../evidence/conditional-lean-portable-accept.log
+          grep -Fx 'CRR_LEAN_PORTABLE_SUMMARY mode=reject count=7' ../../../evidence/conditional-lean-portable-reject.log
+          echo 'CRR_LEAN_CNF_REPLAY_PASS theorem_axiom_reports=2 executable_boolean_replay=true parser_refinement=false rust_refinement=false'
       - name: Prepare bounded native Conditional RR CodSpeed target
         if: env.CRR_PERF_STAGE == 'simulation'
         run: |

@@ -2268,6 +2268,7 @@ fn exact_trace_source_locked_receipts(){
         let dimacs=mgr.try_to_dimacs_string("gpmc").expect("receipt DIMACS");
         let (_,gate_receipt,weight_checks)=check_receipt_cnf(chosen,&dimacs).unwrap_or_else(|e|panic!("selected CNF certificate {case}: {e}"));
         let input_bound=normalized_input_bound(chosen.v.path_vars.len(),weight_checks,twice,if selected{k}else{0}).unwrap();
+        export_portable_gate(&format!("{case}_selected"),&portable_gate_text(&gate_receipt,v),&dimacs,false);
         println!("CRR_GATE_RECEIPT case={case} arm=selected sha256={} gates={} equalities={}",gate_receipt_sha(&gate_receipt),gate_receipt.defs.len(),gate_receipt.equalities.len());
         println!("CRR_REAL_CNF_CERTIFICATE case={case} status=matched vars={v} clauses={c} weights={weight_checks} structural=true numerical_weight_check=true normalized_input_bound={input_bound} bound_conditional_on_reference=true solver_count_certified=false");
         let (_,lv,lc,lm,lo,ls)=lazy_prepare(p);
@@ -2393,6 +2394,7 @@ fn gpmc_trace_witness_source_receipts(){
             let (actual,e,w)=check_receipt_cnf(encoded,&cnf).unwrap_or_else(|err|panic!("solver CNF {case} {arm}: {err}"));
             let input_bound=normalized_input_bound(encoded.v.path_vars.len(),w,twice,2*m+o).unwrap();
             println!("CRR_SOLVER_CNF_CERTIFICATE case={case} arm={arm} weights={w} cnf_sha256={} structural=true numerical_weight_check=true normalized_input_bound={input_bound} bound_conditional_on_reference=true",receipt_sha(cnf.as_bytes()));
+            export_portable_gate(&format!("{case}_{arm}"),&portable_gate_text(&e,actual.vars),&cnf,false);
             println!("CRR_GATE_RECEIPT case={case} arm={arm} sha256={} gates={} equalities={}",gate_receipt_sha(&e),e.defs.len(),e.equalities.len());
             let exact=if let Some(want)=expected{
                 let count=exact_serialized_wmc(&actual).unwrap();
@@ -2877,6 +2879,53 @@ fn gate_receipt_sha(e:&ExpectedCnf)->String{
     receipt_sha(format!("crr-gates-v1|live={:?}|defs={:?}|equalities={:?}|phase={:?}",
         e.live,e.defs,e.equalities,e.phase).as_bytes())
 }
+
+
+// Portable research schema v1: ASCII, one record per line, explicit
+// DIMACS IDs; export the exact CNF bytes separately, not reconstructed
+// clauses. Lean independently parses both files. Weights remain outside
+// the Boolean replay boundary (Rust numerical check retained).
+#[cfg(test)]
+fn portable_gate_text(e:&ExpectedCnf,vars:usize)->String{
+    use std::fmt::Write;
+    let mut out=format!("crr-gate-v1 {vars}\n");
+    for (&v,&id) in &e.live{writeln!(&mut out,"live {v} {id}").unwrap();}
+    for (z,op) in &e.defs{
+        match op{
+            GateOp::False=>writeln!(&mut out,"false {z}").unwrap(),
+            GateOp::And(inputs)=>{
+                write!(&mut out,"and {z}").unwrap();
+                for v in inputs{write!(&mut out," {v}").unwrap();}
+                out.push('\n');
+            },
+            GateOp::Xor(a,b)=>writeln!(&mut out,"xor {z} {a} {b}").unwrap(),
+        }
+    }
+    for (a,b) in &e.equalities{writeln!(&mut out,"eq {a} {b}").unwrap();}
+    for (&z,(mono,_)) in &e.phase{
+        write!(&mut out,"phase {z}").unwrap();
+        for v in mono{write!(&mut out," {v}").unwrap();}
+        out.push('\n');
+    }
+    out
+}
+#[cfg(test)]
+fn export_portable_gate(name:&str,text:&str,cnf:&str,negative:bool){
+    let Some(dir)=std::env::var_os("CRR_GATE_DIR")else{return;};
+    assert!(name.chars().all(|c|c.is_ascii_alphanumeric()||c=='_'));
+    let dir=std::path::PathBuf::from(dir).join(if negative{"reject"}else{"accept"});
+    std::fs::create_dir_all(&dir).unwrap();
+    let gate=dir.join(format!("{name}.gate"));
+    let dimacs=dir.join(format!("{name}.gate.cnf"));
+    // Each case/arm has a distinct name. Refuse stale/duplicate files.
+    use std::io::Write;
+    for (path,bytes) in [(&gate,text.as_bytes()),(&dimacs,cnf.as_bytes())]{
+        let mut f=std::fs::OpenOptions::new().create_new(true).write(true).open(path).unwrap();
+        f.write_all(bytes).unwrap();
+    }
+    println!("CRR_PORTABLE_GATE name={name} negative={negative} gate_sha256={} cnf_sha256={}",receipt_sha(text.as_bytes()),receipt_sha(cnf.as_bytes()));
+}
+
 #[test]
 fn exact_trace_gate_interface(){
     use quprs::rational::PhaseCoeff;
@@ -2888,18 +2937,30 @@ fn exact_trace_gate_interface(){
     let (mgr,_,_)=route_encode(&p);let cnf=mgr.try_to_dimacs_string("gpmc").unwrap();
     let (a,e,_)=check_receipt_cnf(&p,&cnf).unwrap();
     assert_eq!(verify_gate_receipt(&a,&e),Ok(()));
+    export_portable_gate("synthetic", &portable_gate_text(&e,a.vars),&cnf,false);
     let mut bad=e.clone();bad.defs[0].0=*e.live.values().next().unwrap();
     assert_eq!(verify_gate_receipt(&a,&bad),Err("gate output not fresh"));
+    export_portable_gate("duplicate_output",&portable_gate_text(&bad,a.vars),&cnf,true);
     let mut bad=e.clone();let z=bad.defs[0].0;bad.defs[0].1=GateOp::And(vec![z]);
     assert_eq!(verify_gate_receipt(&a,&bad),Err("gate AND dependency"));
+    export_portable_gate("self_dependency",&portable_gate_text(&bad,a.vars),&cnf,true);
     let mut bad=e.clone();bad.defs.pop();
     assert_eq!(verify_gate_receipt(&a,&bad),Err("gate domain coverage"));
+    export_portable_gate("missing_gate",&portable_gate_text(&bad,a.vars),&cnf,true);
     let mut bad=e.clone();bad.equalities.pop();
     assert_eq!(verify_gate_receipt(&a,&bad),Err("gate clause mismatch"));
+    export_portable_gate("missing_equality",&portable_gate_text(&bad,a.vars),&cnf,true);
     let mut bad=e.clone();bad.phase.values_mut().next().unwrap().0=vec![1];
     assert_eq!(verify_gate_receipt(&a,&bad),Err("gate phase binding"));
+    export_portable_gate("wrong_phase",&portable_gate_text(&bad,a.vars),&cnf,true);
     let mut bad=e.clone();let v=*e.live.values().next().unwrap();bad.live.insert(99,v);
     assert_eq!(verify_gate_receipt(&a,&bad),Err("gate live mapping"));
+    export_portable_gate("duplicate_live",&portable_gate_text(&bad,a.vars),&cnf,true);
+    let mut lines:Vec<_>=cnf.lines().map(str::to_string).collect();
+    let i=lines.iter().position(|l|!l.starts_with('p')&&!l.starts_with('c')).unwrap();
+    let mut row:Vec<i32>=lines[i].split_whitespace().map(|x|x.parse().unwrap()).collect();
+    row[0]=-row[0];lines[i]=row.iter().map(i32::to_string).collect::<Vec<_>>().join(" ");
+    export_portable_gate("wrong_clause",&portable_gate_text(&e,a.vars),&lines.join("\n"),true);
     println!("CRR_GATE_INTERFACE_CERTIFICATE positive=1 rejected=6 digest={} cross_language_refinement=false",gate_receipt_sha(&e));
 }
 

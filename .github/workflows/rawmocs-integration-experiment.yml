@@ -10,7 +10,7 @@ on:
       suite:
         description: Experimental evidence suite
         type: choice
-        options: [legacy, cross-family, source-admission, root-profile, factor-classes, sparse-anchor, prefix-memo, axis-profile, direct-binary, operand-profile, pool-profile, last-use-donor, masked-donor, descendant-units, inplace-scan, inplace-branch, move-components, borrowed-cache, general-cumulative, general-simulation-repair, general-native-gpmc, scope-scratch, streaming-large-general, large-root-closure, large-descendant-closure, fixed-work-descendant, large-general-candidate, long-native-candidate, default-parser-isolation, scope-scratch-fair, scope-scratch-candidate, large-root-ownership, root-ownership-port, packed-index-scratch, owned-entry-isolation, root-long-regression, reversible-index-state, reversible-canonical-boundary, historical-gap-baseline, reversible-frontier-transitions, reversible-ordered-frontier, historical-grover5, grover5-precision-audit, grover5-seven-pairs, reversible-rank-generation, reversible-single-unit-queue, component-scoped-trail-wmc, scoped-complete-ablation, scoped-adaptive-ablation, scoped-local-allocation, scoped-canonical-reuse, scoped-preindex-cache, general-pivot-scout, general-separator-scout, general-separator-paired, general-separator-transfer, general-separator-cli, general-separator-admission]
+        options: [legacy, cross-family, source-admission, root-profile, factor-classes, sparse-anchor, prefix-memo, axis-profile, direct-binary, operand-profile, pool-profile, last-use-donor, masked-donor, descendant-units, inplace-scan, inplace-branch, move-components, borrowed-cache, general-cumulative, general-simulation-repair, general-native-gpmc, scope-scratch, streaming-large-general, large-root-closure, large-descendant-closure, fixed-work-descendant, large-general-candidate, long-native-candidate, default-parser-isolation, scope-scratch-fair, scope-scratch-candidate, large-root-ownership, root-ownership-port, packed-index-scratch, owned-entry-isolation, root-long-regression, reversible-index-state, reversible-canonical-boundary, historical-gap-baseline, reversible-frontier-transitions, reversible-ordered-frontier, historical-grover5, grover5-precision-audit, grover5-seven-pairs, reversible-rank-generation, reversible-single-unit-queue, component-scoped-trail-wmc, scoped-complete-ablation, scoped-adaptive-ablation, scoped-local-allocation, scoped-canonical-reuse, scoped-preindex-cache, general-pivot-scout, general-separator-scout, general-separator-paired, general-separator-transfer, general-separator-cli, general-separator-admission, general-separator-prehash]
         default: legacy
 permissions:
   contents: read
@@ -5981,7 +5981,7 @@ jobs:
           if-no-files-found: warn
 
   general-separator-admission:
-    if: github.event_name == 'push' || inputs.suite == 'general-separator-admission'
+    if: github.event_name == 'workflow_dispatch' && inputs.suite == 'general-separator-admission'
     name: General separator admission / ${{ matrix.case }} / ${{ matrix.digits }} digits
     runs-on: ubuntu-24.04
     timeout-minutes: 12
@@ -6270,5 +6270,257 @@ jobs:
           path: |
             .separator-admission-evidence/
             codspeed-separator-cli.generated.yml
+          include-hidden-files: true
+          if-no-files-found: warn
+
+  general-separator-prehash:
+    if: github.event_name == 'push' || inputs.suite == 'general-separator-prehash'
+    name: General separator prehash / ${{ matrix.case }} / ${{ matrix.digits }} digits
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - case: vqe8
+            digits: 130
+          - case: feynman_mod_mult_55
+            digits: 130
+          - case: feynman_hwb6
+            digits: 130
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: PhysicsQoo/RaWMoCS
+          ref: 735abaed3535b4eea918e945cd1bdf97e6fa69ea
+          path: .classes-candidate
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: PhysicsQoo/RaWMoCS
+          ref: 4429e8dfede3887673a67e542688c2e0c970bb56
+          path: .separator-baseline
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        if: matrix.case == 'vqe8'
+        with:
+          pattern: rawmocs-quprs-planner-gen-${{ matrix.case }}
+          run-id: 45734596083
+          github-token: ${{ github.token }}
+          path: .separator-prehash-original
+      - name: Recover source-locked historic cases
+        if: matrix.case != 'vqe8'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          zip="$RUNNER_TEMP/historical-trail.zip"
+          gh api repos/PhysicsQoo/RaWMoCS/actions/artifacts/14234415131/zip > "$zip"
+          echo '5f91528c376448c537e4ff08e26e9bb38b81bb7574c3596c8b0f8f3a50a632f4  '"$zip" | sha256sum -c -
+          unzip -q "$zip" -d .separator-prehash-original
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            .classes-candidate/crates/rawmocs-cli -> target
+            .separator-baseline/crates/rawmocs-cli -> target
+          shared-key: rawmocs-general-dependencies
+          cache-workspace-crates: 'false'
+      - name: Compile and verify exact candidate
+        run: |
+          set -euo pipefail
+          test "$(git -C .classes-candidate rev-parse HEAD)" = 735abaed3535b4eea918e945cd1bdf97e6fa69ea
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libgmp-dev libmpfr-dev m4 make gcc time pkg-config
+          mkdir -p .separator-prehash-evidence
+          cargo test --locked --release --manifest-path .classes-candidate/crates/rawmocs-cli/Cargo.toml 2>&1 | tee .separator-prehash-evidence/science.log
+          cargo build --locked --release --manifest-path .classes-candidate/crates/rawmocs-cli/Cargo.toml
+          test "$(git -C .separator-baseline rev-parse HEAD)" = 4429e8dfede3887673a67e542688c2e0c970bb56
+          cargo build --locked --release --manifest-path .separator-baseline/crates/rawmocs-cli/Cargo.toml
+      - name: Validate source and establish independent witness
+        env:
+          CASE: ${{ matrix.case }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib,json,os,subprocess,sys
+          from fractions import Fraction
+          from pathlib import Path
+          root=Path(".separator-prehash-evidence").resolve()
+          case=os.environ["CASE"]
+          expected={"vqe8":"55938d577be87d91dd520b7002de7ec886c6035405e5400f6f80392a385562ee","feynman_hwb6":"e0381c270963e0715273530e48f159dc05b1cd96c9b85a556741a72a4289471d","feynman_mod_mult_55":"f8c76d883923363a7fcb5e32d6c6d8914f8443af3582fbe3d2e1d9c0b99c35b7"}[case]
+          name="gpmc-capture.cnf" if case=="vqe8" else case+"-gpmc.cnf"
+          cnf,=Path(".separator-prehash-original").rglob(name)
+          cnf=cnf.resolve()
+          assert hashlib.sha256(cnf.read_bytes()).hexdigest()==expected
+          if case=="vqe8":
+              witness,=Path(".separator-prehash-original").rglob("witness.json")
+              ref=json.loads(witness.read_text())
+          else:
+              ref=None
+              for name in ("original_exact_prejoin.py","original_fixed_interval.py"):
+                  script=Path(".classes-candidate/crates/rawmocs-cli/tools/repro")/name
+                  p=subprocess.run(["timeout","-k","2s","45s","prlimit","--as=3221225472","--",sys.executable,str(script),str(cnf),expected],capture_output=True,text=True,timeout=50)
+                  (root/(name+".stdout")).write_text(p.stdout)
+                  (root/(name+".stderr")).write_text(p.stderr)
+                  if p.returncode!=0: continue
+                  candidate=json.loads(p.stdout)
+                  if name=="original_fixed_interval.py":
+                      assert "FIXED_INTERVAL_SELF_TEST PASS" in p.stderr
+                      candidate["status"]="INDEPENDENT_FIXED_INTERVAL_COMPLETE"
+                  if candidate.get("status") not in ("INDEPENDENT_INTERVAL_COMPLETE","INDEPENDENT_FIXED_INTERVAL_COMPLETE"): continue
+                  ref=candidate
+                  break
+              assert ref is not None,"independent witness unavailable"
+          assert ref["source_sha256"]==expected and ref["bits"]==550 and type(ref["sat"]) is bool
+          assert ref["status"] in ("INDEPENDENT_INTERVAL_COMPLETE","INDEPENDENT_FIXED_INTERVAL_COMPLETE") and ref["width"]<=19 and ref["work"]<=40000000 and ref["peak"]<=2000000
+          if ref["status"]=="INDEPENDENT_FIXED_INTERVAL_COMPLETE": assert ref["order_policy"] in ("fill-reverse","degree-reverse")
+          for k in ("real","imag"):
+              a,b=map(Fraction,ref[k])
+              assert a<=b
+          (root/"independent-reference.json").write_text(json.dumps(ref,indent=2)+"\n")
+          (root/"source-path.txt").write_text(str(cnf)+"\n")
+          PY
+      - name: Compare exact prehashed and original separator release executables
+        env:
+          CASE: ${{ matrix.case }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib,json,os,re,statistics,subprocess,sys,time
+          from pathlib import Path
+          root=Path(".separator-prehash-evidence").resolve()
+          sys.path.insert(0,str(Path(".classes-candidate/crates/rawmocs-cli/tools").resolve()))
+          from release_transfer import check_count
+          from release_native_paired import parse
+          case=os.environ["CASE"]
+          ref=json.loads((root/"independent-reference.json").read_text())
+          cnf=Path((root/"source-path.txt").read_text().strip())
+          assert hashlib.sha256(cnf.read_bytes()).hexdigest()==ref["source_sha256"]
+          bins={"base":Path(".separator-baseline/crates/rawmocs-cli/target/release/rawmocs").resolve(),"prehash":Path(".classes-candidate/crates/rawmocs-cli/target/release/rawmocs").resolve()}
+          stats_expected={"vqe8":("6164","2693"),"feynman_mod_mult_55":("295","85"),"feynman_hwb6":("23674","6129")}[case]
+          report={"case":case,"bits":432,"digits":130,"target":100,"source_sha256":ref["source_sha256"],"binary_sha256":{a:hashlib.sha256(b.read_bytes()).hexdigest() for a,b in bins.items()},"rows":[],"controls":{}}
+          def save(): (root/"report.json").write_text(json.dumps(report,indent=2)+"\n")
+          def execute(arm,mode,name):
+              rss=root/f"{name}.rss"
+              cmd=[str(bins[arm]),"--digits","130","--solver",mode,"--timeout-ms","30000",str(cnf)]
+              start=time.monotonic_ns()
+              p=subprocess.run(["timeout","-k","2s","32s","prlimit","--as=3221225472","--","/usr/bin/time","-f","%M","-o",str(rss),*cmd],capture_output=True,text=True,timeout=36)
+              elapsed=time.monotonic_ns()-start
+              (root/f"{name}.stdout").write_text(p.stdout)
+              (root/f"{name}.stderr").write_text(p.stderr)
+              assert p.returncode==0,(arm,mode,p.returncode,p.stderr[-1000:])
+              row=parse(p.stdout,"rawmocs")
+              row["witness_upper"]=check_count(row,ref,100)
+              route,d,b,ns=re.findall(r"^RAWMOCS_COMPLETE route=([a-z-]+) digits=(\d+) bits=(\d+) solve_ns=(\d+)$",p.stderr,re.M)[0]
+              assert (d,b)==("130","432") and route==("prejoin" if mode=="auto" else mode)
+              stats=re.findall(r"^RAWMOCS_SEPARATOR_COMPLETE checks=(\d+) overrides=(\d+)$",p.stderr,re.M)
+              assert stats==([stats_expected] if mode=="general-separator" else [])
+              row.update(arm=arm,mode=mode,wall_ns=elapsed,solve_ns=int(ns),maxrss_kib=int(rss.read_text().strip()),stats=stats)
+              return row,p.stdout
+          for mode in ("auto","prejoin","general"):
+              a,raw_a=execute("base",mode,"control-base-"+mode)
+              b,raw_b=execute("prehash",mode,"control-prehash-"+mode)
+              assert raw_a==raw_b,(mode,"legacy output drift")
+              report["controls"][mode]="EXACT_OUTPUT_ROUTE_PASS"
+              save()
+          expected=None
+          for trial in range(7):
+              for arm in (("base","prehash") if trial%2==0 else ("prehash","base")):
+                  row,raw=execute(arm,"general-separator",f"{trial}-{arm}")
+                  if expected is None: expected=raw
+                  assert raw==expected,"same search policy must preserve MPFR output"
+                  row["trial"]=trial
+                  report["rows"].append(row)
+                  save()
+          report["median_ns"]={arm:statistics.median(r["wall_ns"] for r in report["rows"] if r["arm"]==arm) for arm in bins}
+          report["median_rss_kib"]={arm:statistics.median(r["maxrss_kib"] for r in report["rows"] if r["arm"]==arm) for arm in bins}
+          report["ratio"]=report["median_ns"]["base"]/report["median_ns"]["prehash"]
+          report["paired_wins"]=sum(next(r["wall_ns"] for r in report["rows"] if r["trial"]==t and r["arm"]=="prehash")<next(r["wall_ns"] for r in report["rows"] if r["trial"]==t and r["arm"]=="base") for t in range(7))
+          report["status"]="PREHASH_SEVEN_PAIRS_PASS"
+          save()
+          print("SEPARATOR_PREHASH_REPORT",json.dumps(report),flush=True)
+          PY
+      - name: Prepare short prehash Simulation
+        if: matrix.case == 'feynman_mod_mult_55'
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          python3 - <<'PY'
+          import hashlib,json,shlex,subprocess,time
+          from pathlib import Path
+          root=Path(".separator-prehash-evidence").resolve()
+          report=json.loads((root/"report.json").read_text())
+          assert report["status"]=="PREHASH_SEVEN_PAIRS_PASS"
+          cnf=Path((root/"source-path.txt").read_text().strip())
+          bins={"base":Path(".separator-baseline/crates/rawmocs-cli/target/release/rawmocs").resolve(),"prehash":Path(".classes-candidate/crates/rawmocs-cli/target/release/rawmocs").resolve()}
+          config=["options:",'  max-time: "5s"',"benchmarks:"]
+          receipt={"status":"NATIVE_PREFLIGHT_PENDING","arms":[]}
+          for arm,binary in bins.items():
+              assert hashlib.sha256(binary.read_bytes()).hexdigest()==report["binary_sha256"][arm]
+              cmd=[str(binary),"--digits","130","--solver","general-separator",str(cnf)]
+              start=time.monotonic_ns()
+              p=subprocess.run(["timeout","-k","2s","1s","prlimit","--as=3221225472","--",*cmd],capture_output=True,timeout=6)
+              ns=time.monotonic_ns()-start
+              assert p.returncode==0 and ns<=1000000000
+              assert p.stdout==(root/f"0-{arm}.stdout").read_bytes()
+              (root/f"{arm}.native.stdout").write_bytes(p.stdout)
+              (root/f"{arm}.native.stderr").write_bytes(p.stderr)
+              wrapper=root/f"{arm}.sh"
+              wrapper.write_text("#!/bin/sh\nexec "+shlex.join(cmd)+" >"+shlex.quote(str(root/f"{arm}.simulation.stdout"))+" 2>"+shlex.quote(str(root/f"{arm}.simulation.stderr"))+"\n")
+              wrapper.chmod(0o755)
+              config.extend([f'  - name: "rawmocs_separator_prehash/mod_mult_55/{arm}_mpfr432"',f'    exec: "{wrapper}"'])
+              receipt["arms"].append(arm)
+          Path("codspeed-separator-prehash.generated.yml").write_text("\n".join(config)+"\n")
+          receipt["status"]="NATIVE_PREFLIGHT_PASS"
+          (root/"simulation.json").write_text(json.dumps(receipt,indent=2)+"\n")
+          PY
+      - name: Bounded prehash CPU diagnostic
+        if: matrix.case == 'feynman_mod_mult_55'
+        timeout-minutes: 5
+        uses: CodSpeedHQ/action@v5
+        with:
+          mode: simulation
+          cycle-estimation: 'true'
+          exclude-allocations: 'false'
+          simulation-track-subprocess: 'true'
+          config: codspeed-separator-prehash.generated.yml
+      - name: Verify simulated prehash result
+        if: matrix.case == 'feynman_mod_mult_55'
+        run: |
+          python3 - <<'PY'
+          import hashlib,json,re
+          from pathlib import Path
+          root=Path(".separator-prehash-evidence")
+          report=json.loads((root/"report.json").read_text())
+          path=root/"simulation.json"
+          receipt=json.loads(path.read_text())
+          assert receipt["status"]=="NATIVE_PREFLIGHT_PASS"
+          assert hashlib.sha256(Path((root/"source-path.txt").read_text().strip()).read_bytes()).hexdigest()==report["source_sha256"]
+          for arm,binary in {"base":Path(".separator-baseline/crates/rawmocs-cli/target/release/rawmocs"),"prehash":Path(".classes-candidate/crates/rawmocs-cli/target/release/rawmocs")}.items():
+              assert hashlib.sha256(binary.read_bytes()).hexdigest()==report["binary_sha256"][arm]
+              assert (root/f"{arm}.simulation.stdout").read_bytes()==(root/f"{arm}.native.stdout").read_bytes()
+              for kind in ("native","simulation"):
+                  err=(root/f"{arm}.{kind}.stderr").read_text()
+                  assert re.findall(r"^RAWMOCS_COMPLETE route=([a-z-]+) digits=130 bits=432 ",err,re.M)==["general-separator"]
+                  assert re.findall(r"^RAWMOCS_SEPARATOR_COMPLETE checks=(\d+) overrides=(\d+)$",err,re.M)==[("295","85")]
+          receipt["status"]="SIMULATION_OUTPUT_ROUTE_PASS"
+          path.write_text(json.dumps(receipt,indent=2)+"\n")
+          print("SEPARATOR_PREHASH_SIMULATION_OUTPUT_ROUTE_PASS")
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: rawmocs-general-separator-prehash-${{ matrix.case }}-130
+          path: |
+            .separator-prehash-evidence/
+            codspeed-separator-prehash.generated.yml
           include-hidden-files: true
           if-no-files-found: warn

@@ -143,10 +143,51 @@ theorem original_nodup (f : Forest) (vs : List Nat) (hv : LiveList f vs) :
     (original f vs).Nodup :=
   (enumeration_nodup vs hv.1).filter _
 
+/-- Constructive replacement for Std's classical perm_ext_iff_of_nodup.
+    Membership provides a split witness; move its head to the front.
+    No DecidableEq on functions, no counting via classical equality. -/
+theorem nodup_perm_constructive {X : Type} (xs ys : List X)
+    (hx : xs.Nodup) (hy : ys.Nodup)
+    (hm : ∀ a, a ∈ xs ↔ a ∈ ys) : xs.Perm ys := by
+  induction xs generalizing ys with
+  | nil =>
+      cases ys with
+      | nil => exact List.Perm.nil
+      | cons b bs =>
+          have hb := (hm b).mpr (List.mem_cons.mpr (Or.inl rfl))
+          exact False.elim (List.not_mem_nil hb)
+  | cons a xs ih =>
+      have hna := List.nodup_cons.mp hx
+      have ha := (hm a).mp (List.mem_cons.mpr (Or.inl rfl))
+      obtain ⟨pre, post, hs⟩ := List.append_of_mem ha
+      have p : ys.Perm (a :: (pre ++ post)) := by
+        rw [hs]
+        exact List.perm_middle
+      have hn := List.nodup_cons.mp (p.nodup hy)
+      have htail : ∀ b, b ∈ xs ↔ b ∈ pre ++ post := by
+        intro b
+        constructor
+        · intro hb
+          have hmem := p.mem_iff.mp ((hm b).mp (List.mem_cons.mpr (Or.inr hb)))
+          rcases List.mem_cons.mp hmem with he | ht
+          · exact False.elim (hna.1 (he ▸ hb))
+          · exact ht
+        · intro hb
+          have hmem := (hm b).mpr (p.mem_iff.mpr (List.mem_cons.mpr (Or.inr hb)))
+          rcases List.mem_cons.mp hmem with he | ht
+          · exact False.elim (hn.1 (he ▸ hb))
+          · exact ht
+      have q : xs.Perm (pre ++ post) := by
+        apply ih
+        · exact hna.2
+        · exact hn.2
+        · exact htail
+      exact (q.cons a).trans p.symm
+
 theorem original_reduced_perm (f : Forest) (vs rs : List Nat)
     (hv : LiveList f vs) (hr : RootList f rs) :
     (original f vs).Perm (reduced f vs rs) := by
-  apply List.Perm.of_nodup_nodup
+  apply nodup_perm_constructive
   · exact original_nodup f vs hv
   · exact reduced_nodup f vs rs hv hr
   · intro a
@@ -198,6 +239,7 @@ theorem weighted_sum_preservation {A : Type} [Zero A] [Add A]
 #print axioms original_mem_reduced
 #print axioms reduced_nodup
 #print axioms original_nodup
+#print axioms nodup_perm_constructive
 #print axioms original_reduced_perm
 #print axioms sum_perm
 #print axioms weighted_sum_preservation

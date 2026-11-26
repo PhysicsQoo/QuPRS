@@ -971,11 +971,11 @@ jobs:
           if grep -E 'sorryAx|Lean[.]trustCompiler|Classical[.]choice' ../../../evidence/conditional-lean-weighted-sum.log; then
             exit 1
           fi
-          test "$(grep -Ec 'does not depend on any axioms|depends on axioms' ../../../evidence/conditional-lean-weighted-sum.log)" -eq 18
-          for theorem in canon_inside canon_outside canon_agree canon_eq_of_agree enum_canonical canon_mem_enum canon_agree_live edge_ok_iff forest_ok_iff satisfies_transport original_mem reduced_mem_original original_mem_reduced reduced_nodup original_nodup original_reduced_perm sum_perm weighted_sum_preservation; do
+          test "$(grep -Ec 'does not depend on any axioms|depends on axioms' ../../../evidence/conditional-lean-weighted-sum.log)" -eq 19
+          for theorem in canon_inside canon_outside canon_agree canon_eq_of_agree enum_canonical canon_mem_enum canon_agree_live edge_ok_iff forest_ok_iff satisfies_transport original_mem reduced_mem_original original_mem_reduced reduced_nodup original_nodup nodup_perm_constructive original_reduced_perm sum_perm weighted_sum_preservation; do
             test "$(grep -Ec "^'QuPRS[.]ForestWeightedSum[.]$theorem' (does not depend on any axioms|depends on axioms)" ../../../evidence/conditional-lean-weighted-sum.log)" -eq 1
           done
-          echo 'CRR_LEAN_WEIGHTED_SUM_PASS theorem_axiom_reports=18 original_permutation=true rust_refinement=false'
+          echo 'CRR_LEAN_WEIGHTED_SUM_PASS theorem_axiom_reports=19 original_permutation=true rust_refinement=false'
       - name: Prepare bounded native Conditional RR CodSpeed target
         if: env.CRR_PERF_STAGE == 'simulation'
         run: |

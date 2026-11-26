@@ -8010,3 +8010,268 @@ fn partition_export(dir:&std::path::Path){
 
 }
 
+// Constrained-predicate research only. Native exact Clifford+T snapshots,
+// shared Tseitin gates, independent dense gate oracle. No production API.
+mod constrained_predicate_overlap {
+    use super::{G, Symbolic, Root, native, dense_state, add, root, rus_mul, rus_conj, affine_solve};
+    use super::native_dyadic_cnf::{Cnf, Lit, ONE, ZERO};
+    use std::collections::BTreeMap;
+
+    // With all primary bits fixed, propagate the actual clauses. Every
+    // accepted assignment must determine every auxiliary, including phases.
+    fn extension(c: &Cnf, primary: usize, assignment: u64) -> Option<Vec<i8>> {
+        let mut v = vec![0i8; c.vars + 1];
+        for j in 0..primary { v[j+2] = if assignment >> j & 1 == 1 {1} else {-1}; }
+        loop {
+            let mut change = false;
+            for cl in &c.clauses {
+                let mut open = 0usize;
+                let mut last = 0;
+                let mut satisfied = false;
+                for &l in cl {
+                    let a = v[l.unsigned_abs() as usize] * if l > 0 {1} else {-1};
+                    if a == 1 { satisfied = true; break; }
+                    if a == 0 { open += 1; last = l; }
+                }
+                if satisfied { continue; }
+                if open == 0 { return None; }
+                if open == 1 {
+                    v[last.unsigned_abs() as usize] = if last > 0 {1} else {-1};
+                    change = true;
+                }
+            }
+            if !change { break; }
+        }
+        assert!(v[1..].iter().all(|&x| x != 0), "unresolved auxiliary");
+        Some(v)
+    }
+
+    fn const_bits(n: usize, x: u64) -> Vec<Lit> {
+        (0..n).map(|i| if x >> i & 1 == 1 {ONE} else {ZERO}).collect()
+    }
+    fn encode_phase(c: &mut Cnf, s: &Symbolic, bits: &[Lit], neg: bool, mut acc: [Lit;3]) -> [Lit;3] {
+        for (&m,&k) in &s.phase {
+            let lit = c.monomial(m,bits);
+            let w = if neg {(8-k)%8} else {k};
+            let word = std::array::from_fn(|i| if w >> i & 1 == 1 {lit} else {ZERO});
+            acc = c.add3(acc,word);
+        }
+        acc
+    }
+    // Fixed original x and target labels z_i. Each overlap copy has
+    // independent paths for A and B; equal physical outputs enforce the
+    // adjoint composition. z_i are deliberately fixed outside the count:
+    // this is a fibre encoder, NOT a global quantified solver.
+    fn encode(a: &Symbolic,b: &Symbolic,x:u64,targets:&[u64],guard:Option<bool>) -> (Cnf,[Lit;3],usize) {
+        assert_eq!(a.n,b.n);
+        let primary = targets.len()*(a.h+b.h);
+        assert!(primary<=12);
+        let mut c=Cnf::new(primary);
+        let mut acc=[ZERO;3];
+        let mut next=2;
+        for (i,&z) in targets.iter().enumerate() {
+            let mut av=const_bits(a.n,x);
+            let mut bv=const_bits(b.n,z);
+            av.extend((0..a.h).map(|_| { let l=next;next+=1;l }));
+            bv.extend((0..b.h).map(|_| { let l=next;next+=1;l }));
+            // Restricted extra path guard lane: parity of all A paths
+            // equals guard. Tested separately from unitary normalization.
+            if let Some(want)=guard {
+                let g=av[a.n..].iter().fold(ZERO,|v,&l|c.xor(v,l));
+                c.enforce(if want {g}else{-g});
+            }
+            for (fa,fb) in a.output.iter().zip(&b.output) {
+                let u=c.anf(fa,&av);let v=c.anf(fb,&bv);
+                let neq=c.xor(u,v);c.enforce(-neq);
+            }
+            acc=encode_phase(&mut c,a,&av,i%2==1,acc);
+            acc=encode_phase(&mut c,b,&bv,i%2==0,acc);
+        }
+        assert_eq!(next as usize,primary+2);
+        (c,acc,primary)
+    }
+    fn count(c:&Cnf,phase:[Lit;3],primary:usize)->(Root,usize){
+        let mut out=[0;4];let mut n=0;
+        for a in 0..1u64<<primary{
+            if let Some(v)=extension(c,primary,a){
+                let k=phase.iter().enumerate().fold(0usize,|k,(j,&l)|{
+                    let bit=v[l.unsigned_abs() as usize]*if l>0{1}else{-1}==1;
+                    k|((bit as usize)<<j)
+                });
+                out=add(out,root(k));n+=1;
+            }
+        }
+        (out,n)
+    }
+    fn dense_overlap(n:usize,ga:&[G],gb:&[G],x:u64,z:u64)->Root{
+        dense_state(n,ga,x).into_iter().zip(dense_state(n,gb,z))
+            .fold([0;4],|s,(a,b)|add(s,rus_mul(a,rus_conj(b))))
+    }
+    fn norm(a:Root)->Root{rus_mul(a,rus_conj(a))}
+    fn masked_overlap(a:&Symbolic,b:&Symbolic,x:u64,z:u64,want:bool)->Root{
+        let mut m=[0;4];
+        for y in 0..1u64<<a.h{
+            if (y.count_ones()%2==1)!=want{continue;}
+            let (u,p)=super::path(a,x,y);
+            for w in 0..1u64<<b.h{
+                let (v,q)=super::path(b,z,w);
+                if u==v{m=add(m,root((p+8-q)%8));}
+            }
+        }
+        m
+    }
+
+    #[test]
+    fn hoare_constrained_predicate_overlap_cnf(){
+        let circuits:Vec<Vec<G>>=vec![vec![],vec![G::X(0)],vec![G::H(0)],
+            vec![G::H(0),G::T(0)],vec![G::T(0),G::H(0)],vec![G::H(0),G::H(0)]];
+        let mut fibres=0;let mut four=0;let mut collisions=0;let mut cases=0;
+        let mut true_cases=0;let mut structural=0;let mut masked=0;let mut max_vars=0;let mut max_clauses=0;
+        let mut root_query=|a:&Symbolic,b:&Symbolic,x:u64,targets:&[u64],guard:Option<bool>|{
+            let (c,p,k)=encode(a,b,x,targets,guard);
+            max_vars=max_vars.max(c.vars);max_clauses=max_clauses.max(c.clauses.len());
+            count(&c,p,k)
+        };
+        // HH vs HH would have 16 hidden variables in four copies; cap
+        // total hidden paths per overlap at 3, and test it separately.
+        for ga in &circuits{for gb in &circuits{
+            let a=native(1,ga).unwrap();let b=native(1,gb).unwrap();
+            if a.h+b.h>3{continue;}
+            let den=1i64<<(a.h+b.h);
+            let mut p=[[[0;4];2];2];let mut raw=[[false;2];2];
+            for x in 0..2u64{for z in 0..2u64{
+                let m=dense_overlap(1,ga,gb,x,z);
+                let (single,n)=root_query(&a,&b,x,&[z],None);
+                assert_eq!(single,m);raw[x as usize][z as usize]=n>0;
+                let (two,_)=root_query(&a,&b,x,&[z,z],None);
+                assert_eq!(two,norm(m));p[x as usize][z as usize]=two;fibres+=1;
+                let (q,_)=root_query(&a,&b,x,&[z,z,z,z],None);
+                assert_eq!(q,rus_mul(two,two));four+=1;
+                for guard in [false,true]{
+                    let target=masked_overlap(&a,&b,x,z,guard);
+                    assert_eq!(root_query(&a,&b,x,&[z],Some(guard)).0,target);
+                    assert_eq!(root_query(&a,&b,x,&[z,z],Some(guard)).0,norm(target));
+                    masked+=2;
+                }
+            }}
+            for x in 0..2u64{
+                let (j,_)=root_query(&a,&b,x,&[0,0,1,1],None);
+                assert_eq!(j,rus_mul(p[x as usize][0],p[x as usize][1]));collisions+=1;
+                assert_eq!(add(p[x as usize][0],p[x as usize][1]),[den,0,0,0]);
+            }
+            // All allowed index subsets, including empty pre and post.
+            for pre in 0..4u32{for post in 0..4u32{
+                let mut l=[0;4];let mut j=[0;4];let mut fourth=[0;4];
+                let mut member=true;let mut no_raw_collision=true;
+                for x in 0..2usize{if pre>>x&1==0{continue;}
+                    let mut row=[0;4];let mut hit=false;let mut active=0;
+                    for z in 0..2usize{if post>>z&1==0{continue;}
+                        row=add(row,p[x][z]);fourth=add(fourth,rus_mul(p[x][z],p[x][z]));
+                        hit|=p[x][z]==[den,0,0,0];active+=usize::from(raw[x][z]);
+                    }
+                    member&=hit;no_raw_collision&=active<=1;
+                    l=add(l,add([den,0,0,0],row.map(|v|-v)));
+                    if post==3{j=add(j,rus_mul(p[x][0],p[x][1]).map(|v|2*v));}
+                }
+                let proved=l==[0;4]&&j==[0;4];
+                assert_eq!(proved,member);
+                assert_eq!(proved,fourth==[i64::from(pre.count_ones())*den*den,0,0,0]);
+                if l==[0;4]&&no_raw_collision{assert!(proved);structural+=1;}
+                true_cases+=usize::from(proved);cases+=1;
+            }}
+        }}
+        assert_eq!((fibres,four,collisions,cases,masked),(140,140,70,560,560));
+        assert!(true_cases>0&&true_cases<cases&&structural>0);
+        println!("HOARE_CONSTRAINED_PREDICATE_OVERLAP fibres={fibres} four={four} collisions={collisions} cases={cases} proved={true_cases} structural={structural} masked={masked} max_vars={max_vars} max_clauses={max_clauses}");
+    }
+
+    // Sparse exact Z8 Boolean-lift arithmetic. No truth-table inversion.
+    type Poly=BTreeMap<u64,u8>;
+    fn plus(a:&mut Poly,b:&Poly,scale:u8){
+        for (&m,&v) in b{let k=(a.get(&m).copied().unwrap_or(0)+scale*v)%8;
+            if k==0{a.remove(&m);}else{a.insert(m,k);}
+        }
+    }
+    fn times(a:&Poly,b:&Poly)->Poly{
+        let mut r=Poly::new();
+        for (&m,&v) in a{for (&n,&w) in b{
+            let k=(r.get(&(m|n)).copied().unwrap_or(0)+v*w)%8;
+            if k==0{r.remove(&(m|n));}else{r.insert(m|n,k);}
+        }}
+        r
+    }
+    fn lift_parity(mask:u64,offset:bool)->Poly{
+        let mut p=Poly::new();if offset{p.insert(0,1);}
+        for j in 0..64{if mask>>j&1!=0{
+            let v=Poly::from([(1u64<<j,1)]);let cross=times(&p,&v);
+            plus(&mut p,&v,1);plus(&mut p,&cross,6);
+        }}
+        p
+    }
+    fn subst(p:&Poly,forms:&[Poly])->Poly{
+        let mut out=Poly::new();
+        for (&m,&k) in p{
+            let mut term=Poly::from([(0,1)]);
+            for (j,v) in forms.iter().enumerate(){if m>>j&1!=0{term=times(&term,v);}}
+            plus(&mut out,&term,k);
+        }
+        out
+    }
+    fn eval(p:&Poly,v:u64)->u8{
+        p.iter().filter(|(m,_)|v&**m==**m).fold(0,|s,(_,k)|(s+*k)%8)
+    }
+    fn left_inverse(cols:&[u64],width:usize)->Option<Vec<u64>>{
+        (0..cols.len()).map(|i|{
+            let rows=cols.iter().enumerate().map(|(j,&m)|(m,i==j)).collect();
+            affine_solve(rows,width).map(|(part,_)|part)
+        }).collect()
+    }
+    #[test]
+    fn hoare_constrained_predicate_symbolic_phase_transfer(){
+        // Native fixed-zero preparation; affine output coordinates with
+        // non-Clifford phase, rectangular image and nontrivial affine offset.
+        let fixtures:Vec<(usize,Vec<G>)>=vec![
+            (1,vec![G::H(0),G::T(0)]),
+            (2,vec![G::H(0),G::CX(0,1),G::T(1)]),
+            (2,vec![G::H(0),G::X(1),G::CX(0,1),G::T(1)]),
+            (3,vec![G::H(0),G::H(1),G::CX(0,2),G::CX(1,2),G::T(2),G::CZ(0,1)]),
+        ];
+        let mut checks=0;let mut terms=0;
+        for (n,ops) in &fixtures{
+            let s=native(*n,ops).unwrap();
+            let input_mask=(1u64<<n)-1;
+            let p:Poly=s.phase.iter().filter(|(m,_)|**m&input_mask==0).map(|(&m,&k)|(m>>n,k)).collect();
+            let mut cols=vec![0u64;s.h];let mut off=0u64;
+            for (j,f) in s.output.iter().enumerate(){
+                for &m in f{if m&input_mask!=0{continue;}
+                    let u=m>>n;
+                    if u==0{off|=1<<j;}else{
+                        assert_eq!(u.count_ones(),1);cols[u.trailing_zeros() as usize]|=1<<j;
+                    }
+                }
+            }
+            let inv=left_inverse(&cols,*n).unwrap();
+            let forms:Vec<_>=inv.iter().map(|&m|lift_parity(m,(m&off).count_ones()%2==1)).collect();
+            let q=subst(&p,&forms);terms+=q.len();
+            let forward:Vec<_>=(0..*n).map(|j|{
+                let m=cols.iter().enumerate().fold(0u64,|v,(i,c)|v|(((c>>j)&1)<<i));
+                lift_parity(m,off>>j&1==1)
+            }).collect();
+            assert_eq!(subst(&q,&forward),p,"symbolic phase descent");
+            let dense=dense_state(*n,ops,0);
+            let mut reconstructed=vec![[0;4];1<<n];
+            for y in 0..1u64<<s.h{
+                let (z,k)=super::path(&s,0,y);
+                assert_eq!(usize::from(eval(&q,z)),k);
+                reconstructed[z as usize]=add(reconstructed[z as usize],root(usize::from(eval(&q,z))));
+                checks+=1;
+            }
+            assert_eq!(reconstructed,dense);
+        }
+        assert!(left_inverse(&[1,1],2).is_none());
+        assert!(left_inverse(&[0],1).is_none());
+        assert_eq!(checks,10);
+        println!("HOARE_CONSTRAINED_PREDICATE_PHASE_TRANSFER fixtures={} paths={checks} output_terms={terms} rank_rejects=2",fixtures.len());
+    }
+}
+

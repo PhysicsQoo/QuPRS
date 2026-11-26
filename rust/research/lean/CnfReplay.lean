@@ -3729,6 +3729,155 @@ theorem check_ledger_witness_scale {A : Type} (scale : Nat → A → A)
   rw [hmult] at hv
   exact ⟨initial,final,steps,t,n,mult,start,last,hi,hf,hnorm,hr,hmult,hv⟩
 
+
+-- Derive support exclusion from the actual Boolean predicate,
+-- independently of the interpretation of phase coefficients.
+theorem ledger_removed_ids_iff (a b : LedgerSnap) (x : Nat) :
+    x ∈ removedIds a b ↔ x ∈ a.live ∧ x ∉ b.live := by
+  unfold removedIds
+  constructor
+  · intro h
+    have hp := List.mem_filter.mp h
+    exact ⟨hp.1, fresh_not_mem x b.live hp.2⟩
+  · intro h
+    apply List.mem_filter.mpr
+    refine ⟨h.1, ?_⟩
+    cases he : natMem x b.live with
+    | false => rfl
+    | true => exact False.elim (h.2 ((nat_mem_iff x b.live).mp he))
+
+theorem ledger_no_any_member {A : Type} (xs : List A) (p : A → Bool)
+    (h : (!xs.any p) = true) (x : A) (hm : x ∈ xs) (hp : p x = true) :
+    False := by
+  have he : xs.any p = true := List.any_eq_true.mpr ⟨x, hm, hp⟩
+  rw [he] at h
+  cases h
+
+theorem free_snapshot_support_exclusion (a b : LedgerSnap) (h : freeSnapOK a b = true) :
+    ∀ x, x ∈ removedIds a b →
+      (∀ m, m ∈ a.phaseSupport → x ∉ m) ∧
+      (∀ row, row ∈ a.constraints → ∀ m, m ∈ row → x ∉ m) := by
+  have hh : ((natListEq a.phaseText b.phaseText && natListEq a.rowText b.rowText) &&
+    (removedIds a b).all (fun x => !(a.phaseSupport.any (natMem x)) &&
+      !(a.constraints.any (fun row => row.any (natMem x))))) = true := h
+  intro x hx
+  have hp := and_true_parts
+    (List.all_eq_true.mp (and_true_parts hh).2 x hx)
+  constructor
+  · intro m hm hmem
+    exact ledger_no_any_member a.phaseSupport (natMem x) hp.1 m hm
+      ((nat_mem_iff x m).mpr hmem)
+  · intro row hr m hm hmem
+    have hrow : row.any (natMem x) = true :=
+      List.any_eq_true.mpr ⟨m, hm, (nat_mem_iff x m).mpr hmem⟩
+    exact ledger_no_any_member a.constraints (fun r => r.any (natMem x))
+      hp.2 row hr hrow
+
+theorem ledger_advance_free_obligations (t next : LedgerTally) (s : LedgerStep)
+    (hc : s.commit = true) (hk : s.kind = 1 ∨ s.kind = 3)
+    (h : ledgerAdvance t s = some next) :
+    inputsKnown s.before.live s.trial.live = true ∧
+      freeSnapOK s.before s.trial = true ∧
+      ledgerStepExponent s = 2 * (removedIds s.before s.trial).length := by
+  have hcommit : (!s.commit) = false := by rw [hc] <;> rfl
+  unfold ledgerAdvance at h
+  dsimp only at h
+  cases hf : (!natLE (ledgerFuel t+1) 64) with
+  | true =>
+    rw [ledger_bool_true _ _ _ hf] at h
+    cases h
+  | false =>
+    rw [ledger_bool_false _ _ _ hf, ledger_bool_false _ _ _ hcommit] at h
+    cases hb : (!(natLE (snapCost s.trial).1 (snapCost s.before).1 &&
+      natLE ((snapCost s.trial).2+1) (snapCost s.before).2) ||
+      s.before.n != s.trial.n || !inputsKnown s.before.live s.trial.live ||
+      !ledgerWitnessOK s) with
+    | true =>
+      rw [ledger_bool_true _ _ _ hb] at h
+      cases h
+    | false =>
+      rw [ledger_bool_false _ _ _ hb] at h
+      have hsubset : inputsKnown s.before.live s.trial.live = true := by
+        cases he : inputsKnown s.before.live s.trial.live with
+        | true => rfl
+        | false => simp [he] at hb
+      rcases hk with hk | hk
+      · rw [hk] at h
+        change (if natLE t.stage 1 && (removedIds s.before s.trial).length != 0 &&
+          freeSnapOK s.before s.trial then
+            some { t with free := t.free+(removedIds s.before s.trial).length,
+              batchFree := (removedIds s.before s.trial).length, stage := 2 }
+          else none) = some next at h
+        cases hr : (natLE t.stage 1 && (removedIds s.before s.trial).length != 0 &&
+          freeSnapOK s.before s.trial) with
+        | false =>
+          rw [ledger_bool_false _ _ _ hr] at h
+          cases h
+        | true =>
+          have hkind : (s.kind == 1) = true := by rw [hk] <;> rfl
+          exact ⟨hsubset, (and_true_parts hr).2, ledger_exponent_1 s hcommit hkind⟩
+      · rw [hk] at h
+        change (if (removedIds s.before s.trial).length == 1 &&
+          freeSnapOK s.before s.trial then
+            some { t with free := t.free+1, stage := 2 }
+          else none) = some next at h
+        cases hr : ((removedIds s.before s.trial).length == 1 &&
+          freeSnapOK s.before s.trial) with
+        | false =>
+          rw [ledger_bool_false _ _ _ hr] at h
+          cases h
+        | true =>
+          have hp := and_true_parts hr
+          have hd := ledger_kind_eq _ _ hp.1
+          have hkind : (s.kind == 3) = true := by rw [hk] <;> rfl
+          have hx := ledger_exponent_3 s hcommit hkind
+          rw [hd]
+          exact ⟨hsubset, hp.2, hx⟩
+
+theorem ledger_advance_free_support (t next : LedgerTally) (s : LedgerStep)
+    (hc : s.commit = true) (hk : s.kind = 1 ∨ s.kind = 3)
+    (h : ledgerAdvance t s = some next) :
+    (∀ x, x ∈ s.trial.live → x ∈ s.before.live) ∧
+    s.before.phaseText = s.trial.phaseText ∧ s.before.rowText = s.trial.rowText ∧
+    (∀ x, x ∈ removedIds s.before s.trial →
+      (∀ m, m ∈ s.before.phaseSupport → x ∉ m) ∧
+      (∀ row, row ∈ s.before.constraints → ∀ m, m ∈ row → x ∉ m)) ∧
+    ledgerStepExponent s = 2 * (removedIds s.before s.trial).length := by
+  have hp := ledger_advance_free_obligations t next s hc hk h
+  have htext := free_snapshot_payload s.before s.trial hp.2.1
+  exact ⟨inputs_known_sound _ _ hp.1, htext.1, htext.2,
+    free_snapshot_support_exclusion _ _ hp.2.1, hp.2.2⟩
+
+-- Exact repeated doubling, assuming only addition. Binding this
+-- prefix split to the live-ID ordering and phase/guard evaluation
+-- remains a separate refinement obligation.
+def freeDouble {A : Type} [Add A] : Nat → A → A
+  | 0, a => a
+  | n+1, a => freeDouble n a + freeDouble n a
+
+theorem sum_bits_free_prefix {A : Type} [Add A] (d n : Nat)
+    (f : List Bool → A) (g : List Bool → A)
+    (h : ∀ xs ys : List Bool, xs.length = d → ys.length = n → f (xs ++ ys) = g ys) :
+    sumBits (d+n) f = freeDouble d (sumBits n g) := by
+  induction d generalizing f with
+  | zero =>
+    rw [Nat.zero_add]
+    exact sum_bits_congr n f g (fun ys hy => h [] ys rfl hy)
+  | succ d ih =>
+    rw [Nat.succ_add]
+    change sumBits (d+n) (fun xs => f (false :: xs)) +
+      sumBits (d+n) (fun xs => f (true :: xs)) =
+      freeDouble d (sumBits n g) + freeDouble d (sumBits n g)
+    have hfalse : ∀ xs ys : List Bool, xs.length = d → ys.length = n →
+        f (false :: (xs ++ ys)) = g ys := by
+      intro xs ys hx hy
+      exact h (false :: xs) ys (congrArg Nat.succ hx) hy
+    have htrue : ∀ xs ys : List Bool, xs.length = d → ys.length = n →
+        f (true :: (xs ++ ys)) = g ys := by
+      intro xs ys hx hy
+      exact h (true :: xs) ys (congrArg Nat.succ hx) hy
+    rw [ih _ hfalse, ih _ htrue]
+
 -- Localize any unexpected dependency to a definition vs theorem.
 #print axioms splitBytes
 #print axioms digits
@@ -4012,6 +4161,13 @@ theorem check_ledger_witness_scale {A : Type} (scale : Nat → A → A)
 #print axioms ledger_accepted_endpoint
 #print axioms check_ledger_byte_witness
 #print axioms check_ledger_witness_scale
+#print axioms ledger_removed_ids_iff
+#print axioms ledger_no_any_member
+#print axioms free_snapshot_support_exclusion
+#print axioms ledger_advance_free_obligations
+#print axioms ledger_advance_free_support
+#print axioms freeDouble
+#print axioms sum_bits_free_prefix
 end QuPRS.CnfReplay
 
 def main (args : List String) : IO Unit := do

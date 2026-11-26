@@ -1045,7 +1045,7 @@ jobs:
 
           canonical_scope_status=0
           if test "$factor_scope_status" -eq 0; then
-            LEAN_PATH=. lean AffineCanonicalScope.lean 2>&1 | tee /tmp/qasm-lean-affine-canonical-scope.log || canonical_scope_status=$?
+            LEAN_PATH=. lean -o AffineCanonicalScope.olean AffineCanonicalScope.lean 2>&1 | tee /tmp/qasm-lean-affine-canonical-scope.log || canonical_scope_status=$?
             if grep -E 'sorryAx|Lean[.]trustCompiler|Classical[.]choice' /tmp/qasm-lean-affine-canonical-scope.log; then
               canonical_scope_status=1
             fi
@@ -1102,7 +1102,7 @@ jobs:
 
           checked_factor_status=0
           if test "$algebra_status" -eq 0 && test "$schedule_status" -eq 0; then
-            LEAN_PATH=. lean AffineCheckedFactor.lean 2>&1 | tee /tmp/qasm-lean-affine-checked-factor.log || checked_factor_status=$?
+            LEAN_PATH=. lean -o AffineCheckedFactor.olean AffineCheckedFactor.lean 2>&1 | tee /tmp/qasm-lean-affine-checked-factor.log || checked_factor_status=$?
             if grep -E 'sorryAx|Lean[.]trustCompiler|Classical[.]choice' /tmp/qasm-lean-affine-checked-factor.log; then
               checked_factor_status=1
             fi
@@ -1117,6 +1117,25 @@ jobs:
             echo 'LEAN4_AFFINE_CHECKED_FACTOR_PASS theorem_axiom_reports=15 ordered_product=true zero_early_stop=true checked_bucket=true explicit_table=true coverage_premise=true packed_tables=false rust_refinement=false'
           else
             echo 'LEAN4_AFFINE_CHECKED_FACTOR_FAIL' >&2
+          fi
+
+          checked_order_status=0
+          if test "$canonical_scope_status" -eq 0 && test "$checked_factor_status" -eq 0; then
+            LEAN_PATH=. lean AffineCheckedOrder.lean 2>&1 | tee /tmp/qasm-lean-affine-checked-order.log || checked_order_status=$?
+            if grep -E 'sorryAx|Lean[.]trustCompiler|Classical[.]choice' /tmp/qasm-lean-affine-checked-order.log; then
+              checked_order_status=1
+            fi
+            test "$(grep -Ec 'does not depend on any axioms|depends on axioms' /tmp/qasm-lean-affine-checked-order.log)" -eq 10 || checked_order_status=1
+            for theorem in materialize_some materialize_length lookup_map extract_agrees materialized_factor_sound covered_sound checked_step_sound checked_order_sound checked_result_sound checked_order_head_reject; do
+              test "$(grep -Ec "^'QuPRS[.]AffineCheckedOrder[.]$theorem' (does not depend on any axioms|depends on axioms)" /tmp/qasm-lean-affine-checked-order.log)" -eq 1 || checked_order_status=1
+            done
+          else
+            checked_order_status=1
+          fi
+          if test "$checked_order_status" -eq 0; then
+            echo 'LEAN4_AFFINE_CHECKED_ORDER_PASS theorem_axiom_reports=10 materialized_table=true ordered_state=true success_sound=true hidden_order_coverage=false packed_index_refinement=false rust_refinement=false'
+          else
+            echo 'LEAN4_AFFINE_CHECKED_ORDER_FAIL' >&2
           fi
 
           incidence_status=0
@@ -1134,7 +1153,7 @@ jobs:
           else
             echo 'LEAN4_AFFINE_NATIVE_INCIDENCE_FAIL' >&2
           fi
-          test "$normalization_status" -eq 0 && test "$lift_status" -eq 0 && test "$incidence_status" -eq 0 && test "$negacyclic_status" -eq 0 && test "$checked_status" -eq 0 && test "$schedule_status" -eq 0 && test "$factor_scope_status" -eq 0 && test "$elimination_status" -eq 0 && test "$algebra_status" -eq 0 && test "$checked_factor_status" -eq 0 && test "$canonical_scope_status" -eq 0
+          test "$normalization_status" -eq 0 && test "$lift_status" -eq 0 && test "$incidence_status" -eq 0 && test "$negacyclic_status" -eq 0 && test "$checked_status" -eq 0 && test "$schedule_status" -eq 0 && test "$factor_scope_status" -eq 0 && test "$elimination_status" -eq 0 && test "$algebra_status" -eq 0 && test "$checked_factor_status" -eq 0 && test "$canonical_scope_status" -eq 0 && test "$checked_order_status" -eq 0
 
       - name: Build and test std-only independent verifier
         run: |

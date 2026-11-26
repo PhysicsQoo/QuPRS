@@ -130,7 +130,7 @@ theorem mem_rows_iff (n : Nat) (key : List Bool) :
   | succ n ih =>
       cases key with
       | nil =>
-          exact iff_of_false (nil_not_mem_expand (rows n)) (Nat.zero_ne_succ n)
+          exact iff_of_false (nil_not_mem_expand (rows n)) (fun h => Nat.succ_ne_zero n h.symm)
       | cons b key =>
           rw [rows, mem_expand_cons, ih]
           simp

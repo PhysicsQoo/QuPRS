@@ -10,7 +10,7 @@ on:
       suite:
         description: Experimental evidence suite
         type: choice
-        options: [legacy, cross-family, source-admission, root-profile, factor-classes, sparse-anchor, prefix-memo, axis-profile, direct-binary, operand-profile, pool-profile, last-use-donor, masked-donor, descendant-units, inplace-scan, inplace-branch, move-components, borrowed-cache, general-cumulative, general-simulation-repair, general-native-gpmc, scope-scratch]
+        options: [legacy, cross-family, source-admission, root-profile, factor-classes, sparse-anchor, prefix-memo, axis-profile, direct-binary, operand-profile, pool-profile, last-use-donor, masked-donor, descendant-units, inplace-scan, inplace-branch, move-components, borrowed-cache, general-cumulative, general-simulation-repair, general-native-gpmc, scope-scratch, streaming-large-general]
         default: legacy
 permissions:
   contents: read
@@ -1397,7 +1397,7 @@ jobs:
           if-no-files-found: warn
 
   scope-scratch:
-    if: github.event_name == 'push' || inputs.suite == 'scope-scratch'
+    if: github.event_name == 'workflow_dispatch' && inputs.suite == 'scope-scratch'
     name: Scope-reset scratch / same-binary general fallback
     runs-on: ubuntu-24.04
     timeout-minutes: 8
@@ -1515,5 +1515,123 @@ jobs:
         with:
           name: rawmocs-scope-scratch
           path: .scratch-evidence/
+          include-hidden-files: true
+          if-no-files-found: warn
+
+  streaming-large-general:
+    if: github.event_name == 'push' || inputs.suite == 'streaming-large-general'
+    name: Streaming large CNF / source admission and bounded search
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: PhysicsQoo/RaWMoCS
+          ref: 69de35bf729b932deb36ca5bff72adc2ab9c8a21
+          path: .classes-candidate
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: rawmocs-quprs-planner-gen-wstate16
+          run-id: 45734596083
+          github-token: ${{ github.token }}
+          path: .large-input
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: .classes-candidate/crates/rawmocs-cli -> target
+          shared-key: rawmocs-general-dependencies
+          cache-workspace-crates: 'false'
+      - name: Build and test exact streaming candidate
+        run: |
+          set -euo pipefail
+          test "$(git -C .classes-candidate rev-parse HEAD)" = 69de35bf729b932deb36ca5bff72adc2ab9c8a21
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libgmp-dev libmpfr-dev m4 make gcc time pkg-config
+          cargo test --locked --release --manifest-path .classes-candidate/crates/rawmocs-cli/Cargo.toml
+          cargo build --locked --release --manifest-path .classes-candidate/crates/rawmocs-cli/Cargo.toml
+      - name: Analytic large control and original Wstate16 admission
+        run: |
+          set -euo pipefail
+          mkdir -p .large-evidence
+          python3 - <<'PY'
+          import hashlib, json, os, re, subprocess, time
+          from fractions import Fraction
+          from pathlib import Path
+          root=Path(".large-evidence").resolve()
+          solver=Path(".classes-candidate/crates/rawmocs-cli/target/release/rawmocs").resolve()
+          cnf,=Path(".large-input").rglob("gpmc-capture.cnf")
+          cnf=cnf.resolve()
+          sha=hashlib.sha256(cnf.read_bytes()).hexdigest()
+          assert sha=="d7b8732b06552354e7e08e516fd858d2f9419b33ccb185e6d8c31ce96d5ba78c"
+          with cnf.open() as stream:
+              head=next(stream).split()
+              assert head==["p","cnf","63399","536464"]
+              assert next(stream).strip()=="c t wmc"
+              clauses=weights=literals=0
+              for line in stream:
+                  f=line.split()
+                  if not f: continue
+                  if f[0]=="c": weights+=1
+                  else:
+                      assert f[-1]=="0"
+                      clauses+=1
+                      literals+=len(f)-1
+          assert clauses==536464
+          report={"candidate_sha":"69de35bf729b932deb36ca5bff72adc2ab9c8a21","source_sha256":sha,"source_bytes":cnf.stat().st_size,"variables":63399,"clauses":clauses,"literals":literals,"weights":weights,"binary_sha256":hashlib.sha256(solver.read_bytes()).hexdigest(),"rows":[],"scope":"Admission and bounded safety; no Wstate16 independent witness or GPMC speedup"}
+          def save(): (root/"report.json").write_text(json.dumps(report,indent=2)+"\n")
+          save()
+          env={k:v for k,v in os.environ.items() if not k.startswith("RAWMOCS_RESEARCH_")}
+          def trial(label,source,args,limit):
+              rss=root/(label+".rss")
+              start=time.monotonic()
+              p=subprocess.run(["timeout","-k","2s",str(limit+5)+"s","prlimit","--as=3221225472","--","/usr/bin/time","-f","%M","-o",str(rss),str(solver),"--digits","30",*args,str(source)],env=env,capture_output=True,text=True,timeout=limit+10)
+              row={"label":label,"exit":p.returncode,"wall_s":time.monotonic()-start,"stdout_empty":not p.stdout.strip(),"stderr":p.stderr[-2000:]}
+              if rss.exists():
+                  vals=[l for l in rss.read_text().splitlines() if l.strip().isdigit()]
+                  if len(vals)==1: row["rss_kib"]=int(vals[0])
+              (root/(label+".stdout")).write_text(p.stdout)
+              (root/(label+".stderr")).write_text(p.stderr)
+              report["rows"].append(row)
+              save()
+              return p,row
+          # All free variables except the first have weights (1,0).
+          # The first has weights (-1/2+i/4,1), so the exact sum is 1/2+i/4.
+          control=root/"large-analytic.cnf"
+          control.write_text("p cnf 63399 0\nc t wmc\nc p weight 1 -0.5 0.25 0\n"+"".join(f"c p weight -{v} 0 0 0\n" for v in range(2,63400)))
+          p,row=trial("analytic-default",control,["--solver","general"],5)
+          assert p.returncode==5 and not p.stdout.strip(),row
+          p,row=trial("analytic-large",control,["--solver","general","--large-general","--timeout-ms","10000"],10)
+          assert p.returncode==0 and "RAWMOCS_SOURCE_ADMITTED variables=63399 clauses=0 literals=0" in p.stderr,row
+          lines=p.stdout.splitlines()
+          assert len(lines)==2 and lines[0]=="s SATISFIABLE"
+          fields=lines[1].split()
+          assert fields[:3]==["c","r","mpfr"] and len(fields)==5
+          assert Fraction(fields[3])==Fraction(1,2) and Fraction(fields[4])==Fraction(1,4)
+          row["status"]="ANALYTIC_PASS";save()
+          p,row=trial("wstate-default",cnf,[],5)
+          assert p.returncode==5 and not p.stdout.strip() and "source bytes cap" in p.stderr,row
+          p,row=trial("wstate-invalid-route",cnf,["--large-general"],5)
+          assert p.returncode==2 and not p.stdout.strip(),row
+          p,row=trial("wstate-zero-deadline",cnf,["--solver","general","--large-general","--timeout-ms","0"],5)
+          assert p.returncode==4 and not p.stdout.strip() and "source deadline" in p.stderr,row
+          p,row=trial("wstate-bounded",cnf,["--solver","general","--large-general","--timeout-ms","20000"],20)
+          marker=f"RAWMOCS_SOURCE_ADMITTED variables=63399 clauses=536464 literals={literals} "
+          assert marker in p.stderr,row
+          if p.returncode==0:
+              assert len(p.stdout.splitlines())==2 and "RAWMOCS_COMPLETE route=general digits=30 bits=100 " in p.stderr,row
+              row["status"]="COMPLETED_UNWITNESSED"
+          else:
+              assert p.returncode==4 and not p.stdout.strip() and "RAWMOCS_FAILURE kind=TIMEOUT" in p.stderr,row
+              row["status"]="ADMITTED_CENSORED_TIMEOUT"
+          report["status"]="SOURCE_ADMISSION_CONTROL_PASS"
+          save()
+          print("STREAMING_LARGE_FINAL",json.dumps(report),flush=True)
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: rawmocs-streaming-large-general
+          path: .large-evidence/
           include-hidden-files: true
           if-no-files-found: warn

@@ -46,12 +46,18 @@ theorem enumeration_cover (vs : List Nat) (a : Assignment) :
   | cons v vs ih =>
       obtain ⟨b, hb, ha⟩ := ih
       refine ⟨setBit b v (a v), ?_, ?_⟩
-      · cases h : a v <;> simp [enumerate, h, List.mem_map, hb]
+      · cases (a v)
+        · simp only [enumerate, List.mem_append, List.mem_map]
+          exact Or.inl ⟨b, hb, rfl⟩
+        · simp only [enumerate, List.mem_append, List.mem_map]
+          exact Or.inr ⟨b, hb, rfl⟩
       · intro i hi
-        by_cases h : i = v
-        · subst i
+        cases (inferInstance : Decidable (i = v)) with
+        | isTrue h =>
+          subst i
           exact set_self b v (a v)
-        · rw [set_other b v i (a v) h]
+        | isFalse h =>
+          rw [set_other b v i (a v) h]
           exact ha i ((List.mem_cons.mp hi).resolve_left h)
 
 theorem enumeration_outside (vs : List Nat) (a : Assignment)
@@ -74,10 +80,11 @@ theorem enumeration_outside (vs : List Nat) (a : Assignment)
 theorem enumeration_distinguishes (vs : List Nat) (a b : Assignment)
     (ha : a ∈ enumerate vs) (hb : b ∈ enumerate vs)
     (h : AgreeOn vs a b) : a = b := by
-  funext i
-  by_cases hi : i ∈ vs
-  · exact h i hi
-  · rw [enumeration_outside vs a ha i hi, enumeration_outside vs b hb i hi]
+  apply funext
+  intro i
+  cases (inferInstance : Decidable (i ∈ vs)) with
+  | isTrue hi => exact h i hi
+  | isFalse hi => rw [enumeration_outside vs a ha i hi, enumeration_outside vs b hb i hi]
 
 theorem map_nodup_of_inj {A B : Type} (xs : List A) (f : A → B)
     (hn : xs.Nodup)
@@ -123,11 +130,11 @@ theorem enumeration_nodup (vs : List Nat) (h : vs.Nodup) :
       simp only [enumerate]
       rw [List.nodup_append]
       refine ⟨hf, ht, ?_⟩
-      intro a ha hb
+      intro a ha b hb he
       obtain ⟨x, _, hx⟩ := List.mem_map.mp ha
       obtain ⟨y, _, hy⟩ := List.mem_map.mp hb
-      have he := congrFun (hx.trans hy.symm) v
-      simp [setBit] at he
+      have hbit := congrFun (hx.trans (he.trans hy.symm)) v
+      simp [setBit] at hbit
 
 def RootList (f : Forest) (vs : List Nat) : Prop :=
   vs.Nodup ∧ ∀ v, v ∈ vs ↔ IsRoot f v

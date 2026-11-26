@@ -2266,8 +2266,9 @@ fn exact_trace_source_locked_receipts(){
         let (mgr,v,c)=route_encode(chosen);
         assert_eq!((v,c),if selected{(bv,bc)}else{(av,ac)});
         let dimacs=mgr.try_to_dimacs_string("gpmc").expect("receipt DIMACS");
-        let (_,_,weight_checks)=check_receipt_cnf(chosen,&dimacs).unwrap_or_else(|e|panic!("selected CNF certificate {case}: {e}"));
+        let (_,gate_receipt,weight_checks)=check_receipt_cnf(chosen,&dimacs).unwrap_or_else(|e|panic!("selected CNF certificate {case}: {e}"));
         let input_bound=normalized_input_bound(chosen.v.path_vars.len(),weight_checks,twice,if selected{k}else{0}).unwrap();
+        println!("CRR_GATE_RECEIPT case={case} arm=selected sha256={} gates={} equalities={}",gate_receipt_sha(&gate_receipt),gate_receipt.defs.len(),gate_receipt.equalities.len());
         println!("CRR_REAL_CNF_CERTIFICATE case={case} status=matched vars={v} clauses={c} weights={weight_checks} structural=true numerical_weight_check=true normalized_input_bound={input_bound} bound_conditional_on_reference=true solver_count_certified=false");
         let (_,lv,lc,lm,lo,ls)=lazy_prepare(p);
         assert_eq!((v,c,selected),(lv,lc,ls));
@@ -2392,9 +2393,15 @@ fn gpmc_trace_witness_source_receipts(){
             let (actual,e,w)=check_receipt_cnf(encoded,&cnf).unwrap_or_else(|err|panic!("solver CNF {case} {arm}: {err}"));
             let input_bound=normalized_input_bound(encoded.v.path_vars.len(),w,twice,2*m+o).unwrap();
             println!("CRR_SOLVER_CNF_CERTIFICATE case={case} arm={arm} weights={w} cnf_sha256={} structural=true numerical_weight_check=true normalized_input_bound={input_bound} bound_conditional_on_reference=true",receipt_sha(cnf.as_bytes()));
-            let exact=if expected.is_some(){
+            println!("CRR_GATE_RECEIPT case={case} arm={arm} sha256={} gates={} equalities={}",gate_receipt_sha(&e),e.defs.len(),e.equalities.len());
+            let exact=if let Some(want)=expected{
                 let count=exact_serialized_wmc(&actual).unwrap();
-                assert_eq!(count,exact_live_wmc(encoded,&actual,&e).unwrap());Some(count)
+                assert_eq!(count,exact_live_wmc(encoded,&actual,&e).unwrap());
+                let (lo,hi)=ideal_trace_squared_interval(&count,twice,2*m+o,&input_bound);
+                let truth=Rat::new(want.into(),4.into());
+                assert!(lo<=truth&&truth<=hi,"conditional ideal reference {case} {arm}");
+                println!("CRR_IDEAL_TRACE_INTERVAL case={case} arm={arm} lower={lo} upper={hi} analytic_truth={truth} conditional=true");
+                Some(count)
             }else{None};
             if let Some((raw,cnf_sha,stdout_sha))=receipt_solve(&cnf,&exe,case,arm){
                 if let Some((re,im))=exact{
@@ -2497,9 +2504,14 @@ fn parse_receipt_cnf(s:&str)->Result<CnfReceipt,&'static str>{
     Ok(CnfReceipt{vars,clauses,weights})
 }
 #[cfg(test)]
+#[derive(Clone,Debug)]
+enum GateOp{False,And(Vec<i32>),Xor(i32,i32)}
+#[cfg(test)]
+#[derive(Clone)]
 struct ExpectedCnf{
     next:i32,live:std::collections::BTreeMap<u32,i32>,clauses:Vec<Vec<i32>>,
     phase:std::collections::BTreeMap<i32,(Vec<u32>,ExactPair)>,
+    defs:Vec<(i32,GateOp)>,equalities:Vec<(i32,i32)>,
 }
 #[cfg(test)]
 impl ExpectedCnf{
@@ -2510,18 +2522,21 @@ impl ExpectedCnf{
     }
     fn clause(&mut self,mut row:Vec<i32>){row.sort_unstable();self.clauses.push(row);}
     fn and(&mut self,z:i32,inputs:&[i32]){
+        self.defs.push((z,GateOp::And(inputs.to_vec())));
         // Minimal implicates of z=AND(inputs): each forbidden pair
         // (z=1,input=0) and the single all-ones input with z=0.
         for &v in inputs{self.clause(vec![-z,v]);}
         let mut row:Vec<_>=inputs.iter().map(|v|-v).collect();row.push(z);self.clause(row);
     }
     fn xor(&mut self,a:i32,b:i32,z:i32){
+        self.defs.push((z,GateOp::Xor(a,b)));
         for bits in 0..8{
             let x=bits&1!=0;let y=bits&2!=0;let out=bits&4!=0;
             if out!=(x^y){self.clause(vec![if x{-a}else{a},if y{-b}else{b},if out{-z}else{z}]);}
         }
     }
     fn equality(&mut self,a:i32,b:i32){
+        self.equalities.push((a,b));
         for (x,y) in [(true,false),(false,true)]{
             self.clause(vec![if x{-a}else{a},if y{-b}else{b}]);
         }
@@ -2530,7 +2545,7 @@ impl ExpectedCnf{
 #[cfg(test)]
 fn expected_receipt_cnf(ps:&PathSum)->Result<ExpectedCnf,&'static str>{
     use std::collections::BTreeMap;
-    let mut e=ExpectedCnf{next:1,live:BTreeMap::new(),clauses:Vec::new(),phase:BTreeMap::new()};
+    let mut e=ExpectedCnf{next:1,live:BTreeMap::new(),clauses:Vec::new(),phase:BTreeMap::new(),defs:Vec::new(),equalities:Vec::new()};
     if Trace::from_native(ps).is_none(){return Err("CNF residual admission");}
     for (mono,c) in &ps.p.terms{
         let z=e.fresh();
@@ -2545,7 +2560,7 @@ fn expected_receipt_cnf(ps:&PathSum)->Result<ExpectedCnf,&'static str>{
             let id=if inputs.len()==1{inputs[0]}else{let z=e.fresh();e.and(z,&inputs);z};
             values.push(id);
         }
-        let b=if values.is_empty(){let z=e.fresh();e.clause(vec![-z]);z}else{
+        let b=if values.is_empty(){let z=e.fresh();e.defs.push((z,GateOp::False));e.clause(vec![-z]);z}else{
             let mut v=values[0];
             for &w in &values[1..]{let z=e.fresh();e.xor(v,w,z);v=z;}
             v
@@ -2608,6 +2623,7 @@ fn check_receipt_cnf(ps:&PathSum,s:&str)->Result<(CnfReceipt,ExpectedCnf,usize),
     let expected=expected_receipt_cnf(ps)?;
     if actual.vars!=(expected.next-1) as usize{return Err("CNF variable count mismatch");}
     if actual.clauses!=expected.clauses{return Err("CNF clause mismatch");}
+    verify_gate_receipt(&actual,&expected)?;
     if actual.weights.len()!=2*expected.phase.len(){return Err("CNF weight coverage");}
     let one=Rat::from_integer(1.into());let zero=Rat::zero();
     let tolerance=Rat::new(1.into(),BigInt::from(10u8).pow(65));
@@ -2800,4 +2816,122 @@ fn exact_trace_weight_range_and_input_bound(){
     assert_eq!(normalized_input_bound(8,1,16,1).unwrap(),&base*Rat::from_integer(2.into()));
     assert!(normalized_input_bound(8,2,16,0).unwrap()>base);
     println!("CRR_WEIGHT_RANGE_BOUND signed_large_angles={checks} cap_rejected=1 perturbation_controls=5 solver_error_included=false");
+}
+
+
+// Explicit topological gate receipt. Recheck its graph and reconstruct
+// clause multiset from the typed witness, independent of allocation order.
+// The source binding still uses expected_receipt_cnf on the same PathSum;
+// this is not yet a cross-language serialized Lean refinement.
+#[cfg(test)]
+fn verify_gate_receipt(actual:&CnfReceipt,e:&ExpectedCnf)->Result<(),&'static str>{
+    use std::collections::{BTreeMap,BTreeSet};
+    let in_range=|v:i32|v>0&&(v as usize)<=actual.vars;
+    let mut seen=BTreeSet::new();
+    for &v in e.live.values(){
+        if !in_range(v)||!seen.insert(v){return Err("gate live mapping");}
+    }
+    let mut gates=BTreeMap::new();
+    let mut clauses=Vec::new();
+    let mut add=|mut row:Vec<i32>|{row.sort_unstable();clauses.push(row);};
+    for (z,op) in &e.defs{
+        if !in_range(*z)||seen.contains(z){return Err("gate output not fresh");}
+        match op{
+            GateOp::False=>add(vec![-*z]),
+            GateOp::And(inputs)=>{
+                let mut unique=BTreeSet::new();
+                for &v in inputs{
+                    if !seen.contains(&v)||!unique.insert(v){return Err("gate AND dependency");}
+                    add(vec![-*z,v]);
+                }
+                let mut last=vec![*z];last.extend(inputs.iter().map(|&v|-v));add(last);
+            },
+            GateOp::Xor(a,b)=>{
+                if !seen.contains(a)||!seen.contains(b){return Err("gate XOR dependency");}
+                for x in [false,true]{for y in [false,true]{
+                    let out=!(x^y);
+                    add(vec![if x{-*a}else{*a},if y{-*b}else{*b},if out{-*z}else{*z}]);
+                }}
+            },
+        }
+        seen.insert(*z);gates.insert(*z,op);
+    }
+    if seen.len()!=actual.vars{return Err("gate domain coverage");}
+    for &(a,b) in &e.equalities{
+        if !seen.contains(&a)||!seen.contains(&b){return Err("gate equality dependency");}
+        add(vec![-a,b]);add(vec![a,-b]);
+    }
+    for (&z,(mono,_)) in &e.phase{
+        let expected:Option<Vec<_>>=mono.iter().map(|v|e.live.get(v).copied()).collect();
+        match (gates.get(&z),expected){
+            (Some(GateOp::And(inputs)),Some(expected)) if *inputs==expected=>{},
+            _=>return Err("gate phase binding"),
+        }
+    }
+    clauses.sort();
+    if clauses!=actual.clauses{return Err("gate clause mismatch");}
+    Ok(())
+}
+#[cfg(test)]
+fn gate_receipt_sha(e:&ExpectedCnf)->String{
+    receipt_sha(format!("crr-gates-v1|live={:?}|defs={:?}|equalities={:?}|phase={:?}",
+        e.live,e.defs,e.equalities,e.phase).as_bytes())
+}
+#[test]
+fn exact_trace_gate_interface(){
+    use quprs::rational::PhaseCoeff;
+    let mut p=PathSum::new(2);p.rr_tolerance=0.0;
+    let y=p.v.get_fresh_var();p.v.get_fresh_var();
+    p.p.add_term(vec![0,y],PhaseCoeff::HALF);
+    p.f.functions[0].clear();p.f.functions[0].insert(vec![0,y]);p.f.functions[0].insert(vec![1]);
+    p.f.functions[1].clear();
+    let (mgr,_,_)=route_encode(&p);let cnf=mgr.try_to_dimacs_string("gpmc").unwrap();
+    let (a,e,_)=check_receipt_cnf(&p,&cnf).unwrap();
+    assert_eq!(verify_gate_receipt(&a,&e),Ok(()));
+    let mut bad=e.clone();bad.defs[0].0=*e.live.values().next().unwrap();
+    assert_eq!(verify_gate_receipt(&a,&bad),Err("gate output not fresh"));
+    let mut bad=e.clone();let z=bad.defs[0].0;bad.defs[0].1=GateOp::And(vec![z]);
+    assert_eq!(verify_gate_receipt(&a,&bad),Err("gate AND dependency"));
+    let mut bad=e.clone();bad.defs.pop();
+    assert_eq!(verify_gate_receipt(&a,&bad),Err("gate domain coverage"));
+    let mut bad=e.clone();bad.equalities.pop();
+    assert_eq!(verify_gate_receipt(&a,&bad),Err("gate clause mismatch"));
+    let mut bad=e.clone();bad.phase.values_mut().next().unwrap().0=vec![1];
+    assert_eq!(verify_gate_receipt(&a,&bad),Err("gate phase binding"));
+    let mut bad=e.clone();let v=*e.live.values().next().unwrap();bad.live.insert(99,v);
+    assert_eq!(verify_gate_receipt(&a,&bad),Err("gate live mapping"));
+    println!("CRR_GATE_INTERFACE_CERTIFICATE positive=1 rejected=6 digest={} cross_language_refinement=false",gate_receipt_sha(&e));
+}
+
+// Enclose normalized squared modulus using the exact serialized count
+// and the conditional ideal-input error bound. No use of solver output.
+// The rational upper bound on |a| uses L1 and an upward-rounded scale.
+#[cfg(test)]
+fn ideal_trace_squared_interval(raw:&ExactPair,twice:i32,k:usize,bound:&Rat)->(Rat,Rat){
+    use num_bigint::BigInt;
+    use num_traits::{Signed,Zero};
+    fn pow2(exponent:i64)->Rat{
+        assert!(exponent.unsigned_abs()<=100_000);
+        let p=BigInt::from(1u8)<<(exponent.unsigned_abs() as usize);
+        if exponent>=0{Rat::from_integer(p)}else{Rat::new(1.into(),p)}
+    }
+    let exponent=i64::try_from(k).unwrap()-i64::from(twice);
+    let center=(&raw.0*&raw.0+&raw.1*&raw.1)*pow2(exponent);
+    let norm_upper=(raw.0.abs()+raw.1.abs())*pow2(-(-exponent).div_euclid(2));
+    let err=Rat::from_integer(2.into())*norm_upper*bound+bound*bound;
+    ((&center-&err).max(Rat::zero()),center+err)
+}
+#[test]
+fn exact_trace_interval_reference(){
+    use num_bigint::BigInt;
+    use num_traits::Zero;
+    let d=Rat::new(1.into(),BigInt::from(10u8).pow(65));
+    let zero=Rat::zero();let one=Rat::from_integer(1.into());let two=Rat::from_integer(2.into());
+    assert_eq!(ideal_trace_squared_interval(&(two.clone(),zero.clone()),2,0,&zero),(one.clone(),one.clone()));
+    let (lo,hi)=ideal_trace_squared_interval(&(one.clone(),one.clone()),2,0,&d);
+    let half=Rat::new(1.into(),2.into());assert!(lo<half&&hi>half);
+    let (lo,hi)=ideal_trace_squared_interval(&(zero.clone(),zero.clone()),2,0,&d);
+    assert_eq!(lo,zero);assert_eq!(hi,&d*&d);
+    assert_eq!(ideal_trace_squared_interval(&(one.clone(),zero.clone()),2,1,&Rat::zero()),(half.clone(),half));
+    println!("CRR_INTERVAL_REFERENCE controls=4 exact_serialized_center=true input_bound_conditional=true external_solver_error_included=false");
 }

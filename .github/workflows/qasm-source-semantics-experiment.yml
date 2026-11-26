@@ -1009,6 +1009,16 @@ jobs:
             test "$(grep -Ec "^'QuPRS[.]AliasUnionReplay[.]$theorem' (does not depend on any axioms|depends on axioms)" ../../../evidence/conditional-lean-union-replay.log)" -eq 1
           done
           echo 'CRR_LEAN_UNION_REPLAY_PASS axiom_reports=11 replay_entailment=true executable_checker=false rust_refinement=false'
+          sha256sum CnfExtension.lean >> ../../../evidence/source-sha256.txt
+          LEAN_PATH=. lean CnfExtension.lean 2>&1 | tee ../../../evidence/conditional-lean-cnf-extension.log
+          if grep -E 'sorryAx|Lean[.]trustCompiler|Classical[.]choice' ../../../evidence/conditional-lean-cnf-extension.log; then
+            exit 1
+          fi
+          test "$(grep -Ec 'does not depend on any axioms|depends on axioms' ../../../evidence/conditional-lean-cnf-extension.log)" -eq 10
+          for theorem in and_gate xor_gate equality_gate false_gate true_gate defs_iff defs_exists defs_unique weighted_fiber unweighted_fiber; do
+            test "$(grep -Ec "^'QuPRS[.]CnfExtension[.]$theorem' (does not depend on any axioms|depends on axioms)" ../../../evidence/conditional-lean-cnf-extension.log)" -eq 1
+          done
+          echo 'CRR_LEAN_CNF_EXTENSION_PASS theorem_axiom_reports=10 ordered_definitions=true rust_refinement=false'
       - name: Prepare bounded native Conditional RR CodSpeed target
         if: env.CRR_PERF_STAGE == 'simulation'
         run: |

@@ -1,9 +1,10 @@
 /-
 Exact coefficient algebra, using the accepted Cartesian pair semantics.
 Laws hold over unbounded Int. No reassociation of checked Rust operations
-is asserted. Associativity and ring instantiation are separate obligations.
+is asserted. Finite-coordinate algebra instantiation is explicit; checked execution is separate.
 -/
 import AffineNegacyclic
+import AffineFactorElimination
 set_option autoImplicit false
 set_option warningAsError true
 namespace QuPRS.AffineCyclotomicAlgebra
@@ -401,6 +402,108 @@ theorem mul_input_congr (d k : Nat) (a b a' b' : Nat → Int)
   apply total_congr
   intro j hj
   rw [ha i (List.mem_range.mp hi), hb j (List.mem_range.mp hj)]
+
+/-- Finite coefficient carrier; off-grid coordinates are not observable. -/
+abbrev Coeff (d : Nat) := Fin d → Int
+
+def extend {d : Nat} (a : Coeff d) (i : Nat) : Int :=
+  if h : i < d then a ⟨i,h⟩ else 0
+
+def finMul {d : Nat} (a b : Coeff d) : Coeff d :=
+  fun k => mul d (extend a) (extend b) k.val
+
+def finAdd {d : Nat} (a b : Coeff d) : Coeff d :=
+  fun k => a k + b k
+
+def finOne (d : Nat) : Coeff d := fun k => one k.val
+
+theorem extend_fin {d : Nat} (a : Coeff d) (k : Fin d) :
+    extend a k.val = a k := by
+  simp [extend, k.isLt]
+
+theorem extend_mul_on_grid {d : Nat} (a b : Coeff d) (i : Nat)
+    (hi : i < d) :
+    extend (finMul a b) i = mul d (extend a) (extend b) i := by
+  simp [extend, finMul, hi]
+
+theorem extend_add_on_grid {d : Nat} (a b : Coeff d) (i : Nat)
+    (hi : i < d) :
+    extend (finAdd a b) i = add (extend a) (extend b) i := by
+  simp [extend, finAdd, add, hi]
+
+theorem extend_one_on_grid (d i : Nat) (hi : i < d) :
+    extend (finOne d) i = one i := by
+  simp [extend, finOne, hi]
+
+theorem fin_mul_unit {d : Nat} (a : Coeff d) :
+    finMul a (finOne d) = a := by
+  funext k
+  change mul d (extend a) (extend (finOne d)) k.val = a k
+  calc
+    _ = mul d (extend a) one k.val :=
+      mul_input_congr d k.val _ _ _ _ (fun _ _ => rfl)
+        (extend_one_on_grid d)
+    _ = extend a k.val := mul_one_coordinate d k.val k.isLt (extend a)
+    _ = a k := extend_fin a k
+
+theorem fin_mul_comm {d : Nat} (a b : Coeff d) :
+    finMul a b = finMul b a := by
+  funext k
+  exact congrFun (mul_comm d (extend a) (extend b)) k.val
+
+theorem fin_mul_assoc {d : Nat} (a b c : Coeff d) :
+    finMul (finMul a b) c = finMul a (finMul b c) := by
+  funext k
+  change mul d (extend (finMul a b)) (extend c) k.val =
+    mul d (extend a) (extend (finMul b c)) k.val
+  calc
+    _ = mul d (mul d (extend a) (extend b)) (extend c) k.val :=
+      mul_input_congr d k.val _ _ _ _ (extend_mul_on_grid a b) (fun _ _ => rfl)
+    _ = mul d (extend a) (mul d (extend b) (extend c)) k.val :=
+      mul_assoc_coordinate d k.val k.isLt _ _ _
+    _ = _ := (mul_input_congr d k.val _ _ _ _
+      (fun _ _ => rfl) (extend_mul_on_grid b c)).symm
+
+theorem fin_mul_dist {d : Nat} (r a b : Coeff d) :
+    finAdd (finMul r a) (finMul r b) = finMul r (finAdd a b) := by
+  funext k
+  change add (mul d (extend r) (extend a)) (mul d (extend r) (extend b)) k.val =
+    mul d (extend r) (extend (finAdd a b)) k.val
+  calc
+    _ = mul d (extend r) (add (extend a) (extend b)) k.val :=
+      (congrFun (mul_add d (extend r) (extend a) (extend b)) k.val).symm
+    _ = _ := (mul_input_congr d k.val _ _ _ _
+      (fun _ _ => rfl) (extend_add_on_grid a b)).symm
+
+/-- The exact algebra is not an algebra of checked i128 computations. -/
+def cycloAlgebra (d : Nat) : QuPRS.AffineFactorElimination.Algebra (Coeff d) where
+  one := finOne d
+  add := finAdd
+  mul := finMul
+  rightUnit := fin_mul_unit
+  assoc := fin_mul_assoc
+  comm := fin_mul_comm
+  dist := fin_mul_dist
+
+theorem cyclo_contract_order_sound {X : Type} [DecidableEq X] (d : Nat)
+    (xs : List X) (fs : List (QuPRS.AffineFactorScope.ScopedFactor X (Coeff d)))
+    (a : X → Bool) :
+    QuPRS.AffineFactorScope.factorProduct (finOne d) finMul a
+      (QuPRS.AffineFactorElimination.contractOrder (cycloAlgebra d) xs fs) =
+    QuPRS.AffineFactorElimination.sumOrder finAdd xs
+      (fun v => QuPRS.AffineFactorScope.factorProduct (finOne d) finMul v fs) a :=
+  QuPRS.AffineFactorElimination.contract_order_sound (cycloAlgebra d) xs fs a
+
+#print axioms extend_fin
+#print axioms extend_mul_on_grid
+#print axioms extend_add_on_grid
+#print axioms extend_one_on_grid
+#print axioms fin_mul_unit
+#print axioms fin_mul_comm
+#print axioms fin_mul_assoc
+#print axioms fin_mul_dist
+#print axioms cycloAlgebra
+#print axioms cyclo_contract_order_sound
 
 #print axioms mul_left_triple
 #print axioms triple_rotate

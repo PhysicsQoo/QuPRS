@@ -1045,7 +1045,7 @@ jobs:
 
           elimination_status=0
           if test "$factor_scope_status" -eq 0; then
-            LEAN_PATH=. lean AffineFactorElimination.lean 2>&1 | tee /tmp/qasm-lean-affine-factor-elimination.log || elimination_status=$?
+            LEAN_PATH=. lean -o AffineFactorElimination.olean AffineFactorElimination.lean 2>&1 | tee /tmp/qasm-lean-affine-factor-elimination.log || elimination_status=$?
             if grep -E 'sorryAx|Lean[.]trustCompiler|Classical[.]choice' /tmp/qasm-lean-affine-factor-elimination.log; then
               elimination_status=1
             fi
@@ -1063,20 +1063,20 @@ jobs:
           fi
 
           algebra_status=0
-          if test "$negacyclic_status" -eq 0; then
+          if test "$negacyclic_status" -eq 0 && test "$elimination_status" -eq 0; then
             LEAN_PATH=. lean AffineCyclotomicAlgebra.lean 2>&1 | tee /tmp/qasm-lean-affine-cyclotomic-algebra.log || algebra_status=$?
             if grep -E 'sorryAx|Lean[.]trustCompiler|Classical[.]choice' /tmp/qasm-lean-affine-cyclotomic-algebra.log; then
               algebra_status=1
             fi
-            test "$(grep -Ec 'does not depend on any axioms|depends on axioms' /tmp/qasm-lean-affine-cyclotomic-algebra.log)" -eq 24 || algebra_status=1
-            for theorem in mul_left_triple triple_rotate mul_assoc_coordinate mul_input_congr total_mul_left total_mul_right coordinate_shift coordinate_reduce coordinate_basis_delta basis_composition total_congr total_zero total_add total_append total_map total_flatMap total_swap pair_sum_total mul_nested mul_comm mul_add mul_zero total_delta mul_one_coordinate; do
+            test "$(grep -Ec 'does not depend on any axioms|depends on axioms' /tmp/qasm-lean-affine-cyclotomic-algebra.log)" -eq 34 || algebra_status=1
+            for theorem in extend_fin extend_mul_on_grid extend_add_on_grid extend_one_on_grid fin_mul_unit fin_mul_comm fin_mul_assoc fin_mul_dist cycloAlgebra cyclo_contract_order_sound mul_left_triple triple_rotate mul_assoc_coordinate mul_input_congr total_mul_left total_mul_right coordinate_shift coordinate_reduce coordinate_basis_delta basis_composition total_congr total_zero total_add total_append total_map total_flatMap total_swap pair_sum_total mul_nested mul_comm mul_add mul_zero total_delta mul_one_coordinate; do
               test "$(grep -Ec "^'QuPRS[.]AffineCyclotomicAlgebra[.]$theorem' (does not depend on any axioms|depends on axioms)" /tmp/qasm-lean-affine-cyclotomic-algebra.log)" -eq 1 || algebra_status=1
             done
           else
             algebra_status=1
           fi
           if test "$algebra_status" -eq 0; then
-            echo 'LEAN4_AFFINE_CYCLOTOMIC_ALGEBRA_PASS theorem_axiom_reports=24 native_pair_sum=true commutative=true distributive=true zero=true bounded_unit=true basis_composition=true associative_on_grid=true input_congruence=true checked_reassociation=false'
+            echo 'LEAN4_AFFINE_CYCLOTOMIC_ALGEBRA_PASS theorem_axiom_reports=34 native_pair_sum=true commutative=true distributive=true zero=true bounded_unit=true basis_composition=true associative_on_grid=true input_congruence=true finite_algebra=true ordered_factor_elimination=true checked_reassociation=false'
           else
             echo 'LEAN4_AFFINE_CYCLOTOMIC_ALGEBRA_FAIL' >&2
           fi

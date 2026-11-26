@@ -176,20 +176,47 @@ def replayRows (n : Nat) (records : List Record) : Option (List (List Int) × Li
       weighted := z :: weighted
   if seen.length == n then return some (clauses, weighted) else return none
 
--- Redundant semantic coverage is deliberately retained alongside
--- the stronger multiplicity check. This executable predicate is the
--- one used by the following kernel theorem, not an unrelated model.
+-- Explicit constructive equality/membership. Avoid inferred
+-- Decidable (x ∈ ys), which picked up a classical instance.
+def clauseEq : List Int → List Int → Bool
+  | [], [] => true
+  | a :: xs, b :: ys => (@decide (a = b) (Int.decEq a b)) && clauseEq xs ys
+  | _, _ => false
+
+theorem clause_eq_iff (xs ys : List Int) :
+    clauseEq xs ys = true ↔ xs = ys := by
+  induction xs generalizing ys with
+  | nil => cases ys <;> simp [clauseEq]
+  | cons a xs ih =>
+    cases ys with
+    | nil => simp [clauseEq]
+    | cons b bs =>
+      simp only [clauseEq, Bool.and_eq_true, decide_eq_true_eq, ih, List.cons.injEq]
+
+def clauseMem (x : List Int) : List (List Int) → Bool
+  | [] => false
+  | y :: ys => clauseEq x y || clauseMem x ys
+
+theorem clause_mem_iff (x : List Int) (ys : List (List Int)) :
+    clauseMem x ys = true ↔ x ∈ ys := by
+  induction ys with
+  | nil => simp [clauseMem]
+  | cons y ys ih =>
+    simp only [clauseMem, Bool.or_eq_true, clause_eq_iff, ih, List.mem_cons]
+
+-- Redundant semantic coverage is retained alongside the stronger
+-- multiplicity check, with a constructive decision path.
 def covers (xs ys : List (List Int)) : Bool :=
   match xs with
   | [] => true
-  | x :: rest => decide (x ∈ ys) && covers rest ys
+  | x :: rest => clauseMem x ys && covers rest ys
 
 theorem covers_iff (xs ys : List (List Int)) :
     covers xs ys = true ↔ ∀ x, x ∈ xs → x ∈ ys := by
   induction xs with
   | nil => simp [covers]
   | cons x xs ih =>
-    simp only [covers, Bool.and_eq_true, decide_eq_true_eq, ih, List.mem_cons]
+    simp only [covers, Bool.and_eq_true, clause_mem_iff, ih, List.mem_cons]
     constructor
     · intro h y hy
       rcases hy with he | he
@@ -198,6 +225,11 @@ theorem covers_iff (xs ys : List (List Int)) :
       · exact h.2 y he
     · intro h
       exact ⟨h x (Or.inl rfl), fun y hy => h y (Or.inr hy)⟩
+
+-- Explicit truth-table lemma, independent of library theorem naming.
+theorem and_true_parts {a b : Bool} (h : (a && b) = true) :
+    a = true ∧ b = true := by
+  cases a <;> cases b <;> simp_all
 
 def satisfies (clauses : List (List Int)) (value : Int → Bool) : Prop :=
   ∀ c, c ∈ clauses → ∃ lit, lit ∈ c ∧ value lit = true
@@ -208,8 +240,9 @@ def checkRows (generated actual : List (List Int)) : Bool :=
 theorem check_rows_sound (generated actual : List (List Int))
     (h : checkRows generated actual = true) (value : Int → Bool) :
     satisfies generated value ↔ satisfies actual value := by
-  have hc := Bool.and_eq_true.mp h
-  have hg := (covers_iff generated actual).mp (Bool.and_eq_true.mp hc.1).2
+  unfold checkRows at h
+  have hc := and_true_parts h
+  have hg := (covers_iff generated actual).mp (and_true_parts hc.1).2
   have ha := (covers_iff actual generated).mp hc.2
   constructor
   · intro hs c hm
@@ -243,10 +276,13 @@ theorem accepted_rows_sound (n : Nat) (rs : List Record)
     (value : Int → Bool) :
     satisfies generated value ↔ satisfies p.clauses value := by
   rw [hr] at h
-  exact check_rows_sound generated p.clauses (Bool.and_eq_true.mp h).2 value
+  exact check_rows_sound generated p.clauses (and_true_parts h).2 value
 
 #print axioms and_forward
 #print axioms and_nary
+#print axioms clause_eq_iff
+#print axioms clause_mem_iff
+#print axioms and_true_parts
 #print axioms covers_iff
 #print axioms check_rows_sound
 #print axioms accepted_rows_sound

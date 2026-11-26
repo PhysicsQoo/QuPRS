@@ -94,7 +94,7 @@ theorem column_reconstruction {I J M : Type} (ms : List M)
     apply parity_congr
     intro m hmem
     cases ha : active m with
-    | false => simp [ha, parity_false]
+    | false => simp [parity_false]
     | true => simpa [ha] using hm m hmem
   change bx (constant i) (parity (fun m => if active m then coeff m i else false) ms) =
     bx (offset i) (parity (fun j => bx (constant (rep j))
@@ -133,8 +133,8 @@ theorem check_target_iff {I J : Type} (js : List J) (rows : J → List I)
     apply check_all_complete
     intro i _
     cases hi : fixed i with
-    | false => simp [hi]
-    | true => simp [hi, h i hi]
+    | false => simp
+    | true => simp [h i hi]
 
 def checkCertificate {I J M : Type} [DecidableEq I]
     (is : List I) (js : List J) (ms : List M)

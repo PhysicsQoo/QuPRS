@@ -1081,3 +1081,96 @@ fn exact_trace_cnf_dimensions(){
     }
     println!("CRR_DIMENSION_ORACLE models=128 header_checks={checks} dispatch_checks=128");
 }
+
+
+// Full native release-build research pipeline, with native RR independently
+// executed in each arm. Not the public Hybrid API: the post-RR numerical
+// path uses the experiment's explicit 256-bit/90-digit precision.
+#[test]
+fn native_full_pipeline_paired(){
+    use quprs::{check_equivalence_with_options,EquivalenceStatus,VerificationMethod,VerificationOptions};
+    use quprs::qasm::parse_qasm_str;
+    use quprs::precision_count::PrintedVerdict;
+    use num_bigint::BigInt;
+    use num_traits::{Signed,ToPrimitive};
+    use std::time::{Instant,Duration};
+    let case=std::env::var("CRR_CASE").expect("case");
+    let source=std::env::var("CRR_SOURCE").expect("source");
+    let target=std::env::var("CRR_TARGET").expect("target");
+    let repeat=std::env::var("CRR_REPEAT").expect("repeat").parse::<usize>().unwrap();
+    let secs=std::env::var("CRR_SOLVER_SECS").expect("solver deadline").parse::<u64>().unwrap();
+    assert!((8..=60).contains(&secs));
+    assert!(std::env::var_os("QUPRS_GPMC_PATH").is_some());
+    let run=|lazy:bool|->Option<(String,Option<(Count,i32)>)>{
+        let arm=if lazy{"lazy"}else{"baseline"};
+        let start=Instant::now();
+        let (a,n)=parse_qasm_str(&std::fs::read_to_string(&source).expect("source bytes")).expect("source parse");
+        let (b,m)=parse_qasm_str(&std::fs::read_to_string(&target).expect("target bytes")).expect("target parse");
+        assert_eq!(n,m);
+        let parse=start.elapsed().as_secs_f64();
+        let begin=Instant::now();
+        let options=VerificationOptions{method:VerificationMethod::ReductionRules,
+            rr_tolerance:0.0,timeout_secs:20,..VerificationOptions::default()};
+        let result=check_equivalence_with_options(n,&a,&b,&options).expect("native RR");
+        assert!(!result.solver_invoked);
+        let rr=begin.elapsed().as_secs_f64();
+        let native=result.status.as_str();
+        // An approximate or incomplete native result is not a decision.
+        if result.rr_approximate||matches!(&result.status,EquivalenceStatus::Timeout|EquivalenceStatus::MemoryOut){
+            println!("CRR_FULL_CALL case={case} arm={arm} status=incomplete native={native} reason=native_admission parse_s={parse} rr_s={rr} total_s={}",start.elapsed().as_secs_f64());
+            return None;
+        }
+        if matches!(&result.status,EquivalenceStatus::Equivalent|EquivalenceStatus::EquivalentUpToGlobalPhase|EquivalenceStatus::NotEquivalent){
+            let verdict=if matches!(&result.status,EquivalenceStatus::NotEquivalent){"NEQ"}else{"EQ"};
+            println!("CRR_FULL_CALL case={case} arm={arm} status=complete native={native} selected=native_rr verdict={verdict} solver=false parse_s={parse} rr_s={rr} prepare_s=0 call_s=0 total_s={}",start.elapsed().as_secs_f64());
+            return Some((verdict.to_string(),None));
+        }
+        let p=result.final_pathsum();
+        let begin=Instant::now();
+        if Trace::from_native(p).is_none()||p.p.terms.len()+p.f.functions.iter().map(|f|f.len()).sum::<usize>()>TERM_CAP{
+            println!("CRR_FULL_CALL case={case} arm={arm} status=incomplete native={native} reason=residual_admission parse_s={parse} rr_s={rr} total_s={}",start.elapsed().as_secs_f64());
+            return None;
+        }
+        let twice=(n+p.v.path_vars.len()) as i32;
+        let (mgr,v,c,m,o,chosen)=if lazy{lazy_prepare(p)}else{
+            let (mgr,v,c)=route_encode(p);(mgr,v,c,0,0,false)
+        };
+        let prepare=begin.elapsed().as_secs_f64();
+        let selected=if chosen{"conditioned"}else{"baseline"};
+        let begin=Instant::now();
+        let count=mgr.solve_with_deadline_distance_printed_precision("gpmc",Some(begin+Duration::from_secs(secs)),90);
+        let call=begin.elapsed().as_secs_f64();
+        match count{
+            Ok(raw)=>{
+                let (raw,decision)=restore_count(raw,m,o,twice);
+                let verdict=match decision{
+                    PrintedVerdict::Equivalent=>"EQ",
+                    PrintedVerdict::NotEquivalent=>"NEQ",
+                    _=>"UNKNOWN",
+                };
+                println!("CRR_FULL_CALL case={case} arm={arm} status=complete native={native} selected={selected} verdict={verdict} solver=true vars={v} clauses={c} multiplier_power={m} omega={o} parse_s={parse} rr_s={rr} prepare_s={prepare} call_s={call} total_s={} normalization_twice={twice} real={} imag={}",start.elapsed().as_secs_f64(),raw.real,raw.imag);
+                Some((verdict.to_string(),Some((raw,twice))))
+            }
+            Err(e)=>{
+                println!("CRR_FULL_CALL case={case} arm={arm} status=incomplete native={native} selected={selected} solver=true parse_s={parse} rr_s={rr} prepare_s={prepare} call_s={call} total_s={} error={e:#}",start.elapsed().as_secs_f64());
+                None
+            }
+        }
+    };
+    let (a,b)=if repeat%2==0{(run(false),run(true))}else{let b=run(true);(run(false),b)};
+    let (Some((va,ca)),Some((vb,cb)))=(a,b)else{
+        println!("CRR_FULL_COMPARE case={case} status=incomplete");return;
+    };
+    assert_eq!(va,vb,"full pipeline verdict mismatch {case}");
+    match (ca,cb){
+        (Some((a,na)),Some((b,nb)))=>{
+            assert_eq!(na,nb,"original normalization drift");
+            let scale=Rat::from_integer(BigInt::from(1u8)<<(na as usize/2));
+            let delta=((&a.real-&b.real).abs()+(&a.imag-&b.imag).abs())/scale;
+            assert!(delta<=Rat::new(BigInt::from(1u8),BigInt::from(10u8).pow(50)));
+            println!("CRR_FULL_COMPARE case={case} status=matched verdict={va} scope=solver_count normalized_l1_delta={:.5e}",delta.to_f64().unwrap_or(f64::INFINITY));
+        }
+        (None,None)=>println!("CRR_FULL_COMPARE case={case} status=matched verdict={va} scope=native_rr"),
+        _=>panic!("native RR dispatch differs across arms"),
+    }
+}

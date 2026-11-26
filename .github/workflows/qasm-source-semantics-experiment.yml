@@ -141,6 +141,7 @@ jobs:
           grep -F 'HOARE_NATIVE_OUTPUT_QUOTIENT queries=3456 vectors=8192 ' evidence/hoare-paper-source.log
           grep -F 'HOARE_NATIVE_AFFINE_QUOTIENT queries=7776 vectors=24576 ' evidence/hoare-paper-source.log
           grep -F 'HOARE_NATIVE_AFFINE_UNITARY rank=4 free=3 exact=8 simple_width_rejected=true ' evidence/hoare-paper-source.log
+          grep -Fx 'HOARE_NATIVE_AFFINE_CERTIFICATE_REPLAY mutations=10 bad_query=true deadline=true unfixed=true rank_zero=true' evidence/hoare-paper-source.log
           grep -Fx 'HOARE_NATIVE_TILING8_FAILURE recovered=4 partial_positive=3 partial_zero=3 unresolved=1' evidence/hoare-paper-source.log
           grep -Fx 'HOARE_NATIVE_TILING8_PARTIAL_RECOVERY retained=2048 recovered=2048 duplicate=0' evidence/hoare-paper-source.log
           for source in vchain noancilla; do

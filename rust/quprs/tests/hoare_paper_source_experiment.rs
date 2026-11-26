@@ -2549,7 +2549,63 @@ fn native_output_quotient_parity(){
 // every fixed constraint is either an original basis coordinate or
 // a dependent equation involving only fixed basis coordinates.
 // Nonconstant ANF monomials are independent formal GF(2) coordinates.
+#[derive(Clone)]
 struct AffineOutputBasis{keep:u64,fixed:u64,value:u64,rows:Vec<(u64,bool)>,impossible:bool}
+
+// Independent certificate replay: transpose the original ANF coefficient
+// matrix into monomial -> output incidence masks, rather than rerunning
+// elimination or using its reconstruction/toggle routine. Checks the
+// premises of AffineOutputQuotient.lean, not basis minimality.
+fn check_affine_output_certificate(ps:&PathSum,mask:u64,z:u64,q:&AffineOutputBasis,
+    deadline:std::time::Instant)->Result<(),&'static str>{
+    if std::time::Instant::now()>=deadline{return Err("DEADLINE");}
+    let n=ps.v.num_qubits;
+    if n==0||n>16||!admitted(ps)||mask>>n!=0||z&!mask!=0{return Err("UNSUPPORTED");}
+    if ps.f.functions.iter().flatten().chain(ps.p.terms.keys()).flatten().any(|&v|(v as usize)<n){
+        return Err("UNFIXED_INPUT");
+    }
+    let domain=(1u64<<n)-1;
+    if q.rows.len()!=n||q.keep&!domain!=0||q.fixed!=q.keep&mask||q.value!=z&q.fixed{
+        return Err("CERTIFICATE_SHAPE");
+    }
+    let mut contradiction=false;
+    for (i,&(rel,offset)) in q.rows.iter().enumerate(){
+        let bit=1u64<<i;
+        if rel&!q.keep!=0{return Err("CERTIFICATE_SUPPORT");}
+        if q.keep&bit!=0&&(rel,offset)!=(bit,false){return Err("CERTIFICATE_REPRESENTATIVE");}
+        if mask&bit!=0{
+            if rel&!q.fixed!=0{return Err("CERTIFICATE_FIXED_SUPPORT");}
+            let actual=((rel&q.value).count_ones()%2!=0)^offset;
+            contradiction|=actual!=(z&bit!=0);
+        }
+    }
+    if contradiction!=q.impossible{return Err("CERTIFICATE_CONTRADICTION");}
+    // Each original monomial contributes exactly one bit per output.
+    // Empty monomial is handled separately as the affine offset.
+    let mut incidence=BTreeMap::<Vec<u32>,u64>::new();
+    let mut constants=0u64;
+    for (i,poly) in ps.f.functions.iter().enumerate(){
+        for m in poly{
+            if std::time::Instant::now()>=deadline{return Err("DEADLINE");}
+            if m.is_empty(){constants|=1u64<<i;}
+            else{*incidence.entry(m.clone()).or_default()|=1u64<<i;}
+        }
+    }
+    for (i,&(rel,offset)) in q.rows.iter().enumerate(){
+        let expected=(constants>>i&1)!=0;
+        if (((rel&constants).count_ones()%2!=0)^offset)!=expected{
+            return Err("CERTIFICATE_ROW_IDENTITY");
+        }
+        for &column in incidence.values(){
+            if std::time::Instant::now()>=deadline{return Err("DEADLINE");}
+            if ((column&rel).count_ones()%2!=0)!=((column>>i&1)!=0){
+                return Err("CERTIFICATE_ROW_IDENTITY");
+            }
+        }
+    }
+    Ok(())
+}
+
 fn affine_output_basis(ps:&PathSum,mask:u64,z:u64,deadline:std::time::Instant)
     ->Result<AffineOutputBasis,&'static str>{
     let n=ps.v.num_qubits;
@@ -2581,22 +2637,12 @@ fn affine_output_basis(ps:&PathSum,mask:u64,z:u64,deadline:std::time::Instant)
         let offset=((constants>>i&1)^(u64::from((constants&relation).count_ones()%2!=0)))!=0;
         q.rows[i]=(relation,offset);
         if mask>>i&1!=0{
-            assert_eq!(relation&!q.fixed,0);
+            if relation&!q.fixed!=0{return Err("CERTIFICATE_FIXED_SUPPORT");}
             let actual=((relation&q.value).count_ones()%2!=0)^offset;
             if actual!=(z>>i&1!=0){q.impossible=true;}
         }
     }
-    // Explicit reconstruction certificate over canonical ANFs.
-    for (i,&(relation,offset)) in q.rows.iter().enumerate(){
-        if std::time::Instant::now()>=deadline{return Err("DEADLINE");}
-        let mut reconstructed=Poly::default();
-        if offset{toggle(&mut reconstructed,vec![]);}
-        for j in 0..n{if relation>>j&1!=0{
-            for m in &ps.f.functions[j]{toggle(&mut reconstructed,m.clone());}
-        }}
-        assert_eq!(reconstructed,ps.f.functions[i]);
-        if q.keep>>i&1!=0{assert_eq!((relation,offset),(1u64<<i,false));}
-    }
+    check_affine_output_certificate(ps,mask,z,&q,deadline)?;
     Ok(q)
 }
 fn affine_label(q:&AffineOutputBasis,u:u64)->u64{
@@ -2661,6 +2707,58 @@ fn native_affine_output_quotient_parity(){
     assert!(matches!(affine_output_basis(&PathSum::new(2),0,0,deadline),Err("UNFIXED_INPUT")));
     println!("HOARE_NATIVE_AFFINE_QUOTIENT queries={queries} vectors={checks} strict={strict} contradictions={contradictions} exact=true");
 }
+
+#[test]
+fn native_affine_certificate_replay(){
+    let mut ps=PathSum::new(4);ps.set_auto_reduce(false);
+    let x=ps.v.get_fresh_var();let y=ps.v.get_fresh_var();
+    ps.f.functions=vec![
+        Poly::from_iter([vec![x]]),
+        Poly::from_iter([vec![y]]),
+        Poly::from_iter([vec![x],vec![y]]),
+        Poly::from_iter([vec![],vec![x],vec![y]])];
+    let p=fixed_input(ps,0);
+    let deadline=std::time::Instant::now()+std::time::Duration::from_secs(5);
+    let mask=12u64;let z=4u64;
+    // Hand-authored certificate, independent of the Gaussian producer.
+    let q=AffineOutputBasis{keep:5,fixed:4,value:4,
+        rows:vec![(1,false),(5,false),(4,false),(4,true)],impossible:false};
+    check_affine_output_certificate(&p,mask,z,&q,deadline).unwrap();
+    let generated=affine_output_basis(&p,mask,z,deadline).unwrap();
+    check_affine_output_certificate(&p,mask,z,&generated,deadline).unwrap();
+    let mut negative=0;
+    macro_rules! reject{
+        ($edit:expr,$err:literal)=>{{
+            let mut bad=q.clone();($edit)(&mut bad);
+            assert_eq!(check_affine_output_certificate(&p,mask,z,&bad,deadline),Err($err));
+            negative+=1;
+        }};
+    }
+    reject!(|b:&mut AffineOutputBasis|{b.rows.pop();},"CERTIFICATE_SHAPE");
+    reject!(|b:&mut AffineOutputBasis|{b.keep|=16;},"CERTIFICATE_SHAPE");
+    reject!(|b:&mut AffineOutputBasis|{b.fixed=0;},"CERTIFICATE_SHAPE");
+    reject!(|b:&mut AffineOutputBasis|{b.value=0;},"CERTIFICATE_SHAPE");
+    reject!(|b:&mut AffineOutputBasis|{b.rows[1].0|=2;},"CERTIFICATE_SUPPORT");
+    reject!(|b:&mut AffineOutputBasis|{b.rows[0].1=true;},"CERTIFICATE_REPRESENTATIVE");
+    reject!(|b:&mut AffineOutputBasis|{b.rows[3].0|=1;},"CERTIFICATE_FIXED_SUPPORT");
+    reject!(|b:&mut AffineOutputBasis|{b.rows[1].1=true;},"CERTIFICATE_ROW_IDENTITY");
+    reject!(|b:&mut AffineOutputBasis|{b.rows[1].0=1;},"CERTIFICATE_ROW_IDENTITY");
+    reject!(|b:&mut AffineOutputBasis|{b.impossible=true;},"CERTIFICATE_CONTRADICTION");
+    assert_eq!(check_affine_output_certificate(&p,mask,1,&q,deadline),Err("UNSUPPORTED"));
+    assert_eq!(check_affine_output_certificate(&p,mask,z,&q,std::time::Instant::now()),Err("DEADLINE"));
+    assert_eq!(check_affine_output_certificate(&PathSum::new(4),mask,z,&q,deadline),Err("UNFIXED_INPUT"));
+    let mut inconsistent=q.clone();inconsistent.impossible=true;
+    check_affine_output_certificate(&p,mask,12,&inconsistent,deadline).unwrap();
+    // Rank zero: all outputs constants, including an impossible target.
+    let mut constant=p.clone();constant.f.functions=vec![Poly::default();4];
+    let zero=affine_output_basis(&constant,15,0,deadline).unwrap();
+    assert_eq!(zero.keep,0);assert!(!zero.impossible);
+    let impossible=affine_output_basis(&constant,15,1,deadline).unwrap();
+    assert_eq!(impossible.keep,0);assert!(impossible.impossible);
+    assert_eq!(negative,10);
+    println!("HOARE_NATIVE_AFFINE_CERTIFICATE_REPLAY mutations=10 bad_query=true deadline=true unfixed=true rank_zero=true");
+}
+
 #[test]
 fn native_affine_unitary_control(){
     use QuantumOp as G;

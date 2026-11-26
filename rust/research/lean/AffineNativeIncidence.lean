@@ -33,10 +33,46 @@ theorem column_decode {n : Nat} (one : Fin n → BitVec n)
       change decode (0 : BitVec n) i = false
       exact decode_zero i
   | cons j js ih =>
+      -- Use decidable membership explicitly; simp_all can introduce
+      -- classical proposition decisions even though Fin equality is decidable.
       by_cases he : i = j
       · subst j
-        cases hp : p i <;> simp_all [buildColumn, decode_or_word]
-      · cases hp : p j <;> simp_all [buildColumn, decode_or_word]
+        have hm : decide (i ∈ i :: js) = true :=
+          decide_eq_true (List.mem_cons.mpr (Or.inl rfl))
+        cases hp : p i with
+        | false =>
+            have hf : buildColumn one p (i :: js) = buildColumn one p js := by
+              simp [buildColumn, hp]
+            rw [hf, ih, hm, hp] <;> simp
+        | true =>
+            have hf : buildColumn one p (i :: js) = one i ||| buildColumn one p js := by
+              simp [buildColumn, hp]
+            have hb : decode (one i) i = true := by
+              rw [hone]
+              exact decide_eq_true rfl
+            rw [hf, decode_or_word, hb, hm, hp]
+      · have hm : decide (i ∈ j :: js) = decide (i ∈ js) := by
+          apply Bool.eq_iff_iff.mpr
+          simp only [decide_eq_true_eq]
+          constructor
+          · intro h
+            rcases List.mem_cons.mp h with h | h
+            · exact False.elim (he h)
+            · exact h
+          · intro h
+            exact List.mem_cons.mpr (Or.inr h)
+        cases hp : p j with
+        | false =>
+            have hf : buildColumn one p (j :: js) = buildColumn one p js := by
+              simp [buildColumn, hp]
+            rw [hf, ih, hm]
+        | true =>
+            have hf : buildColumn one p (j :: js) = one j ||| buildColumn one p js := by
+              simp [buildColumn, hp]
+            have hb : decode (one j) i = false := by
+              rw [hone]
+              exact decide_eq_false he
+            rw [hf, decode_or_word, hb, ih, hm]
 
 def fullColumn {n : Nat} (one : Fin n → BitVec n) (p : Fin n → Bool) : BitVec n :=
   buildColumn one p (List.finRange n)
@@ -172,6 +208,114 @@ theorem native_word_reconstruction {n : Nat} {M : Type} [DecidableEq M]
   exact (word_certificate_sound keys (rowColumn one terms) (fullColumn one constant)
     keep mask target fixed value relation offset impossible h).1 active
 
+
+/-- One-hot output coordinate using the same unsigned shift as Rust. -/
+def oneHot {n : Nat} (j : Fin n) : BitVec n :=
+  (1 : BitVec n) <<< j.val
+
+theorem one_hot_decode {n : Nat} (j k : Fin n) :
+    decode (oneHot j) k = decide (k = j) := by
+  have hn : 0 < n := by have h := k.isLt; omega
+  simp only [oneHot, decode, BitVec.getLsbD_shiftLeft, BitVec.getLsbD_one]
+  rw [decide_eq_true k.isLt, decide_eq_true hn]
+  by_cases h : k = j
+  · subst k
+    rw [decide_eq_false (Nat.lt_irrefl j.val), Nat.sub_self]
+    rfl
+  · have hne : k.val ≠ j.val := fun he => h (Fin.ext he)
+    rw [decide_eq_false h]
+    by_cases hl : k.val < j.val
+    · rw [decide_eq_true hl]
+      rfl
+    · have hd : k.val - j.val ≠ 0 := by omega
+      rw [decide_eq_false hl, decide_eq_false hd]
+      rfl
+
+/-- Construct a duplicate-free key list; order is irrelevant to GF(2).
+    This is a reference model of the native map's key set. -/
+def uniqueKeys {M : Type} [DecidableEq M] : List M → List M
+  | [] => []
+  | a :: xs => if a ∈ uniqueKeys xs then uniqueKeys xs else a :: uniqueKeys xs
+
+theorem unique_keys_mem {M : Type} [DecidableEq M] (xs : List M) :
+    ∀ m, m ∈ uniqueKeys xs ↔ m ∈ xs := by
+  induction xs with
+  | nil =>
+      intro m
+      rfl
+  | cons a xs ih =>
+      intro m
+      by_cases ha : a ∈ uniqueKeys xs
+      · have ht := (ih a).mp ha
+        have he : uniqueKeys (a :: xs) = uniqueKeys xs := by simp [uniqueKeys, ha]
+        rw [he, ih m]
+        constructor
+        · intro hm
+          exact List.mem_cons.mpr (Or.inr hm)
+        · intro hm
+          rcases List.mem_cons.mp hm with hm | hm
+          · subst m
+            exact ht
+          · exact hm
+      · have he : uniqueKeys (a :: xs) = a :: uniqueKeys xs := by simp [uniqueKeys, ha]
+        rw [he]
+        simp only [List.mem_cons, ih]
+
+theorem unique_keys_nodup {M : Type} [DecidableEq M] (xs : List M) :
+    (uniqueKeys xs).Nodup := by
+  induction xs with
+  | nil => simp [uniqueKeys]
+  | cons a xs ih =>
+      by_cases ha : a ∈ uniqueKeys xs
+      · have he : uniqueKeys (a :: xs) = uniqueKeys xs := by simp [uniqueKeys, ha]
+        rw [he]
+        exact ih
+      · have he : uniqueKeys (a :: xs) = a :: uniqueKeys xs := by simp [uniqueKeys, ha]
+        rw [he]
+        exact List.nodup_cons.mpr ⟨ha, ih⟩
+
+def gatherKeys {n : Nat} {M : Type} [DecidableEq M]
+    (terms : Fin n → List M) : List M :=
+  uniqueKeys ((List.finRange n).flatMap terms)
+
+theorem gather_keys_nodup {n : Nat} {M : Type} [DecidableEq M]
+    (terms : Fin n → List M) : (gatherKeys terms).Nodup :=
+  unique_keys_nodup _
+
+theorem gather_keys_coverage {n : Nat} {M : Type} [DecidableEq M]
+    (terms : Fin n → List M) (i : Fin n) (m : M) (hm : m ∈ terms i) :
+    m ∈ gatherKeys terms := by
+  unfold gatherKeys
+  apply (unique_keys_mem _ m).mpr
+  exact List.mem_flatMap.mpr ⟨i, List.mem_finRange i, hm⟩
+
+theorem gather_keys_exact {n : Nat} {M : Type} [DecidableEq M]
+    (terms : Fin n → List M) (m : M) :
+    m ∈ gatherKeys terms ↔ ∃ i, m ∈ terms i := by
+  unfold gatherKeys
+  rw [unique_keys_mem, List.mem_flatMap]
+  constructor
+  · rintro ⟨i, _, hm⟩
+    exact ⟨i, hm⟩
+  · rintro ⟨i, hm⟩
+    exact ⟨i, List.mem_finRange i, hm⟩
+
+/-- Eliminate the one-hot and key coverage premises at the reference
+    model boundary. The original ANF row set remains duplicate-free. -/
+theorem gathered_word_reconstruction {n : Nat} {M : Type} [DecidableEq M]
+    (terms : Fin n → List M) (constant : Fin n → Bool)
+    (keep mask target fixed value : BitVec n)
+    (relation : Fin n → BitVec n) (offset : Fin n → Bool) (impossible : Bool)
+    (hr : ∀ i, (terms i).Nodup)
+    (h : checkWordCertificate (gatherKeys terms) (rowColumn oneHot terms)
+      (fullColumn oneHot constant) keep mask target fixed value relation offset impossible = true)
+    (active : M → Bool) :
+    nativeEval terms constant active =
+      restore relation offset (project keep (nativeEval terms constant active)) :=
+  native_word_reconstruction (gatherKeys terms) oneHot terms constant
+    keep mask target fixed value relation offset impossible one_hot_decode
+    (gather_keys_nodup terms) hr (gather_keys_coverage terms) h active
+
 #print axioms decode_or_word
 #print axioms column_decode
 #print axioms full_column_decode
@@ -181,5 +325,12 @@ theorem native_word_reconstruction {n : Nat} {M : Type} [DecidableEq M]
 #print axioms row_keys_perm
 #print axioms native_incidence_eval
 #print axioms native_word_reconstruction
+#print axioms one_hot_decode
+#print axioms unique_keys_mem
+#print axioms unique_keys_nodup
+#print axioms gather_keys_nodup
+#print axioms gather_keys_coverage
+#print axioms gather_keys_exact
+#print axioms gathered_word_reconstruction
 
 end QuPRS.AffineNativeIncidence

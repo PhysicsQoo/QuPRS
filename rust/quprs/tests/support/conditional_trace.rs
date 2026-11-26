@@ -1174,3 +1174,42 @@ fn native_full_pipeline_paired(){
         _=>panic!("native RR dispatch differs across arms"),
     }
 }
+
+
+// Export untouched native RR residual, before any CRR transform.
+// Diagnostic only: even native definite cases may be counted here.
+// JSONL transport preserves exact rational coefficients.
+#[test]
+fn native_reference_export(){
+    use quprs::{check_equivalence_with_options,EquivalenceStatus,VerificationMethod,VerificationOptions};
+    use quprs::qasm::parse_qasm_str;
+    use std::time::{Instant,Duration};
+    let source=std::env::var("CRR_SOURCE").expect("source");
+    let target=std::env::var("CRR_TARGET").expect("target");
+    let (a,n)=parse_qasm_str(&std::fs::read_to_string(source).unwrap()).unwrap();
+    let (b,m)=parse_qasm_str(&std::fs::read_to_string(target).unwrap()).unwrap();
+    assert_eq!(n,m);
+    let r=check_equivalence_with_options(n,&a,&b,&VerificationOptions{
+        method:VerificationMethod::ReductionRules,rr_tolerance:0.0,timeout_secs:20,
+        ..VerificationOptions::default()
+    }).expect("native RR");
+    let p=r.final_pathsum();
+    if r.rr_approximate||matches!(r.status,EquivalenceStatus::Timeout|EquivalenceStatus::MemoryOut)
+        ||Trace::from_native(p).is_none()||p.p.terms.len()+p.f.functions.iter().map(|f|f.len()).sum::<usize>()>TERM_CAP{
+        println!("CRR_REF_SKIP reason=native_admission");return;
+    }
+    let mut live:Vec<_>=p.v.path_vars.iter().copied().collect();live.sort_unstable();
+    let twice=(n+live.len()) as i32;
+    let mut phase:Vec<_>=p.p.terms.iter().collect();phase.sort_unstable_by(|(a,_),(b,_)|a.cmp(b));
+    let terms:Vec<_>=phase.iter().map(|(m,c)|format!("[{:?},\"{}\",\"{}\"]",m,c.constant,c.radians.as_ref().map(|r|r.to_string()).unwrap_or_else(||"0".into()))).collect();
+    let outputs:Vec<Vec<Vec<u32>>>=p.f.functions.iter().map(|f|{let mut v:Vec<_>=f.iter().cloned().collect();v.sort();v}).collect();
+    println!("CRR_REF_IR {{\"n\":{n},\"twice\":{twice},\"native\":\"{}\",\"live\":{:?},\"phase\":[{}],\"outputs\":{:?}}}",r.status.as_str(),live,terms.join(","),outputs);
+    let (mgr,v,c,m,o,chosen)=lazy_prepare(p);
+    match mgr.solve_with_deadline_distance_printed_precision("gpmc",Some(Instant::now()+Duration::from_secs(12)),90){
+        Ok(raw)=>{
+            let (raw,decision)=restore_count(raw,m,o,twice);
+            println!("CRR_REF_SOLVER {{\"status\":\"complete\",\"real\":\"{}\",\"imag\":\"{}\",\"verdict\":\"{:?}\",\"selected\":{},\"vars\":{v},\"clauses\":{c}}}",raw.real,raw.imag,decision,chosen);
+        }
+        Err(_)=>println!("CRR_REF_SOLVER {{\"status\":\"incomplete\"}}"),
+    }
+}

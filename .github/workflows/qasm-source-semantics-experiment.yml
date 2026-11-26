@@ -11,6 +11,7 @@ on:
       - rust/quprs/tests/support/conditional_trace.rs
       - rust/research/conditional_rr_incidence.py
       - rust/research/conditional_rr_walltime.py
+      - rust/research/conditional_rr_reference.py
       - benchmarks/rust_core/benches/conditional_trace.rs
       - benchmarks/rust_core/Cargo.toml
       - benchmarks/rust_core/Cargo.lock
@@ -872,7 +873,7 @@ jobs:
     env:
       QUPRS_SOLVER_PROVISION: external
       CARGO_TERM_COLOR: never
-      CRR_PERF_STAGE: native_walltime
+      CRR_PERF_STAGE: independent_reference
     steps:
       - uses: actions/checkout@v4
         with:
@@ -900,7 +901,13 @@ jobs:
           python3 scripts/install_gpmc_release.py --dest "$tmp/gpmc" | tee evidence/conditional-gpmc-release.json
           sha256sum "$tmp/gpmc" | tee evidence/conditional-gpmc-sha256.txt
           QUPRS_GPMC_PATH="$tmp/gpmc" cargo test --locked --manifest-path rust/Cargo.toml -p quprs --test conditional_rr_experiment gpmc_trace_witness -- --nocapture 2>&1 | tee evidence/conditional-gpmc-witness.log
-          if [[ "$CRR_PERF_STAGE" == native_walltime ]]; then
+          if [[ "$CRR_PERF_STAGE" == independent_reference ]]; then
+            sha256sum rust/research/conditional_rr_reference.py rust/Cargo.lock >> evidence/source-sha256.txt
+            python3 -m venv "$tmp/reference-venv"
+            "$tmp/reference-venv/bin/pip" install --disable-pip-version-check mpmath==1.3.0
+            cargo test --release --locked --manifest-path rust/Cargo.toml -p quprs --test conditional_rr_experiment --no-run
+            QUPRS_GPMC_PATH="$tmp/gpmc" timeout --kill-after=5s 600s "$tmp/reference-venv/bin/python" rust/research/conditional_rr_reference.py 2>&1 | tee evidence/conditional-independent-reference.jsonl
+          elif [[ "$CRR_PERF_STAGE" == native_walltime ]]; then
             sha256sum rust/research/conditional_rr_walltime.py rust/Cargo.lock >> evidence/source-sha256.txt
             cargo test --release --locked --manifest-path rust/Cargo.toml -p quprs --test conditional_rr_experiment --no-run
             QUPRS_GPMC_PATH="$tmp/gpmc" python3 rust/research/conditional_rr_walltime.py 2>&1 | tee evidence/conditional-native-walltime.jsonl
@@ -909,7 +916,7 @@ jobs:
               python3 rust/research/conditional_rr_incidence.py 2>&1 | tee evidence/conditional-incidence.jsonl
           fi
       - name: Prepare bounded native Conditional RR CodSpeed target
-        if: env.CRR_PERF_STAGE != 'native_walltime'
+        if: env.CRR_PERF_STAGE == 'simulation'
         run: |
           set -euo pipefail
           python3 - <<'PY'
@@ -929,7 +936,7 @@ jobs:
           cargo metadata --locked --no-deps --format-version 1 >/dev/null
           cargo codspeed build -m simulation --bench conditional_trace
       - name: Conditional RR native CPU Simulation
-        if: env.CRR_PERF_STAGE != 'native_walltime'
+        if: env.CRR_PERF_STAGE == 'simulation'
         uses: CodSpeedHQ/action@v5
         env:
           CURL_HOME: ${{ github.workspace }}/.github/codspeed-download

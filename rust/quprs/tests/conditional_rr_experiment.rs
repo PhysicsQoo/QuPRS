@@ -4,7 +4,8 @@ use quprs::qasm::parse_qasm_str;
 use rustc_hash::FxHashSet;
 const TERM_CAP: usize = 4096;
 const GUARD_CAP: usize = 8;
-const TARGET_CAP: usize = 32;
+const TARGET_CAP: usize = 96;
+const PAIR_GUARD_CAP: usize = 4;
 fn terms(p: &PathSum) -> usize {
     p.p.terms.len() + p.f.functions.iter().map(|f| f.len()).sum::<usize>()
 }
@@ -15,13 +16,15 @@ fn internal(p: &PathSum) -> Vec<u32> {
 }
 // Algebraic restriction only; never infer branch normalization or verdict.
 fn restrict(p: &PathSum, guard: u32, value: bool) -> PathSum {
-    assert!(guard as usize >= p.v.num_qubits && p.v.path_vars.contains(&guard));
+    assert!(p.v.path_vars.contains(&guard));
     let mut out = p.clone();
     let mut sub = FxHashSet::default();
     if value { sub.insert(Vec::<u32>::new()); }
     out.p.substitute_var_with_poly(guard, &sub);
     out.f.substitute_var_with_poly(guard, &sub);
-    assert!(out.v.path_vars.remove(&guard));
+    // Fixed input coordinates remain in the domain metadata; callers
+    // must retain the external guard assignment. No amplitude verdict.
+    if guard as usize >= p.v.num_qubits { assert!(out.v.path_vars.remove(&guard)); }
     assert!(out.p.terms.keys().all(|m| !m.contains(&guard)));
     assert!(out.f.functions.iter().flatten().all(|m| !m.contains(&guard)));
     out
@@ -61,6 +64,24 @@ fn restrict(p: &PathSum, guard: u32, value: bool) -> PathSum {
         assert!(trial.v.path_vars.is_subset(&p.v.path_vars));
     }
     ok
+}
+// Rank by target-local output/phase incidence, not global ID order.
+// External input guards are allowed but never integrated as path variables.
+fn candidates(p: &PathSum, y: u32) -> Vec<u32> {
+    let mut scores = std::collections::BTreeMap::<u32,(usize,usize)>::new();
+    for m in p.f.functions.iter().flatten().filter(|m| m.contains(&y)) {
+        for &g in m.iter().filter(|&&v|v!=y) { scores.entry(g).or_default().0+=1; }
+    }
+    for m in p.p.terms.keys().filter(|m| m.contains(&y)) {
+        for &g in m.iter().filter(|&&v|v!=y) { scores.entry(g).or_default().1+=1; }
+    }
+    let mut ids:Vec<_>=scores.into_iter().filter(|(g,_)|p.v.path_vars.contains(g)).collect();
+    ids.sort_unstable_by_key(|(g,(f,p))|(std::cmp::Reverse(*f),std::cmp::Reverse(*p),*g));
+    ids.into_iter().take(GUARD_CAP).map(|(g,_)|g).collect()
+}
+fn mask(p:&PathSum,y:u32,before:[bool;3])->[bool;3] {
+    if terms(p)>TERM_CAP {return [false;3];}
+    std::array::from_fn(|r|!before[r]&&probe(p,y,r))
 }
 #[test]
 fn exact_signed_guard_partition_and_cross_terms() {
@@ -121,39 +142,65 @@ fn native_eq_residual_incidence() {
         || terms(p)>TERM_CAP || result.equivalent() == "timeout" {
         println!("CRR_SKIP case={case} reason=residual_admission"); return;
     }
-    let mut probes = [0usize;3];
-    let mut additional = [[0usize;2];3];
-    let mut both = [0usize;3];
-    let mut alternative = [0usize;3];
-    let mut eligible_guards = 0;
-    let start = std::time::Instant::now();
-    // Baseline computed once for every target in the bounded scan.
-    let mut baseline = std::collections::BTreeMap::new();
-    for &y in ids.iter().take(TARGET_CAP+1) {
-        baseline.insert(y,[probe(p,y,0),probe(p,y,1),probe(p,y,2)]);
-    }
-    for &g in ids.iter().take(GUARD_CAP) {
-        let l=restrict(p,g,false);
-        let r=restrict(p,g,true);
-        if terms(&l)>TERM_CAP || terms(&r)>TERM_CAP { continue; }
-        eligible_guards += 1;
-        for &y in ids.iter().filter(|&&v| v!=g).take(TARGET_CAP) {
-            let before=baseline[&y];
-            for rule in 0..3 {
-                if before[rule] { continue; }
-                probes[rule]+=1;
-                let x=probe(&l,y,rule); let z=probe(&r,y,rule);
-                additional[rule][0]+=x as usize;
-                additional[rule][1]+=z as usize;
-                both[rule]+=(x&&z) as usize;
-                if x||z {
-                    alternative[rule]+=before.iter().any(|&b|b) as usize;
-                    println!("CRR_HIT case={case} rule={rule} guard={g} target={y} zero={x} one={z} baseline_other={}",before.iter().any(|&b|b));
+    let start=std::time::Instant::now();
+    // Types: 0 internal singleton, 1 input singleton, 2 two guards.
+    let mut probes=[[0usize;3];3];
+    let mut hits=[[0usize;3];3];
+    let mut unique=[[0usize;3];3];
+    let mut pair_incremental=[0usize;3];
+    let mut pair_incremental_targets=[0usize;3];
+    let mut guardless=0;
+    let mut tested=0;
+    for &y in ids.iter().take(TARGET_CAP) {
+        tested+=1;
+        let before=std::array::from_fn(|r|probe(p,y,r));
+        let gs=candidates(p,y);
+        if gs.is_empty() {guardless+=1;continue;}
+        let mut target_hit=[[false;3];3];
+        let mut target_pair_incremental=[false;3];
+        let mut single=Vec::new();
+        for &g in &gs {
+            let kind=if (g as usize)<p.v.num_qubits {1} else {0};
+            let bs=[mask(&restrict(p,g,false),y,before),mask(&restrict(p,g,true),y,before)];
+            for r in 0..3 {
+                if before[r] {continue;}
+                probes[kind][r]+=2;
+                for v in 0..2 {
+                    if bs[v][r] {
+                        hits[kind][r]+=1;
+                        target_hit[kind][r]=true;
+                        println!("CRR_HIT case={case} kind={kind} rule={r} guard={g} value={v} target={y} baseline_other={}",before.iter().any(|&x|x));
+                    }
                 }
             }
+            single.push(bs);
         }
+        let top=gs.len().min(PAIR_GUARD_CAP);
+        for i in 0..top {for j in i+1..top {
+            let g=gs[i];let h=gs[j];
+            for u in 0..2 {for v in 0..2 {
+                let q=restrict(&restrict(p,g,u==1),h,v==1);
+                let bs=mask(&q,y,before);
+                for r in 0..3 {
+                    if before[r] {continue;}
+                    probes[2][r]+=1;
+                    if bs[r] {
+                        hits[2][r]+=1;
+                        target_hit[2][r]=true;
+                        // Distinguish true depth-two incremental hits from
+                        // a hit already exposed by either component alone.
+                        let incremental=!single[i][u][r]&&!single[j][v][r];
+                        pair_incremental[r]+=incremental as usize;
+                        target_pair_incremental[r]|=incremental;
+                        println!("CRR_HIT case={case} kind=2 rule={r} guards={g},{h} values={u},{v} target={y} incremental={incremental} baseline_other={}",before.iter().any(|&x|x));
+                    }
+                }
+            }}
+        }}
+        for k in 0..3 {for r in 0..3 {unique[k][r]+=target_hit[k][r] as usize;}}
+        for r in 0..3 {pair_incremental_targets[r]+=target_pair_incremental[r] as usize;}
     }
-    println!("CRR_INCIDENCE case={case} guards={eligible_guards} probes={probes:?} new={additional:?} both={both:?} baseline_alternative={alternative:?} probe_s={} guard_cap={GUARD_CAP} target_cap={TARGET_CAP}",start.elapsed().as_secs_f64());
+    println!("CRR_INCIDENCE case={case} targets={tested} target_total={} guardless={guardless} probes={probes:?} hits={hits:?} unique_targets={unique:?} pair_incremental={pair_incremental:?} pair_incremental_targets={pair_incremental_targets:?} probe_s={} guard_cap={GUARD_CAP} pair_guard_cap={PAIR_GUARD_CAP} target_cap={TARGET_CAP}",ids.len(),start.elapsed().as_secs_f64());
 }
 
 #[test]
@@ -188,4 +235,29 @@ fn exact_native_output_eligibility_controls() {
     assert!(probe(&restrict(&o,g,false),y,1));
     assert!(!probe(&restrict(&o,g,true),y,1));
     println!("CRR_NATIVE_ELIGIBILITY controls=3");
+}
+
+#[test]
+fn exact_structural_input_and_depth_two_controls() {
+    let mut p=PathSum::new(1);
+    p.rr_tolerance=0.0;
+    let y=p.v.get_fresh_var();
+    let h=p.v.get_fresh_var();
+    p.f.functions[0].clear();
+    p.f.functions[0].insert(vec![0,y]);
+    assert_eq!(candidates(&p,y),vec![0]);
+    assert!(!probe(&p,y,0));
+    let q=restrict(&p,0,false);
+    assert!(q.v.path_vars.contains(&0));
+    assert!(probe(&q,y,0));
+    assert!(!probe(&restrict(&p,0,true),y,0));
+    // y*(x XOR h): neither singleton assignment removes y.
+    p.f.functions[0].insert(vec![y,h]);
+    let gs=candidates(&p,y);
+    assert_eq!(gs,vec![0,h]);
+    for g in [0,h] {for v in [false,true] {assert!(!probe(&restrict(&p,g,v),y,0));}}
+    for u in [false,true] {for v in [false,true] {
+        assert_eq!(probe(&restrict(&restrict(&p,0,u),h,v),y,0),u==v);
+    }}
+    println!("CRR_STRUCTURAL_GUARD controls=2");
 }

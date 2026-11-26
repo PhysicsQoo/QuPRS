@@ -4083,6 +4083,133 @@ theorem free_snapshot_retained_support (a b : LedgerSnap)
   rw [he.1, he.2]
   exact canonical_ledger_support_known b hb
 
+
+-- Constructive finite-set extensionality for the actual live lists.
+-- Do not use the generic classical perm_ext_iff_of_nodup theorem.
+theorem ledger_unique_nodup (xs : List Nat) (h : uniqueIds xs = true) :
+    xs.Nodup := by
+  induction xs with
+  | nil => exact List.nodup_nil
+  | cons x xs ih =>
+    have hp := and_true_parts (show (!natMem x xs && uniqueIds xs) = true from h)
+    exact List.nodup_cons.mpr ⟨fresh_not_mem x xs hp.1, ih hp.2⟩
+
+theorem ledger_filter_nodup (p : Nat → Bool) (xs : List Nat) (h : xs.Nodup) :
+    (xs.filter p).Nodup := by
+  induction xs with
+  | nil => exact List.nodup_nil
+  | cons x xs ih =>
+    have hp := List.nodup_cons.mp h
+    cases he : p x with
+    | false =>
+      simpa only [List.filter_cons, he, Bool.false_eq_true, if_false] using ih hp.2
+    | true =>
+      have hf : x ∉ xs.filter p := fun hm => hp.1 (List.mem_filter.mp hm).1
+      simpa only [List.filter_cons, he, if_true] using
+        (List.nodup_cons.mpr ⟨hf, ih hp.2⟩ : (x :: xs.filter p).Nodup)
+
+theorem ledger_nodup_perm (xs ys : List Nat) (hx : xs.Nodup) (hy : ys.Nodup)
+    (he : ∀ x, x ∈ xs ↔ x ∈ ys) : List.Perm xs ys := by
+  induction xs generalizing ys with
+  | nil =>
+    cases ys with
+    | nil => exact List.Perm.nil
+    | cons y ys =>
+      have hm : y ∈ ([] : List Nat) :=
+        (he y).mpr (List.mem_cons.mpr (Or.inl rfl))
+      cases hm
+  | cons x xs ih =>
+    have hp := List.nodup_cons.mp hx
+    have hm : x ∈ ys := (he x).mp (List.mem_cons.mpr (Or.inl rfl))
+    obtain ⟨l,r,hs⟩ := List.append_of_mem hm
+    have hperm : List.Perm ys (x :: (l ++ r)) := by
+      rw [hs]
+      exact List.perm_middle
+    have hq := List.nodup_cons.mp (hperm.nodup hy)
+    have htail : ∀ z, z ∈ xs ↔ z ∈ l ++ r := by
+      intro z
+      constructor
+      · intro hz
+        have hne : z ≠ x := fun e => hp.1 (e ▸ hz)
+        have hm' : z ∈ x :: (l ++ r) :=
+          hperm.mem_iff.mp ((he z).mp (List.mem_cons.mpr (Or.inr hz)))
+        rcases List.mem_cons.mp hm' with hh | hh
+        · exact False.elim (hne hh)
+        · exact hh
+      · intro hz
+        have hne : z ≠ x := fun e => hq.1 (e ▸ hz)
+        have hm' : z ∈ x :: xs :=
+          (he z).mpr (hperm.mem_iff.mpr (List.mem_cons.mpr (Or.inr hz)))
+        rcases List.mem_cons.mp hm' with hh | hh
+        · exact False.elim (hne hh)
+        · exact hh
+    exact (List.Perm.cons x (ih (l ++ r) hp.2 hq.2 htail)).trans hperm.symm
+
+theorem ledger_live_partition (a b : LedgerSnap)
+    (ha : canonicalLedgerSnap a) (hb : canonicalLedgerSnap b)
+    (hs : ∀ x, x ∈ b.live → x ∈ a.live) :
+    List.Perm a.live (removedIds a b ++ b.live) := by
+  have hna := ledger_unique_nodup _ (canonical_ledger_live_admission a ha).1
+  have hnb := ledger_unique_nodup _ (canonical_ledger_live_admission b hb).1
+  have hnd : (removedIds a b).Nodup :=
+    ledger_filter_nodup _ _ hna
+  have hn : (removedIds a b ++ b.live).Nodup := by
+    apply List.nodup_append.mpr
+    refine ⟨hnd,hnb,?_⟩
+    intro x hx y hy he
+    exact ((ledger_removed_ids_iff a b x).mp hx).2 (he ▸ hy)
+  apply ledger_nodup_perm _ _ hna hn
+  intro x
+  constructor
+  · intro hx
+    cases hm : natMem x b.live with
+    | true => exact List.mem_append.mpr (Or.inr ((nat_mem_iff _ _).mp hm))
+    | false =>
+      have hnot : x ∉ b.live := by
+        intro hmem
+        have hh := (nat_mem_iff x b.live).mpr hmem
+        rw [hm] at hh
+        cases hh
+      exact List.mem_append.mpr (Or.inl ((ledger_removed_ids_iff a b x).mpr ⟨hx,hnot⟩))
+  · intro hx
+    rcases List.mem_append.mp hx with hd | hr
+    · exact ((ledger_removed_ids_iff a b x).mp hd).1
+    · exact hs x hr
+
+theorem ledger_live_partition_length (a b : LedgerSnap)
+    (ha : canonicalLedgerSnap a) (hb : canonicalLedgerSnap b)
+    (hs : ∀ x, x ∈ b.live → x ∈ a.live) :
+    a.live.length = (removedIds a b).length + b.live.length := by
+  exact (ledger_live_partition a b ha hb hs).length_eq.trans List.length_append
+
+-- The two projections are inverse on well-sized bit vectors.
+-- This establishes correspondence, not yet invariance of the sum
+-- under the permutation (that additionally needs additive laws).
+def reindexLedgerBits (src dst : List Nat) (bits : List Bool) : List Bool :=
+  dst.map (decodeLive src bits)
+
+theorem ledger_reindex_roundtrip (src dst : List Nat) (bits : List Bool)
+    (hu : uniqueIds src = true) (hl : bits.length = src.length)
+    (hs : ∀ x, x ∈ src → x ∈ dst) :
+    reindexLedgerBits dst src (reindexLedgerBits src dst bits) = bits := by
+  unfold reindexLedgerBits
+  have he : agreeOn
+      (liftVal (decodeLive dst (dst.map (decodeLive src bits))))
+      (liftVal (decodeLive src bits)) src := by
+    intro x hx
+    exact decode_projection dst (decodeLive src bits) x (hs x hx)
+  exact (projection_agree _ _ src he).trans (projection_decode src bits hu hl)
+
+theorem ledger_partition_assignment_roundtrip (a b : LedgerSnap)
+    (ha : canonicalLedgerSnap a) (hb : canonicalLedgerSnap b)
+    (hs : ∀ x, x ∈ b.live → x ∈ a.live) (bits : List Bool)
+    (hl : bits.length = a.live.length) :
+    reindexLedgerBits (removedIds a b ++ b.live) a.live
+      (reindexLedgerBits a.live (removedIds a b ++ b.live) bits) = bits := by
+  have hp := ledger_live_partition a b ha hb hs
+  exact ledger_reindex_roundtrip _ _ bits (canonical_ledger_live_admission a ha).1 hl
+    (fun _ hx => hp.mem_iff.mp hx)
+
 -- Localize any unexpected dependency to a definition vs theorem.
 #print axioms splitBytes
 #print axioms digits
@@ -4381,6 +4508,14 @@ theorem free_snapshot_retained_support (a b : LedgerSnap)
 #print axioms free_snapshot_typed_payload
 #print axioms canonical_ledger_support_known
 #print axioms free_snapshot_retained_support
+#print axioms ledger_unique_nodup
+#print axioms ledger_filter_nodup
+#print axioms ledger_nodup_perm
+#print axioms ledger_live_partition
+#print axioms ledger_live_partition_length
+#print axioms reindexLedgerBits
+#print axioms ledger_reindex_roundtrip
+#print axioms ledger_partition_assignment_roundtrip
 end QuPRS.CnfReplay
 
 def main (args : List String) : IO Unit := do

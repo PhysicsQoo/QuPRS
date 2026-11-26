@@ -891,6 +891,71 @@ mod exact_property_cnf {
         println!("HOARE_NATIVE_DUAL_MASK_EXPORT cases=6 variants=18 primary=7");
     }
 
+    
+    #[test]
+    fn hoare_native_single_copy_dyadic_fibre() {
+        let mut checks = 0usize;
+        let mut zero = 0usize;
+        let mut nonzero = 0usize;
+        for d in [2i64, 4, 8, 16, 32, 64] {
+            for cancel in [false, true] {
+                let mut ps = PathSum::new(2);
+                ps.set_auto_reduce(false);
+                for _ in 0..70 {
+                    let id = ps.v.get_fresh_var();
+                    assert!(ps.v.path_vars.remove(&id));
+                }
+                let u = ps.v.get_fresh_var();
+                let v = ps.v.get_fresh_var();
+                let y = ps.v.get_fresh_var();
+                ps.f.functions[0] = rustc_hash::FxHashSet::from_iter([vec![0], vec![u], vec![v]]);
+                ps.f.functions[1] = rustc_hash::FxHashSet::from_iter([vec![1], vec![u,v]]);
+                for (m,w) in [(vec![],1), (vec![0,u],1), (vec![v],-1), (vec![u,v],2)] {
+                    ps.p.add_term(m, quprs::PhaseCoeff::new_constant(quprs::Rational::new(w,d)));
+                }
+                if cancel {
+                    ps.p.add_term(vec![y], quprs::PhaseCoeff::new_constant(quprs::Rational::new(1,2)));
+                }
+                // The actual native phase denominator may be smaller only
+                // if the phase polynomial was normalized; the odd constant
+                // term ensures the selected D is retained.
+                for x in 0..4u64 { for z in 0..4u64 {
+                    let mut expected = vec![0u128; d as usize];
+                    for u in 0..2u64 { for v in 0..2u64 { for y in 0..2u64 {
+                        let out = ((x & 1) ^ u ^ v) | ((((x >> 1) & 1) ^ (u & v)) << 1);
+                        if out != z { continue; }
+                        let p = (1 + ((x & 1)*u) as i64 - v as i64 + 2*(u*v) as i64
+                            + if cancel { y as i64*d/2 } else { 0 }).rem_euclid(d);
+                        expected[p as usize] += 1;
+                    }}}
+                    let is_zero = (0..d as usize/2).all(|j| expected[j] == expected[j+d as usize/2]);
+                    if is_zero { zero += 1; } else { nonzero += 1; }
+                    for affine in [false, true] {
+                        let (cnf, phase, actual_d, h) = native_dyadic_cnf::native_dyadic_fibre(
+                            &ps,x,z,affine,512,4096).unwrap();
+                        assert_eq!(actual_d,d as u32);
+                        assert_eq!(h,if affine {2} else {3});
+                        let mut fuel = 2_000_000;
+                        for (j, &want) in expected.iter().enumerate() {
+                            let units: Vec<Lit> = phase.iter().enumerate()
+                                .map(|(i,&l)| if j >> i & 1 == 1 {l} else {-l}).collect();
+                            assert_eq!(count(&cnf,&units,&mut fuel,false),Some(want),
+                                "D={d} cancel={cancel} x={x} z={z} affine={affine} phase={j}");
+                            checks += 1;
+                        }
+                    }
+                }}
+            }
+        }
+        assert!(zero > 0 && nonzero > 0);
+        let mut unsupported = PathSum::new(1);
+        unsupported.p.add_term(vec![0],quprs::PhaseCoeff::new_constant(quprs::Rational::new(1,3)));
+        assert!(native_dyadic_cnf::native_dyadic_fibre(&unsupported,0,0,false,512,4096).is_none());
+        assert!(native_dyadic_cnf::native_dyadic_fibre(&PathSum::new(1),2,0,false,512,4096).is_none());
+        assert!(native_dyadic_cnf::native_dyadic_fibre(&PathSum::new(1),0,0,false,0,0).is_none());
+        println!("HOARE_NATIVE_SINGLE_COPY_FIBRE bins={checks} zero={zero} nonzero={nonzero} affine=true high_ids=true");
+    }
+
     #[test]
     fn hoare_native_dyadic_projected_count(){
         let mut checks=0;let mut positives=0;let mut zeros=0;
@@ -7945,70 +8010,3 @@ fn partition_export(dir:&std::path::Path){
 
 }
 
-
-#[test]
-fn hoare_native_single_copy_dyadic_fibre() {
-    let mut checks = 0usize;
-    let mut zero = 0usize;
-    let mut nonzero = 0usize;
-    for d in [2i64, 4, 8, 16, 32, 64] {
-        for cancel in [false, true] {
-            let mut ps = PathSum::new(2);
-            ps.set_auto_reduce(false);
-            for _ in 0..70 {
-                let id = ps.v.get_fresh_var();
-                assert!(ps.v.path_vars.remove(&id));
-            }
-            let u = ps.v.get_fresh_var();
-            let v = ps.v.get_fresh_var();
-            let y = ps.v.get_fresh_var();
-            ps.f.functions[0] = rustc_hash::FxHashSet::from_iter([vec![0], vec![u], vec![v]]);
-            ps.f.functions[1] = rustc_hash::FxHashSet::from_iter([vec![1], vec![u,v]]);
-            for (m,w) in [(vec![],1), (vec![0,u],1), (vec![v],-1), (vec![u,v],2)] {
-                ps.p.add_term(m, quprs::PhaseCoeff::new_constant(quprs::Rational::new(w,d)));
-            }
-            if cancel {
-                ps.p.add_term(vec![y], quprs::PhaseCoeff::new_constant(quprs::Rational::new(1,2)));
-            }
-            // The actual native phase denominator may be smaller only
-            // if the phase polynomial was normalized; the odd constant
-            // term ensures the selected D is retained.
-            for x in 0..4u64 { for z in 0..4u64 {
-                let mut expected = vec![0u128; d as usize];
-                for u in 0..2u64 { for v in 0..2u64 { for y in 0..2u64 {
-                    let out = ((x & 1) ^ u ^ v) | ((((x >> 1) & 1) ^ (u & v)) << 1);
-                    if out != z { continue; }
-                    let p = (1 + ((x & 1)*u) as i64 - v as i64 + 2*(u*v) as i64
-                        + if cancel { y as i64*d/2 } else { 0 }).rem_euclid(d);
-                    expected[p as usize] += 1;
-                }}}
-                let is_zero = (0..d as usize/2).all(|j| expected[j] == expected[j+d as usize/2]);
-                if is_zero { zero += 1; } else { nonzero += 1; }
-                for affine in [false, true] {
-                    let (cnf, phase, actual_d, h) = native_dyadic_cnf::native_dyadic_fibre(
-                        &ps,x,z,affine,512,4096).unwrap();
-                    assert_eq!(actual_d,d as u32);
-                    assert_eq!(h,if affine {2} else {3});
-                    // Adapt the shared support CNF to the existing
-                    // local exact counting engine.
-                    let local = Cnf { vars: cnf.vars, clauses: cnf.clauses };
-                    let mut fuel = 2_000_000;
-                    for (j, &want) in expected.iter().enumerate() {
-                        let units: Vec<Lit> = phase.iter().enumerate()
-                            .map(|(i,&l)| if j >> i & 1 == 1 {l} else {-l}).collect();
-                        assert_eq!(count(&local,&units,&mut fuel,false),Some(want),
-                            "D={d} cancel={cancel} x={x} z={z} affine={affine} phase={j}");
-                        checks += 1;
-                    }
-                }
-            }}
-        }
-    }
-    assert!(zero > 0 && nonzero > 0);
-    let mut unsupported = PathSum::new(1);
-    unsupported.p.add_term(vec![0],quprs::PhaseCoeff::new_constant(quprs::Rational::new(1,3)));
-    assert!(native_dyadic_cnf::native_dyadic_fibre(&unsupported,0,0,false,512,4096).is_none());
-    assert!(native_dyadic_cnf::native_dyadic_fibre(&PathSum::new(1),2,0,false,512,4096).is_none());
-    assert!(native_dyadic_cnf::native_dyadic_fibre(&PathSum::new(1),0,0,false,0,0).is_none());
-    println!("HOARE_NATIVE_SINGLE_COPY_FIBRE bins={checks} zero={zero} nonzero={nonzero} affine=true high_ids=true");
-}

@@ -876,6 +876,125 @@ fn native_disjoint_predicate_partition(){
     println!("HOARE_NATIVE_DISJOINT_PREDICATE checks={checks} partitions={partitions} pivots={hits}");
 }
 
+
+// Independent unnormalized Clifford+T gate recurrence. This reference
+// never constructs PathSum, CNF or an RR checkpoint. H contributes its
+// integer sign and branches; the common H normalization is omitted.
+fn gate_reference(ops:&[QuantumOp],x:u64)->Vec<Root>{
+    use QuantumOp as G;
+    let mut a=vec![[0i64;32];8];a[x as usize][0]=1;
+    for g in ops{
+        let mut b=vec![[0i64;32];8];
+        for (z,r) in a.iter().enumerate(){
+            let mut add=|w:usize,phase:usize|{
+                for (j,&v) in r.iter().enumerate(){
+                    let k=(j+phase)%64;
+                    b[w][k%32]+=if k<32{v}else{-v};
+                }
+            };
+            match *g{
+                G::H(q)=>{let w=z&!(1usize<<q);add(w,0);add(w|(1<<q),if z>>q&1==1{32}else{0});}
+                G::X(q)=>add(z^(1<<q),0),
+                G::CX(c,t)=>add(z^(((z>>c)&1)<<t),0),
+                G::CCX(c,d,t)=>add(z^((((z>>c)&1)&((z>>d)&1))<<t),0),
+                G::T(q)=>add(z,8*((z>>q)&1)),
+                G::TDG(q)=>add(z,56*((z>>q)&1)),
+                G::Z(q)=>add(z,32*((z>>q)&1)),
+                _=>panic!("unsupported independent gate reference"),
+            }
+        }
+        a=b;
+    }
+    a
+}
+#[test]
+fn native_disjoint_gpmc_ablation(){
+    use QuantumOp as G;
+    let families=[
+        ("ghz",vec![G::H(0),G::CX(0,1),G::CX(0,2)],G::X(1),
+            vec![Anf::from([0,2]),Anf::from([0,4])],
+            vec![Anf::from([0,1,2]),Anf::from([0,2,4]),Anf::from([0,1,4])]),
+        ("and",vec![G::H(0),G::H(1),G::CCX(0,1,2)],G::H(2),
+            vec![Anf::from([0,4])],
+            vec![Anf::from([0,3,4]),Anf::from([0,4,5]),Anf::from([0,4,6])]),
+    ];
+    let dir=std::env::var_os("HOARE_PAPER_PROJECTED_DIR").map(std::path::PathBuf::from);
+    let mut rows=String::new();let mut checks=0;let mut partitions=0;let mut hits=0;
+    for (family,ops,mutation,pre,qs) in families{
+        for mutant in [false,true]{
+            let case=format!("{family}-{}",if mutant{"mutant"}else{"valid"});
+            let mut ops=ops.clone();if mutant{ops.push(mutation.clone());}
+            let t=std::time::Instant::now();
+            let mut raw=PathSum::new(3);raw.set_auto_reduce(false);
+            for op in &ops{op.apply(&mut raw,false);}
+            let build=t.elapsed().as_nanos();
+            let original=entries(&raw).unwrap();
+            let legal:Vec<_>=(0..8u64).filter(|&x|pre.iter().all(|p|anf_value(p,x))).collect();
+            let refs:BTreeMap<_,_>=legal.iter().map(|&x|(x,gate_reference(&ops,x))).collect();
+            let norm=|a:&[Root],post:&Anf|->i128{
+                a.iter().enumerate().filter(|(z,_)|!anf_value(post,*z as u64))
+                    .flat_map(|(_,r)|*r).map(|v|i128::from(v)*i128::from(v)).sum()
+            };
+            let all=qs.iter().try_fold(Anf::from([0]),|a,b|anf_product(&a,b)).unwrap();
+            for &x in &legal{
+                assert_eq!(&original[(8*x) as usize..(8*x+8) as usize],refs[&x].as_slice());
+            }
+            let want_global=legal.iter().map(|x|norm(&refs[x],&all)).sum::<i128>();
+            assert_eq!(want_global>0,mutant);
+            let t=std::time::Instant::now();let (general,gr)=reduce(raw);
+            let common=build+t.elapsed().as_nanos();assert!(!gr.limit);
+            let mut emit=|route:&str,x:i64,j:usize,out:&PathSum,pred:&[Anf],post:&[Anf],
+                scale:u32,prefix_ns:u128,prep:u128,hit:usize,want:i128|{
+                let key=format!("disjoint-{case}-{route}-{x}-{j}");
+                let t=std::time::Instant::now();
+                let (c,sign,d)=native_dyadic_projection_variant(out,pred,post,32768,262144,true).unwrap();
+                let enc=t.elapsed().as_nanos();
+                if let Some(dir)=&dir{
+                    let mut text=format!("p cnf {} {}\n",c.vars,c.clauses.len());
+                    for row in &c.clauses{for l in row{text.push_str(&format!("{l} "));}text.push_str("0\n");}
+                    std::fs::write(dir.join(format!("{key}.cnf")),text).unwrap();
+                }
+                rows.push_str(&format!("{key}\t{case}\t{route}\t{x}\t{j}\t{}\t{}\t{}\t{sign}\t{d}\t{scale}\t{common}\t{prefix_ns}\t{prep}\t{enc}\t{hit}\t{want}\n",h(out),c.vars,c.clauses.len()));
+            };
+            // Strong matched global projected-WMC baseline (same general RR).
+            emit("global",-1,0,&general,&pre,&qs,gr.scale2,0,0,0,want_global);
+            for &x in &legal{
+                let t=std::time::Instant::now();
+                let (prefix,pr)=reduce(fixed_input(general.clone(),x));
+                let prefix_ns=t.elapsed().as_nanos();assert!(!pr.limit);
+                let fixed:Vec<Anf>=(0..3).map(|i|if x>>i&1==1{Anf::from([1u64<<i])}
+                    else{Anf::from([0,1u64<<i])}).collect();
+                let want=norm(&refs[&x],&all);
+                emit("input-only",x as i64,0,&prefix,&fixed,&qs,gr.scale2+pr.scale2,prefix_ns,0,0,want);
+                for (route,reverse) in [("forward",false),("reverse",true)]{
+                    let t=std::time::Instant::now();
+                    let mut order=qs.clone();if reverse{order.reverse();}
+                    let branches=first_failed_post(&order).unwrap();
+                    let branch_ns=t.elapsed().as_nanos();
+                    let mut sum=0;
+                    for (j,b) in branches.iter().enumerate(){
+                        let t=std::time::Instant::now();
+                        let (out,s,hit)=if let Some((p,_))=predicate_pivot(&prefix,b){
+                            let (out,r)=reduce(p);assert!(!r.limit);(out,r.scale2,1)
+                        }else{(prefix.clone(),0,0)};
+                        let prep=t.elapsed().as_nanos()+if j==0{branch_ns}else{0};
+                        let scale=gr.scale2+pr.scale2+s;
+                        let expected=norm(&refs[&x],b);
+                        let got=entries(&out).unwrap();
+                        assert_eq!(norm(&got[(8*x) as usize..(8*x+8) as usize],b).checked_shl(scale).unwrap(),expected);
+                        sum+=expected;checks+=1;hits+=hit;
+                        emit(route,x as i64,j,&out,&fixed,&[b.clone()],scale,if j==0{prefix_ns}else{0},prep,hit,expected);
+                    }
+                    assert_eq!(sum,want);partitions+=1;
+                }
+            }
+        }
+    }
+    assert_eq!((checks,partitions),(72,24));
+    if let Some(dir)=dir{std::fs::write(dir.join("disjoint-ablation.tsv"),rows).unwrap();}
+    println!("HOARE_NATIVE_DISJOINT_ABLATION checks={checks} partitions={partitions} pivots={hits} independent_gate_oracle=true");
+}
+
 #[test]
 fn paper_qwalk_native_source_admission(){
     let Some(dir)=std::env::var_os("HOARE_PAPER_QWALK_DIR") else{

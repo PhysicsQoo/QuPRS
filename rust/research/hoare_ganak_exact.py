@@ -1929,7 +1929,9 @@ def run_gpmc_pure(directory, exe, tmp, deadline):
         run_native_gse_wmc(directory,solve,deadline,long_metrics)
         long_metrics=None
         query_cap=5
-    if (directory/"general-predicate.tsv").is_file():
+    if (directory/"disjoint-ablation.tsv").is_file():
+        run_disjoint_ablation(directory,exe,tmp)
+    elif (directory/"general-predicate.tsv").is_file():
         run_general_predicate(directory,exe,tmp)
     elif (directory/"paper-sector-inputs.tsv").is_file():
         run_paper_sector_inputs(directory,exe,tmp)
@@ -1941,7 +1943,7 @@ def run_gpmc_pure(directory, exe, tmp, deadline):
         run_paper_single_fibre(directory,exe,tmp)
     # Freeze previously accepted timeout baselines instead of repeatedly
     # spending six additional 30s queries during conditioned-RR research.
-    if (directory/"paper-projected.tsv").is_file() and not any((directory/p).is_file() for p in ("paper-conditioned-fibre.tsv","paper-blind-fibre.tsv","paper-sector-inputs.tsv","general-predicate.tsv")):
+    if (directory/"paper-projected.tsv").is_file() and not any((directory/p).is_file() for p in ("paper-conditioned-fibre.tsv","paper-blind-fibre.tsv","paper-sector-inputs.tsv","general-predicate.tsv","disjoint-ablation.tsv")):
         query_cap=30
         deadline=time.monotonic()+240
         long_metrics=[]
@@ -2498,6 +2500,72 @@ def run_general_predicate(directory,exe,tmp):
                 assert a["normalized"]==b["normalized"]
                 paired+=1
     print("HOARE_GENERAL_PREDICATE_PARITY paired="+str(paired),flush=True)
+
+
+def run_disjoint_ablation(directory,exe,tmp):
+    fields="key case route x branch h vars clauses sign denominator scale common_ns prefix_ns prep_ns encoding_ns pivots expected".split()
+    with (directory/"disjoint-ablation.tsv").open() as f:
+        plans=list(csv.DictReader(f,fieldnames=fields,delimiter="\t"))
+    assert len(plans)==88
+    groups={}
+    for p in plans:groups.setdefault((p["case"],p["route"]),[]).append(p)
+    assert len(groups)==16
+    totals={}
+    for (case,route),group in groups.items():
+        # Validate coverage independently from solver outcomes.
+        legal=[0,1] if case.startswith("ghz-") else list(range(4))
+        expected_keys=([(-1,0)] if route=="global" else
+            [(x,j) for x in legal for j in range(1 if route=="input-only" else 3)])
+        assert [(int(p["x"]),int(p["branch"])) for p in group]==expected_keys
+        spent=int(group[0]["common_ns"])/1e9
+        records=[]
+        for p in group:
+            row=dict(p)
+            for k in fields[3:]:row[k]=int(p[k])
+            spent+=(row["prefix_ns"]+row["prep_ns"]+row["encoding_ns"])/1e9
+            row.update(status="BUDGET_NOT_RUN",normalized=None,metrics=[],query_s=0.0)
+            start=time.monotonic()
+            if spent<30:
+                base=(directory/(p["key"]+".cnf")).read_text()
+                assert base.splitlines()[0]==f'p cnf {row["vars"]} {row["clauses"]}'
+                data,radix,bound=single_fibre_pack(base,[row["sign"]],3+2*row["h"])
+                query=pathlib.Path(tmp)/"disjoint-ablation.cnf"
+                query.write_text(data)
+                row["query_sha256"]=hashlib.sha256(data.encode()).hexdigest()
+                t=time.monotonic()
+                try:
+                    remaining=30-spent-(t-start)
+                    if remaining<=0:raise TimeoutError("disjoint budget")
+                    stdout=profile_gpmc([str(exe),"-mode=1","-natw",str(query)],min(30,remaining),
+                                       pathlib.Path(tmp)/"disjoint-ablation-time.tsv",row["metrics"])
+                    val=parse_gpmc_integer(stdout,"wmc",bound*radix)
+                    a,b=single_fibre_decode(val,radix,bound,2)
+                    assert a>=b
+                    result=(a-b)<<row["scale"]
+                    assert result==row["expected"],(p["key"],result,row["expected"])
+                    row.update(status="EXACT",normalized=result)
+                except (TimeoutError,subprocess.TimeoutExpired):row["status"]="TIMEOUT"
+                except SolverSignalKilled:row["status"]="SIGNAL_KILL"
+                row["query_s"]=time.monotonic()-t
+                spent+=time.monotonic()-start
+            records.append(row)
+            print("HOARE_DISJOINT_ABLATION_GPMC "+json.dumps(row),flush=True)
+        exact=[r for r in records if r["normalized"] is not None]
+        total=sum(r["normalized"] for r in exact)
+        complete=len(exact)==len(group)
+        verdict="REFUTED" if total else "PROVED" if complete else "UNKNOWN"
+        totals[case,route]=total if complete else None
+        print("HOARE_DISJOINT_ABLATION_SUMMARY "+json.dumps(dict(case=case,route=route,exact=len(exact),
+            planned=len(group),verdict=verdict,total=total if complete else None,accounted_s=spent,
+            pivots=sum(r["pivots"] for r in records),max_h=max(r["h"] for r in records),
+            clauses=sum(r["clauses"] for r in records))),flush=True)
+    matches=0
+    for case in {c for c,_ in groups}:
+        exact=[v for (c,r),v in totals.items() if c==case and v is not None]
+        if len(exact)==4:
+            assert len(set(exact))==1,(case,exact)
+            matches+=1
+    print("HOARE_DISJOINT_ABLATION_PARITY complete_cases="+str(matches),flush=True)
 
 def run_paper_projected_optimized(directory,count,deadline,metrics):
     fields="case mode n h0 h scale vars clauses sign denominator status build_ns rr_ns encoding_ns expected_bad".split()

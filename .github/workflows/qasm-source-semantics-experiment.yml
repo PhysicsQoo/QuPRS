@@ -941,27 +941,38 @@ jobs:
           done
           echo 'LEAN4_AFFINE_WORD_CERTIFICATE_PASS theorem_axiom_reports=8 supported_basis=true word_certificate=true coefficient_fibres=true native_incidence_refinement=false'
 
-          lean AffineCyclotomicLift.lean 2>&1 | tee /tmp/qasm-lean-affine-lift.log
+          lift_status=0
+          lean AffineCyclotomicLift.lean 2>&1 | tee /tmp/qasm-lean-affine-lift.log || lift_status=$?
           if grep -E 'sorryAx|Lean[.]trustCompiler|Classical[.]choice' /tmp/qasm-lean-affine-lift.log; then
             echo 'Unexpected cyclotomic lift theorem axiom dependency' >&2
-            exit 1
+            lift_status=1
           fi
-          test "$(grep -Ec 'does not depend on any axioms|depends on axioms' /tmp/qasm-lean-affine-lift.log)" -eq 5
-          for theorem in residue_scale coordinate_lift coordinate_off_grid phase_sum_lift phase_sum_off_grid; do
-            test "$(grep -Ec "^'QuPRS[.]AffineCyclotomicLift[.]$theorem' (does not depend on any axioms|depends on axioms)" /tmp/qasm-lean-affine-lift.log)" -eq 1
+          test "$(grep -Ec 'does not depend on any axioms|depends on axioms' /tmp/qasm-lean-affine-lift.log)" -eq 7 || lift_status=1
+          for theorem in residue_scale coordinate_lift coordinate_off_grid phase_sum_lift phase_sum_off_grid lifted_zero_iff common_factor_zero_iff; do
+            test "$(grep -Ec "^'QuPRS[.]AffineCyclotomicLift[.]$theorem' (does not depend on any axioms|depends on axioms)" /tmp/qasm-lean-affine-lift.log)" -eq 1 || lift_status=1
           done
-          echo 'LEAN4_AFFINE_CYCLOTOMIC_LIFT_PASS theorem_axiom_reports=5 grid=true off_grid_zero=true guarded_sum=true complex_embedding=false'
+          if test "$lift_status" -eq 0; then
+            echo 'LEAN4_AFFINE_CYCLOTOMIC_LIFT_PASS theorem_axiom_reports=7 grid=true off_grid_zero=true guarded_sum=true zero_reflection=true common_factor_zero=true complex_embedding=false'
+          else
+            echo 'LEAN4_AFFINE_CYCLOTOMIC_LIFT_FAIL' >&2
+          fi
 
-          LEAN_PATH=. lean AffineNativeIncidence.lean 2>&1 | tee /tmp/qasm-lean-affine-incidence.log
+          incidence_status=0
+          LEAN_PATH=. lean AffineNativeIncidence.lean 2>&1 | tee /tmp/qasm-lean-affine-incidence.log || incidence_status=$?
           if grep -E 'sorryAx|Lean[.]trustCompiler|Classical[.]choice' /tmp/qasm-lean-affine-incidence.log; then
             echo 'Unexpected affine incidence theorem axiom dependency' >&2
-            exit 1
+            incidence_status=1
           fi
-          test "$(grep -Ec 'does not depend on any axioms|depends on axioms' /tmp/qasm-lean-affine-incidence.log)" -eq 19
+          test "$(grep -Ec 'does not depend on any axioms|depends on axioms' /tmp/qasm-lean-affine-incidence.log)" -eq 19 || incidence_status=1
           for theorem in decode_or_word mem_cons_bit column_decode full_column_decode selected_nodup nodup_same_members_perm parity_perm row_keys_perm native_incidence_eval native_word_reconstruction one_hot_decode unique_keys_mem unique_keys_nodup gather_keys_nodup gather_keys_coverage gather_keys_exact gathered_word_reconstruction gathered_fibre_preserved gathered_phase_coordinate_preserved; do
-            test "$(grep -Ec "^'QuPRS[.]AffineNativeIncidence[.]$theorem' (does not depend on any axioms|depends on axioms)" /tmp/qasm-lean-affine-incidence.log)" -eq 1
+            test "$(grep -Ec "^'QuPRS[.]AffineNativeIncidence[.]$theorem' (does not depend on any axioms|depends on axioms)" /tmp/qasm-lean-affine-incidence.log)" -eq 1 || incidence_status=1
           done
-          echo 'LEAN4_AFFINE_NATIVE_INCIDENCE_PASS theorem_axiom_reports=19 or_fold=true row_set_semantics=true source_reconstruction=true one_hot_shift=true key_coverage_model=true signed_phase_coordinate_fibres=true rust_container_refinement=false cyclotomic_embedding=false'
+          if test "$incidence_status" -eq 0; then
+            echo 'LEAN4_AFFINE_NATIVE_INCIDENCE_PASS theorem_axiom_reports=19 or_fold=true row_set_semantics=true source_reconstruction=true one_hot_shift=true key_coverage_model=true signed_phase_coordinate_fibres=true rust_container_refinement=false cyclotomic_embedding=false'
+          else
+            echo 'LEAN4_AFFINE_NATIVE_INCIDENCE_FAIL' >&2
+          fi
+          test "$lift_status" -eq 0 && test "$incidence_status" -eq 0
 
       - name: Build and test std-only independent verifier
         run: |

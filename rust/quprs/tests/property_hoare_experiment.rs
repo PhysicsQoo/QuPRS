@@ -3396,9 +3396,119 @@ fn rus_compose_export(dir:&std::path::Path,blocks:&[RusCompositeBlock]){
     std::fs::write(dir.join("native-rus-composite.tsv"),manifest).unwrap();
 }
 
+
+// Research-only ring-valued factor extraction. Preserve original inputs,
+// complete output fibres and all conjunctive guards. No claim that a
+// generic factor is representable by one natural-integer WMC weight.
+fn algebraic_pivots(s:&Symbolic,guards:&[BTreeSet<u64>])->u64{
+    assert!(s.h<=17&&s.n+s.h<63);
+    let hidden=((1u64<<s.h)-1)<<s.n;
+    let support=s.output.iter().chain(guards).flatten().fold(0u64,|r,&m|r|m);
+    let eligible=hidden&!support;
+    let mut best=0u64;
+    // Small bounded maximum independent set, deterministic numeric tie.
+    // A monomial involving two selected variables invalidates the plan.
+    for p in 0..1u64<<s.h{
+        let p=p<<s.n;
+        if p&!eligible!=0||p.count_ones()<=best.count_ones(){continue;}
+        if s.phase.iter().all(|(&m,&c)|c%8==0||(m&p).count_ones()<=1){best=p;}
+    }
+    best
+}
+fn algebraic_contract(s:&Symbolic,guards:&[BTreeSet<u64>],weights:&[i64],x:u64,p:u64)
+    ->(Vec<Root>,Vec<u8>,usize,usize){
+    assert_eq!(weights.len(),s.h);assert!(weights.iter().all(|&m|(1..=3).contains(&m)));
+    assert!(p&((1u64<<s.n)-1)==0&&p>> (s.n+s.h)==0);
+    assert!(s.output.iter().chain(guards).flatten().all(|&m|m&p==0));
+    assert!(s.phase.iter().all(|(&m,&c)|c%8==0||(m&p).count_ones()<=1));
+    let pivots=(s.n..s.n+s.h).filter(|&i|p>>i&1!=0).collect::<Vec<_>>();
+    let keep=(s.n..s.n+s.h).filter(|&i|p>>i&1==0).collect::<Vec<_>>();
+    let base=s.phase.iter().filter(|(&m,_)|m&p==0).map(|(&m,&c)|(m,c)).collect::<Vec<_>>();
+    let deriv=pivots.iter().map(|&i|s.phase.iter().filter(|(&m,_)|m&(1u64<<i)!=0)
+        .map(|(&m,&c)|(m&!(1u64<<i),c)).collect::<Vec<_>>()).collect::<Vec<_>>();
+    let mut fibres=vec![[0;4];1usize<<s.output.len()];
+    let mut phases=vec![0u8;pivots.len()];let(mut admitted,mut zero)=(0usize,0usize);
+    for v in 0..1u64<<keep.len(){
+        let a=keep.iter().enumerate().fold(x,|r,(j,&i)|r|((v>>j&1)<<i));
+        let eval=|q:&BTreeSet<u64>|q.iter().fold(false,|b,&m|b^(a&m==m));
+        if !guards.iter().all(eval){continue;}
+        admitted+=1;
+        let e=base.iter().filter(|&&(m,_)|a&m==m).map(|&(_,c)|c as usize).sum::<usize>()%8;
+        let mut w=1i64;
+        for &i in &keep{if a>>i&1!=0{w*=weights[i-s.n];}}
+        let mut value=root(e).map(|c|c*w);
+        for (j,&i) in pivots.iter().enumerate(){
+            let d=deriv[j].iter().filter(|&&(m,_)|a&m==m).map(|&(_,c)|c as usize).sum::<usize>()%8;
+            phases[j]|=1u8<<d;
+            let term=add(root(0),root(d).map(|c|c*weights[i-s.n]));
+            value=rus_mul(value,term);
+        }
+        zero+=usize::from(value==[0;4]);
+        let z=s.output.iter().enumerate().fold(0usize,|r,(i,q)|r|(usize::from(eval(q))<<i));
+        fibres[z]=add(fibres[z],value);
+    }
+    (fibres,phases,admitted,zero)
+}
+fn algebraic_rus_controls(){
+    let a=1u64<<2;let b=1u64<<3;let c=1u64<<4;
+    let phase=BTreeMap::from([(a,3),(b,2),(c,5),(a|c,4)]);
+    let s=Symbolic{n:2,h:3,output:vec![BTreeSet::from([1]),BTreeSet::from([2])],phase:phase.clone()};
+    let p=algebraic_pivots(&s,&[]);assert_eq!(p,a|b);
+    let output_dep=Symbolic{n:2,h:3,output:vec![BTreeSet::from([a]),BTreeSet::from([2])],phase};
+    assert_eq!(algebraic_pivots(&output_dep,&[])&a,0);
+    let g=BTreeSet::from([a]);assert_eq!(algebraic_pivots(&s,&[g])&a,0);
+    assert_eq!(p&(a|c),a); // no selected coupled pair
+    for (label,source,guards) in [("coupled",&s,vec![]),("output",&output_dep,vec![]),("guard",&s,vec![BTreeSet::from([a])])]{
+        let p=algebraic_pivots(source,&guards);let weights=[2i64,3,2];
+        for x in 0..4u64{
+            let (got,_,_,_)=algebraic_contract(source,&guards,&weights,x,p);let mut want=vec![[0;4];4];
+            for y in 0..8u64{
+                let a=x|(y<<2);
+                if !guards.iter().all(|g|g.iter().fold(false,|v,&m|v^(a&m==m))){continue;}
+                let(z,e)=path(source,x,y);let mut w=1;
+                for (i,&m) in weights.iter().enumerate(){if y>>i&1!=0{w*=m;}}
+                want[z as usize]=add(want[z as usize],root(e).map(|v|v*w));
+            }
+            assert_eq!(got,want,"algebraic control {label}");
+        }
+    }
+    println!("HOARE_RUS_ALGEBRAIC_CONTROLS checked=3 fibres=48 coefficients=192");
+}
+fn algebraic_rus_check(name:&str,s:&Symbolic,hist:&[u64;64],weighted_hist:&[u64;64]){
+    let start=std::time::Instant::now();let p=algebraic_pivots(s,&[]);let plan_ns=start.elapsed().as_nanos();
+    let pivots=(0..s.h).filter(|&i|p>>(s.n+i)&1!=0).collect::<Vec<_>>();
+    for weighted in [false,true]{
+        let weights=(0..s.h).map(|i|if weighted&&i%3==0{2}else{1}).collect::<Vec<i64>>();
+        let expected=if weighted{weighted_hist}else{hist};
+        let start=std::time::Instant::now();
+        let(mut phase_masks,mut admitted,mut zero)=(vec![0u8;pivots.len()],0usize,0usize);
+        for x in 0..2usize{
+            let (a,masks,n,z)=algebraic_contract(s,&[],&weights,(2*x) as u64,p);
+            for (i,m) in masks.into_iter().enumerate(){phase_masks[i]|=m;}
+            admitted+=n;zero+=z;
+            for z in 0..4{
+                let base=32*x+8*z;let direct:Root=std::array::from_fn(|i|expected[base+i] as i64-expected[base+i+4] as i64);
+                assert_eq!(a[z],direct,"algebraic factor fibre {name} {weighted} {x} {z}");
+            }
+        }
+        let contract_ns=start.elapsed().as_nanos();
+        let(mut integer,mut omega,mut generic)=(0usize,0usize,0usize);
+        for (i,&d) in phase_masks.iter().enumerate(){
+            assert!(d!=0);
+            if d&!0x11==0{integer+=1;}
+            else if weights[pivots[i]]==1&&d&!0x44==0{omega+=1;}
+            else{generic+=1;}
+        }
+        let residual=s.h-pivots.len();
+        assert_eq!(admitted,2usize<<residual);
+        println!("HOARE_RUS_ALGEBRAIC case={name} weighted={} h={} residual={residual} pivots={pivots:?} phase_masks={phase_masks:?} integer={integer} omega={omega} generic={generic} admitted={admitted} zero={zero} plan_ns={plan_ns} contract_ns={contract_ns}",usize::from(weighted),s.h);
+    }
+}
+
 fn rus_export(dir:&std::path::Path){
     let Some(srcdir)=std::env::var_os("HOARE_FACTOR_SOURCE_DIR")else{return;};
     let src=std::path::PathBuf::from(srcdir);
+    algebraic_rus_controls();
     let mut manifest=String::new();let mut rr_manifest=String::new();let mut fixed_manifest=String::new();let mut gram_manifest=String::new();let mut composite=Vec::new();
     for (name,h,expected_ops,corr) in [("Figure7",7usize,14usize,true),("Figure8",3,8,false),("Figure9",5,13,false),
         ("Figure10a",9,21,false),("Figure10b",17,37,true),("Figure10c",16,33,false)]{
@@ -3419,10 +3529,12 @@ fn rus_export(dir:&std::path::Path){
         let now=std::time::Instant::now();
         let s=native(2,&gates).expect("exact unreduced native RUS path sum");
         assert_eq!(s.h,h);let prep_ns=now.elapsed().as_nanos();
-        let mut hist=[0u64;64];
+        let mut hist=[0u64;64];let mut weighted_hist=[0u64;64];
+        let wm=(0..h).filter(|i|i%3==0).fold(0usize,|m,i|m|(1usize<<i));
         for x in 0..2{for y in 0..1usize<<h{
             let(z,e)=rus_eval(&ops,x,y);assert_eq!(path(&s,(2*x) as u64,y as u64),(z as u64,e));
             hist[32*x+8*z+e]+=1;
+            weighted_hist[32*x+8*z+e]+=1u64<<((y&wm).count_ones());
         }}
         for x in 0..2{let dense=dense_state(2,&gates,(2*x) as u64);
             for z in 0..4{let a:Root=std::array::from_fn(|j|hist[32*x+8*z+j] as i64-hist[32*x+8*z+j+4] as i64);
@@ -3435,6 +3547,7 @@ fn rus_export(dir:&std::path::Path){
         let fixed=compact(&ps,2).unwrap();
         let fixed_prep_ns=rr_start.elapsed().as_nanos();
         assert_eq!(fixed.h,h);
+        algebraic_rus_check(name,&fixed,&hist,&weighted_hist);
         let mut frame=NativeGuardFrame::new(&ps,Anf::from([0])).unwrap();
         let(mut scale2,mut rr_steps,mut elim,mut hh,mut omega)=(0u32,0usize,0usize,0usize,0usize);
         for _ in 0..32{

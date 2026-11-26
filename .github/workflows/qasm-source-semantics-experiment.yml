@@ -1068,15 +1068,15 @@ jobs:
             if grep -E 'sorryAx|Lean[.]trustCompiler|Classical[.]choice' /tmp/qasm-lean-affine-cyclotomic-algebra.log; then
               algebra_status=1
             fi
-            test "$(grep -Ec 'does not depend on any axioms|depends on axioms' /tmp/qasm-lean-affine-cyclotomic-algebra.log)" -eq 20 || algebra_status=1
-            for theorem in total_mul_left total_mul_right coordinate_shift coordinate_reduce coordinate_basis_delta basis_composition total_congr total_zero total_add total_append total_map total_flatMap total_swap pair_sum_total mul_nested mul_comm mul_add mul_zero total_delta mul_one_coordinate; do
+            test "$(grep -Ec 'does not depend on any axioms|depends on axioms' /tmp/qasm-lean-affine-cyclotomic-algebra.log)" -eq 24 || algebra_status=1
+            for theorem in mul_left_triple triple_rotate mul_assoc_coordinate mul_input_congr total_mul_left total_mul_right coordinate_shift coordinate_reduce coordinate_basis_delta basis_composition total_congr total_zero total_add total_append total_map total_flatMap total_swap pair_sum_total mul_nested mul_comm mul_add mul_zero total_delta mul_one_coordinate; do
               test "$(grep -Ec "^'QuPRS[.]AffineCyclotomicAlgebra[.]$theorem' (does not depend on any axioms|depends on axioms)" /tmp/qasm-lean-affine-cyclotomic-algebra.log)" -eq 1 || algebra_status=1
             done
           else
             algebra_status=1
           fi
           if test "$algebra_status" -eq 0; then
-            echo 'LEAN4_AFFINE_CYCLOTOMIC_ALGEBRA_PASS theorem_axiom_reports=20 native_pair_sum=true commutative=true distributive=true zero=true bounded_unit=true basis_composition=true associative=false checked_reassociation=false'
+            echo 'LEAN4_AFFINE_CYCLOTOMIC_ALGEBRA_PASS theorem_axiom_reports=24 native_pair_sum=true commutative=true distributive=true zero=true bounded_unit=true basis_composition=true associative_on_grid=true input_congruence=true checked_reassociation=false'
           else
             echo 'LEAN4_AFFINE_CYCLOTOMIC_ALGEBRA_FAIL' >&2
           fi

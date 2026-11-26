@@ -249,7 +249,7 @@ theorem coordinate_shift (d k p : Nat) (hk : k < d) :
     · have he' : r+d = k+d := congrArg (fun t => t+d) he
       simp only [ite_eq_left he, ite_eq_left he']
     · have he' : r+d ≠ k+d := by omega
-      simp only [ite_eq_right he, ite_eq_right he']
+      simp only [ite_eq_right he, ite_eq_right he'] <;> decide
   · have hge : 2*d ≤ r+d := by omega
     have hlt : r+d-2*d < 2*d := by omega
     have hdiff : r+d-2*d = r-d := by omega
@@ -261,9 +261,9 @@ theorem coordinate_shift (d k p : Nat) (hk : k < d) :
     rw [ite_eq_right hne, ite_eq_right hne']
     by_cases he : r = k+d
     · have he' : r-d = k := by omega
-      simp only [ite_eq_left he, ite_eq_left he']
+      simp only [ite_eq_left he, ite_eq_left he'] <;> decide
     · have he' : r-d ≠ k := by omega
-      simp only [ite_eq_right he, ite_eq_right he']
+      simp only [ite_eq_right he, ite_eq_right he'] <;> decide
 
 /-- A bounded sum of two input exponents can be reduced before adding
     the next exponent, with the wrap sign retained. -/
@@ -317,6 +317,95 @@ theorem basis_composition (d k p q : Nat) (hk : k < d) (hp : p < 2*d) :
       rw [total_delta _ _ _ (range_nodup_constructive d), ite_eq_left hm]
     _ = coordinate d k (p+q) := (coordinate_reduce d k p q hk hp).symm
 
+
+/-- A common exact triple-product sum, with the third input index outermost. -/
+def triple (d k : Nat) (a b c : Nat → Int) : Int :=
+  total (fun q => total (fun i => total (fun j =>
+    coordinate d k (i+j+q) * (a i*b j*c q)) (List.range d))
+    (List.range d)) (List.range d)
+
+theorem mul_left_triple (d k : Nat) (hk : k < d) (a b c : Nat → Int) :
+    mul d (mul d a b) c k = triple d k a b c := by
+  rw [mul_nested, total_swap]
+  unfold triple
+  apply total_congr
+  intro q _
+  calc
+    _ = total (fun l => total (fun i => total (fun j =>
+          (coordinate d l (i+j) * coordinate d k (l+q)) * (a i*b j*c q))
+          (List.range d)) (List.range d)) (List.range d) := by
+      apply total_congr
+      intro l _
+      rw [mul_nested, ← total_mul_right, ← total_mul_left]
+      apply total_congr
+      intro i _
+      rw [← total_mul_right, ← total_mul_left]
+      apply total_congr
+      intro j _
+      simp only [Int.mul_assoc, Int.mul_left_comm, Int.mul_comm]
+    _ = total (fun i => total (fun l => total (fun j =>
+          (coordinate d l (i+j) * coordinate d k (l+q)) * (a i*b j*c q))
+          (List.range d)) (List.range d)) (List.range d) := by
+      exact total_swap _ _ _
+    _ = total (fun i => total (fun j => total (fun l =>
+          (coordinate d l (i+j) * coordinate d k (l+q)) * (a i*b j*c q))
+          (List.range d)) (List.range d)) (List.range d) := by
+      apply total_congr
+      intro i _
+      exact total_swap _ _ _
+    _ = _ := by
+      apply total_congr
+      intro i hi
+      apply total_congr
+      intro j hj
+      have hib := List.mem_range.mp hi
+      have hjb := List.mem_range.mp hj
+      have hp : i+j < 2*d := by omega
+      rw [total_mul_right, basis_composition d k (i+j) q hk hp]
+
+/-- Cyclic rotation of the exact triple sum is harmless over Int. -/
+theorem triple_rotate (d k : Nat) (a b c : Nat → Int) :
+    triple d k a b c = triple d k b c a := by
+  unfold triple
+  rw [total_swap]
+  apply total_congr
+  intro i _
+  rw [total_swap]
+  apply total_congr
+  intro j _
+  apply total_congr
+  intro q _
+  have he : i+j+q = j+q+i := by omega
+  rw [he]
+  simp only [Int.mul_assoc, Int.mul_left_comm, Int.mul_comm]
+
+/-- Associativity on every legal coefficient, with no restriction on
+    the magnitude or sign of input coefficients. -/
+theorem mul_assoc_coordinate (d k : Nat) (hk : k < d) (a b c : Nat → Int) :
+    mul d (mul d a b) c k = mul d a (mul d b c) k := by
+  calc
+    _ = triple d k a b c := mul_left_triple d k hk a b c
+    _ = triple d k b c a := triple_rotate d k a b c
+    _ = mul d (mul d b c) a k := (mul_left_triple d k hk b c a).symm
+    _ = _ := congrArg (fun v : Nat → Int => v k) (mul_comm d (mul d b c) a)
+
+/-- Restricting operands to legal coordinates is sufficient; off-grid
+    values of Nat-indexed representations are never read. -/
+theorem mul_input_congr (d k : Nat) (a b a' b' : Nat → Int)
+    (ha : ∀ i, i < d → a i = a' i)
+    (hb : ∀ j, j < d → b j = b' j) :
+    mul d a b k = mul d a' b' k := by
+  rw [mul_nested, mul_nested]
+  apply total_congr
+  intro i hi
+  apply total_congr
+  intro j hj
+  rw [ha i (List.mem_range.mp hi), hb j (List.mem_range.mp hj)]
+
+#print axioms mul_left_triple
+#print axioms triple_rotate
+#print axioms mul_assoc_coordinate
+#print axioms mul_input_congr
 #print axioms total_mul_left
 #print axioms total_mul_right
 #print axioms coordinate_shift

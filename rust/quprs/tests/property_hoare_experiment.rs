@@ -8283,5 +8283,178 @@ mod constrained_predicate_overlap {
         assert_eq!(checks,10);
         println!("HOARE_CONSTRAINED_PREDICATE_PHASE_TRANSFER fixtures={} paths={checks} output_terms={terms} rank_rejects=2",fixtures.len());
     }
+
+    // Shared symbolic labels, independent hidden variables per copy.
+    // Bounded truth-mask domains; all target labels are counted only once.
+    fn domain(c:&mut Cnf,bits:&[Lit],mask:u64){
+        let mut accept=ZERO;
+        for value in 0..1u64<<bits.len(){
+            if mask>>value&1==0{continue;}
+            let eq=bits.iter().enumerate().fold(ONE,|acc,(i,&l)|c.and(acc,if value>>i&1==1{l}else{-l}));
+            accept=c.or(accept,eq);
+        }
+        c.enforce(accept);
+    }
+    fn global(a:&Symbolic,b:&Symbolic,pre:u64,post:u64,copies:usize,collision:bool,
+              guards:Option<(bool,bool)>)->(Cnf,[Lit;3],usize){
+        assert_eq!(a.n,b.n);assert!(matches!(copies,2|4));assert!(!collision||copies==4);
+        let n=a.n;let labels=if collision{3*n}else{2*n};
+        let primary=labels+copies*(a.h+b.h);assert!(n<=2&&primary<=14);
+        let mut c=Cnf::new(primary);
+        let xs:Vec<Lit>=(0..n).map(|j|j as Lit+2).collect();
+        let zs:Vec<Lit>=(0..n).map(|j|(n+j) as Lit+2).collect();
+        let ws:Vec<Lit>=if collision{(0..n).map(|j|(2*n+j) as Lit+2).collect()}else{zs.clone()};
+        domain(&mut c,&xs,pre);domain(&mut c,&zs,post);
+        if collision{
+            domain(&mut c,&ws,post);
+            let mut neq=ZERO;
+            for (&z,&w) in zs.iter().zip(&ws){let d=c.xor(z,w);neq=c.or(neq,d);}
+            c.enforce(neq);
+        }
+        let mut next=labels as Lit+2;let mut acc=[ZERO;3];
+        for i in 0..copies{
+            let mut av=xs.clone();
+            let mut bv=if collision&&i>=2{ws.clone()}else{zs.clone()};
+            av.extend((0..a.h).map(|_|{let v=next;next+=1;v}));
+            bv.extend((0..b.h).map(|_|{let v=next;next+=1;v}));
+            if let Some((ga,gb))=guards{
+                for (bits,want) in [(&av,ga),(&bv,gb)]{
+                    let g=bits.iter().fold(ZERO,|v,&l|c.xor(v,l));
+                    c.enforce(if want{g}else{-g});
+                }
+            }
+            for (fa,fb) in a.output.iter().zip(&b.output){
+                let u=c.anf(fa,&av);let v=c.anf(fb,&bv);
+                let d=c.xor(u,v);c.enforce(-d);
+            }
+            acc=encode_phase(&mut c,a,&av,i%2==1,acc);
+            acc=encode_phase(&mut c,b,&bv,i%2==0,acc);
+        }
+        assert_eq!(next as usize,primary+2);
+        (c,acc,primary)
+    }
+    fn dual_mask(a:&Symbolic,b:&Symbolic,x:u64,z:u64,ga:bool,gb:bool)->Root{
+        let mut m=[0;4];
+        for u in 0..1u64<<a.h{
+            if ((x|(u<<a.n)).count_ones()%2==1)!=ga{continue;}
+            let (p,k)=super::path(a,x,u);
+            for v in 0..1u64<<b.h{
+                if ((z|(v<<b.n)).count_ones()%2==1)!=gb{continue;}
+                let (q,l)=super::path(b,z,v);
+                if p==q{m=add(m,root((k+8-l)%8));}
+            }
+        }
+        m
+    }
+    fn aggregate(n:usize,pre:u64,post:u64,table:&[Vec<Root>])->(Root,Root,Root){
+        let(mut two,mut four,mut cross)=([0;4],[0;4],[0;4]);
+        for x in 0..1usize<<n{
+            if pre>>x&1==0{continue;}
+            for z in 0..1usize<<n{
+                if post>>z&1==0{continue;}
+                let p=norm(table[x][z]);two=add(two,p);four=add(four,rus_mul(p,p));
+                for w in 0..1usize<<n{
+                    if w!=z&&post>>w&1!=0{cross=add(cross,rus_mul(p,norm(table[x][w])));}
+                }
+            }
+        }
+        (two,four,cross)
+    }
+    #[test]
+    fn hoare_constrained_predicate_global_cnf(){
+        let fixtures:Vec<(usize,Vec<G>,Vec<G>)>=vec![
+            (1,vec![G::H(0),G::H(0)],vec![]),
+            (1,vec![G::H(0),G::T(0)],vec![G::H(0)]),
+            (1,vec![G::X(0)],vec![G::H(0)]),
+            (2,vec![G::H(0),G::CX(0,1),G::T(1)],vec![G::CX(0,1)]),
+            (2,vec![G::H(0),G::CX(0,1)],vec![G::H(1)]),
+        ];
+        let(mut cases,mut masked,mut queries,mut vars,mut clauses,mut proved)=(0usize,0usize,0usize,0usize,0usize,0usize);
+        for (n,ga,gb) in fixtures{
+            let a=native(n,&ga).unwrap();let b=native(n,&gb).unwrap();
+            let size=1usize<<n;let full=(1u64<<size)-1;
+            let domains=if n==1{vec![0,1,2,3]}else{vec![0,1,5,9,full]};
+            let table:Vec<Vec<Root>>=(0..size).map(|x|(0..size).map(|z|dense_overlap(n,&ga,&gb,x as u64,z as u64)).collect()).collect();
+            let den=1i64<<(a.h+b.h);
+            let mut run=|pre,post,copies,collision,guards|{
+                let(c,p,k)=global(&a,&b,pre,post,copies,collision,guards);
+                vars=vars.max(c.vars);clauses=clauses.max(c.clauses.len());queries+=1;
+                count(&c,p,k).0
+            };
+            for &pre in &domains{for &post in &domains{
+                let(t,f,j)=aggregate(n,pre,post,&table);
+                assert_eq!(run(pre,post,2,false,None),t);
+                assert_eq!(run(pre,post,4,false,None),f);
+                assert_eq!(run(pre,post,4,true,None),j);
+                let valid=t==[i64::from(pre.count_ones())*den,0,0,0]&&j==[0;4];
+                let explicit=(0..size).filter(|&x|pre>>x&1!=0).all(|x|
+                    (0..size).any(|z|post>>z&1!=0&&norm(table[x][z])==[den,0,0,0]));
+                assert_eq!(valid,explicit);
+                assert_eq!(valid,f==[i64::from(pre.count_ones())*den*den,0,0,0]);
+                cases+=1;proved+=usize::from(valid);
+            }}
+            // Masks may destroy normalization; compare raw moments only.
+            for ga in [false,true]{for gb in [false,true]{
+                let table:Vec<Vec<Root>>=(0..size).map(|x|(0..size).map(|z|dual_mask(&a,&b,x as u64,z as u64,ga,gb)).collect()).collect();
+                let(t,f,j)=aggregate(n,full,full,&table);
+                assert_eq!(run(full,full,2,false,Some((ga,gb))),t);
+                assert_eq!(run(full,full,4,false,Some((ga,gb))),f);
+                assert_eq!(run(full,full,4,true,Some((ga,gb))),j);
+                masked+=3;
+            }}
+        }
+        assert_eq!((cases,masked,queries),(98,60,354));
+        println!("HOARE_CONSTRAINED_PREDICATE_GLOBAL cases={cases} proved={proved} masked={masked} queries={queries} max_vars={vars} max_clauses={clauses}");
+    }
+
+    // Guard t=x xor u xor k xor offset; parameterization preserves x.
+    // Check exact substitution, phase descent and kernel multiplier.
+    #[test]
+    fn hoare_constrained_predicate_kernel_descent(){
+        let mut models=0;let mut entries=0;let mut invariant=0;let mut rejected=0;
+        for offset in [false,true]{
+            let forms=vec![lift_parity(1,false),lift_parity(2,false),
+                           lift_parity(4,false),lift_parity(7,offset)];
+            let forward=vec![lift_parity(1,false),lift_parity(2,offset)];
+            let inverse=forward.clone();
+            for c in 0..8u8{for d in 0..8u8{
+                let mut p=Poly::from([(2,1),(3,2)]);
+                plus(&mut p,&Poly::from([(8,1)]),c);
+                plus(&mut p,&lift_parity(7,offset),(8-c)%8);
+                plus(&mut p,&Poly::from([(4,1)]),d);
+                let reduced=subst(&p,&forms);
+                let visible:Poly=reduced.iter().filter(|(m,_)|**m&4==0).map(|(&m,&v)|(m,v)).collect();
+                let q=subst(&visible,&inverse);
+                assert_eq!(subst(&q,&forward),visible);
+                let independent=reduced==visible;assert_eq!(independent,d==0);
+                if independent{invariant+=1;}else{rejected+=1;}
+                let mut original=[[[0;4];4];2];let mut transformed=[[[0;4];4];2];
+                // Independent oracle enumerates all original hidden assignments.
+                for x in 0..2u64{for u in 0..2u64{for k in 0..2u64{for t in 0..2u64{
+                    if t!=x^u^k^u64::from(offset){continue;}
+                    let bits=x|(u<<1)|(k<<2)|(t<<3);
+                    let z=x|((u^u64::from(offset))<<1);
+                    original[x as usize][z as usize]=add(original[x as usize][z as usize],root(eval(&p,bits) as usize));
+                }}}}
+                for x in 0..2u64{for u in 0..2u64{for k in 0..2u64{
+                    let z=x|((u^u64::from(offset))<<1);
+                    let bits=x|(u<<1)|(k<<2);
+                    let residual=(eval(&reduced,bits)+8-eval(&q,z))%8;
+                    transformed[x as usize][z as usize]=add(transformed[x as usize][z as usize],root(((eval(&q,z)+residual)%8) as usize));
+                }}}
+                assert_eq!(original,transformed);
+                if independent{
+                    for x in 0..2u64{for u in 0..2u64{
+                        let z=x|((u^u64::from(offset))<<1);
+                        assert_eq!(original[x as usize][z as usize],root(eval(&q,z) as usize).map(|v|2*v));
+                    }}
+                }
+                if d==4{assert!(original.iter().flatten().all(|v|*v==[0;4]));}
+                models+=1;entries+=8;
+            }}
+        }
+        assert_eq!((models,entries,invariant,rejected),(128,1024,16,112));
+        println!("HOARE_CONSTRAINED_PREDICATE_KERNEL models={models} entries={entries} invariant={invariant} rejected={rejected}");
+    }
 }
 

@@ -9,9 +9,18 @@ publish = false
 [dependencies]
 pathsum = { package = "quprs", path = "../../rust/quprs" }
 divan = { package = "codspeed-divan-compat", version = "=6.0.0" }
+# Research-only shared trace module; versions already present in lockfile.
+rustc-hash = "2.0"
+num-bigint = "0.4"
+num-rational = "0.4"
+num-traits = "0.2"
 
 [workspace]
 
 [[bench]]
 name = "core"
+harness = false
+
+[[bench]]
+name = "conditional_trace"
 harness = false

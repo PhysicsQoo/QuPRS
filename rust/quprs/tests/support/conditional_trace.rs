@@ -956,3 +956,34 @@ fn exact_trace_batched_alias_forest(){
     for x in 0..16{assert_eq!(hist(&orig,x),hist(&q,x));checks+=1;}
     println!("CRR_BATCH_ORACLE models=513 histogram_checks={checks} alias_eliminations={aliases} free_eliminations={free_count} cycle_control=1");
 }
+
+
+// CodSpeed-only entry points. The benchmark crate includes this same
+// research module, so the measured reducer is not a copied algorithm.
+// Fixture construction and native RR are outside the measured window.
+#[allow(dead_code)]
+pub(super) fn benchmark_candidate(ps:&PathSum,batched:bool)->Option<(PathSum,usize,usize)>{
+    let mut t=Trace::from_native(ps)?;
+    if t.size()>TERM_CAP||t.live.len()==t.n||!screen_accept(&t).0{return None;}
+    let before=t.cost().0;
+    let (e,h,o)=if batched{
+        let (_,e,h,o,_,_,_)=batch_then_iterate(&mut t);(e,h,o)
+    }else{
+        let (_,e,h,o,_)=iterate_policy(&mut t,64,true);(e,h,o)
+    };
+    let after=t.cost().0;
+    if before==0||after==before||after.saturating_mul(100)>before.saturating_mul(95){return None;}
+    Some((t.encoding_view(ps),e+h,o))
+}
+#[allow(dead_code)]
+pub(super) fn benchmark_prepare(ps:&PathSum,variant:usize)->(quprs::wmc::WmcManager,usize,usize,usize,usize,bool){
+    assert!(variant<=2);
+    let (baseline,av,ac)=route_encode(ps);
+    if variant!=0{
+        if let Some((p,m,o))=benchmark_candidate(ps,variant==2){
+            let (candidate,bv,bc)=route_encode(&p);
+            if bv<=av&&bc<=ac&&(bv<av||bc<ac){return (candidate,bv,bc,m,o,true);}
+        }
+    }
+    (baseline,av,ac,0,0,false)
+}

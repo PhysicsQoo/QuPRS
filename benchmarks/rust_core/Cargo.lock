@@ -1136,7 +1136,11 @@ name = "quprs-codspeed-core"
 version = "0.0.0"
 dependencies = [
  "codspeed-divan-compat",
+ "num-bigint",
+ "num-rational",
+ "num-traits",
  "quprs",
+ "rustc-hash",
 ]
 
 [[package]]

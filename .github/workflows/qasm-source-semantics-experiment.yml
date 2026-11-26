@@ -10,6 +10,9 @@ on:
       - rust/quprs/tests/conditional_rr_experiment.rs
       - rust/quprs/tests/support/conditional_trace.rs
       - rust/research/conditional_rr_incidence.py
+      - benchmarks/rust_core/benches/conditional_trace.rs
+      - benchmarks/rust_core/Cargo.toml
+      - benchmarks/rust_core/Cargo.lock
       - rust/quprs/tests/qasm_source_semantics_experiment.rs
       - rust/quprs/tests/property_hoare_experiment.rs
       - rust/research/hoare_ganak_exact.py
@@ -861,7 +864,10 @@ jobs:
   conditional-rr-incidence:
     if: github.ref == 'refs/heads/experiment/conditional-rr'
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 40
+    permissions:
+      contents: read
+      id-token: write
     env:
       QUPRS_SOLVER_PROVISION: external
       CARGO_TERM_COLOR: never
@@ -894,6 +900,35 @@ jobs:
           QUPRS_GPMC_PATH="$tmp/gpmc" cargo test --locked --manifest-path rust/Cargo.toml -p quprs --test conditional_rr_experiment gpmc_trace_witness -- --nocapture 2>&1 | tee evidence/conditional-gpmc-witness.log
           CRR_GPMC_COMPARE=1 QUPRS_GPMC_PATH="$tmp/gpmc" \
             python3 rust/research/conditional_rr_incidence.py 2>&1 | tee evidence/conditional-incidence.jsonl
+      - name: Prepare bounded native Conditional RR CodSpeed target
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib, json
+          from pathlib import Path
+          cases = {x["id"]: x for x in json.loads(Path("docs/development/paper-corpus-manifest.json").read_text())["cohorts"]["table2_mqt"]["cases"]}
+          for name in ["qft_16","qft_20","qft_24","qpeexact_20","qwalk-noancilla_4","wstate_8","vqe_8","qnn_8"]:
+              for side in ("source", "transpiled"):
+                  entry = cases[name][side]
+                  data = Path(entry["path"]).read_bytes()
+                  assert hashlib.sha1(f"blob {len(data)}\0".encode() + data).hexdigest() == entry["git_blob_sha1"]
+                  print(name, side, hashlib.sha256(data).hexdigest())
+          PY
+          sha256sum benchmarks/rust_core/Cargo.lock benchmarks/rust_core/Cargo.toml benchmarks/rust_core/benches/conditional_trace.rs >> evidence/source-sha256.txt
+          cargo install --locked --version 6.0.0 cargo-codspeed
+          cd benchmarks/rust_core
+          cargo metadata --locked --no-deps --format-version 1 >/dev/null
+          cargo codspeed build -m simulation --bench conditional_trace
+      - name: Conditional RR native CPU Simulation
+        uses: CodSpeedHQ/action@v5
+        env:
+          CURL_HOME: ${{ github.workspace }}/.github/codspeed-download
+        with:
+          mode: simulation
+          cycle-estimation: 'true'
+          exclude-allocations: 'false'
+          simulation-track-subprocess: 'false'
+          run: cd benchmarks/rust_core && cargo codspeed run --bench conditional_trace
       - uses: actions/upload-artifact@v4
         if: always()
         with:

@@ -96,12 +96,12 @@ theorem checked_product_some {d : Nat} (lo hi : Int) (acc r : Coeff d)
           rw [hm] at h
           change (if isZero mid then some mid else checkedProduct lo hi mid vs) = some r at h
           by_cases hz : isZero mid = true
-          · rw [if_pos hz] at h
+          · rw [ite_eq_left hz] at h
             have hmid : mid = finZero d := is_zero_sound mid hz
             have hr : r = mid := (Option.some.inj h).symm
             change r = finMul acc (finMul v (exactProduct vs))
             rw [← fin_mul_assoc, ← he, hr, hmid, fin_mul_comm (finZero d), fin_mul_zero]
-          · rw [if_neg hz] at h
+          · rw [ite_eq_right hz] at h
             have hr := ih mid h
             change r = finMul acc (finMul v (exactProduct vs))
             rw [← fin_mul_assoc, ← he]

@@ -1043,6 +1043,25 @@ jobs:
             echo 'LEAN4_AFFINE_FACTOR_SCOPE_FAIL' >&2
           fi
 
+          canonical_scope_status=0
+          if test "$factor_scope_status" -eq 0; then
+            LEAN_PATH=. lean AffineCanonicalScope.lean 2>&1 | tee /tmp/qasm-lean-affine-canonical-scope.log || canonical_scope_status=$?
+            if grep -E 'sorryAx|Lean[.]trustCompiler|Classical[.]choice' /tmp/qasm-lean-affine-canonical-scope.log; then
+              canonical_scope_status=1
+            fi
+            test "$(grep -Ec 'does not depend on any axioms|depends on axioms' /tmp/qasm-lean-affine-canonical-scope.log)" -eq 13 || canonical_scope_status=1
+            for theorem in canonical_mem canonical_nodup canonical_covers canonical_support mem_expand_cons nil_not_mem_expand expand_length expand_nodup rows_length rows_nodup mem_rows_iff projection_mem_rows rows_deposit_injective; do
+              test "$(grep -Ec "^'QuPRS[.]AffineCanonicalScope[.]$theorem' (does not depend on any axioms|depends on axioms)" /tmp/qasm-lean-affine-canonical-scope.log)" -eq 1 || canonical_scope_status=1
+            done
+          else
+            canonical_scope_status=1
+          fi
+          if test "$canonical_scope_status" -eq 0; then
+            echo 'LEAN4_AFFINE_CANONICAL_SCOPE_PASS theorem_axiom_reports=13 membership=true nodup=true complete_rows=true unique_rows=true packed_index_refinement=false'
+          else
+            echo 'LEAN4_AFFINE_CANONICAL_SCOPE_FAIL' >&2
+          fi
+
           elimination_status=0
           if test "$factor_scope_status" -eq 0; then
             LEAN_PATH=. lean -o AffineFactorElimination.olean AffineFactorElimination.lean 2>&1 | tee /tmp/qasm-lean-affine-factor-elimination.log || elimination_status=$?
@@ -1115,7 +1134,7 @@ jobs:
           else
             echo 'LEAN4_AFFINE_NATIVE_INCIDENCE_FAIL' >&2
           fi
-          test "$normalization_status" -eq 0 && test "$lift_status" -eq 0 && test "$incidence_status" -eq 0 && test "$negacyclic_status" -eq 0 && test "$checked_status" -eq 0 && test "$schedule_status" -eq 0 && test "$factor_scope_status" -eq 0 && test "$elimination_status" -eq 0 && test "$algebra_status" -eq 0 && test "$checked_factor_status" -eq 0
+          test "$normalization_status" -eq 0 && test "$lift_status" -eq 0 && test "$incidence_status" -eq 0 && test "$negacyclic_status" -eq 0 && test "$checked_status" -eq 0 && test "$schedule_status" -eq 0 && test "$factor_scope_status" -eq 0 && test "$elimination_status" -eq 0 && test "$algebra_status" -eq 0 && test "$checked_factor_status" -eq 0 && test "$canonical_scope_status" -eq 0
 
       - name: Build and test std-only independent verifier
         run: |

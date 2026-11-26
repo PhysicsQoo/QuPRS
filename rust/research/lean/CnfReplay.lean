@@ -373,9 +373,22 @@ def andWitness (z : Nat) (ids : List Nat) : List Record → Bool
     ((@decide (z = out) (Nat.decEq z out)) && natListEq ids xs) || andWitness z ids rs
   | _ :: rs => andWitness z ids rs
 
+-- Structural source mapper shared by admission and the inductive
+-- semantic proof. The original replayWeights mapM remains an
+-- independent source mapping check.
+def sourceIds (rs : List Record) : List Nat → Option (List Nat)
+  | [] => some []
+  | s :: ss =>
+    match sourceDimacs s rs with
+    | none => none
+    | some id =>
+      match sourceIds rs ss with
+      | none => none
+      | some ids => some (id :: ids)
+
 def phaseRecordOK (rs : List Record) : Record → Bool
   | .phase z source =>
-    match source.mapM (fun s => sourceDimacs s rs) with
+    match sourceIds rs source with
     | some ids => andWitness z ids rs
     | none => false
   | _ => true
@@ -1706,8 +1719,8 @@ theorem replay_extras_checked (n : Nat) (rs : List Record)
       | true =>
         have he : some (recordsRows rs, w) = some (cs, ws) := by
           simpa [ht, hw, hx] using h
-        have hws := congrArg Prod.snd (Option.some.inj he)
-        exact hws ▸ hx
+        have hws : w = ws := congrArg Prod.snd (Option.some.inj he)
+        exact (congrArg (replayExtras rs) hws).symm.trans hx
 
 theorem nat_list_eq_iff (xs ys : List Nat) :
     natListEq xs ys = true ↔ xs = ys := by
@@ -1768,11 +1781,12 @@ theorem projection_decode (ids : List Nat) (bits : List Bool)
         intro x hx
         have hn : x ≠ z := fun he => fresh_not_mem z zs hh.1 (he ▸ hx)
         change (if x = z then b else decodeLive zs bs x) = decodeLive zs bs x
-        exact if_neg hn
+        simp [hn]
       have ht := (projection_agree _ _ zs hs).trans (ih bs hh.2 (Nat.succ.inj hl))
       change (if z = z then b else decodeLive zs bs z) ::
         zs.map (decodeLive (z :: zs) (b :: bs)) = b :: bs
-      rw [if_pos rfl, ht]
+      have hz : (if z = z then b else decodeLive zs bs z) = b := by simp
+      rw [hz, ht]
 
 theorem decode_projection (ids : List Nat) (v : Nat → Bool) :
     agreeOn (liftVal (decodeLive ids (ids.map v))) (liftVal v) ids := by
@@ -1783,8 +1797,10 @@ theorem decode_projection (ids : List Nat) (v : Nat → Bool) :
     change (if x = z then v z else decodeLive zs (zs.map v) x) = v x
     by_cases he : x = z
     · subst x
-      exact if_pos rfl
-    · rw [if_neg he]
+      simp
+    · have hn : (if x = z then v z else decodeLive zs (zs.map v) x) =
+          decodeLive zs (zs.map v) x := by simp [he]
+      rw [hn]
       rcases List.mem_cons.mp hx with he' | hm
       · exact False.elim (he he')
       · exact ih x hm
@@ -1854,7 +1870,7 @@ theorem live_partition_term {A : Type} [Zero A] [Add A]
       (if cnfTruth (liftVal (decodeBits bits)) p.clauses then weight bits else 0) := by
   let ids := liveIds rs
   let target := ids.map (decodeBits bits)
-  have hlen : target.length = ids.length := List.length_map
+  have hlen : target.length = ids.length := List.length_map (decodeBits bits)
   have ha := decode_projection ids (decodeBits bits)
   have hm : liveMatch (decodeBits bits) (decodeLive ids target) ids = true :=
     (live_match_iff _ _ ids).mpr (fun x hx => (ha x hx).symm)
@@ -1971,15 +1987,15 @@ theorem phase_records_sound (all rs : List Record) (h : phaseRecordsOK all rs = 
 theorem replay_phase_binding (n : Nat) (rs : List Record)
     (cs : List (List Int)) (ws : List Nat) (hr : replayRows n rs = some (cs, ws))
     (z : Nat) (source : List Nat) (hm : Record.phase z source ∈ rs) :
-    ∃ ids : List Nat, source.mapM (fun s => sourceDimacs s rs) = some ids ∧
+    ∃ ids : List Nat, sourceIds rs source = some ids ∧
       Record.andGate z ids ∈ rs := by
   have he : ((uniqueIds (liveIds rs) && natListEq ws (phaseIds rs).reverse) &&
       phaseRecordsOK rs rs) = true := replay_extras_checked n rs cs ws hr
   have hs := phase_records_sound rs rs (and_true_parts he).2 (.phase z source) hm
-  change (match source.mapM (fun s => sourceDimacs s rs) with
+  change (match sourceIds rs source with
     | some ids => andWitness z ids rs
     | none => false) = true at hs
-  cases hmap : source.mapM (fun s => sourceDimacs s rs) with
+  cases hmap : sourceIds rs source with
   | none => rw [hmap] at hs; cases hs
   | some ids =>
     rw [hmap] at hs
@@ -2014,7 +2030,7 @@ def sourceVal (v : Nat → Bool) (rs : List Record) (s : Nat) : Bool :=
 
 theorem mapped_source_values (rs : List Record) (source ids : List Nat)
     (v u : Nat → Bool) (ha : agreeOn (liftVal v) (liftVal u) (liveIds rs))
-    (h : source.mapM (fun s => sourceDimacs s rs) = some ids) :
+    (h : sourceIds rs source = some ids) :
     ids.map u = source.map (sourceVal v rs) := by
   induction source generalizing ids with
   | nil =>
@@ -2022,21 +2038,33 @@ theorem mapped_source_values (rs : List Record) (source ids : List Nat)
     subst ids
     rfl
   | cons s source ih =>
+    change (match sourceDimacs s rs with
+      | none => none
+      | some id =>
+        match sourceIds rs source with
+        | none => none
+        | some rest => some (id :: rest)) = some ids at h
     cases hd : sourceDimacs s rs with
     | none =>
-      simp [List.mapM, hd] at h
+      -- cases reduces the match in h.
+      cases h
     | some id =>
-      cases ht : source.mapM (fun s => sourceDimacs s rs) with
-      | none =>
-        simp [List.mapM, hd, ht] at h
+      change (match sourceIds rs source with
+        | none => none
+        | some rest => some (id :: rest)) = some ids at h
+      cases ht : sourceIds rs source with
+      | none => cases h
       | some rest =>
-        have he : id :: rest = ids := Option.some.inj (by simpa [List.mapM, hd, ht] using h)
+        have he : id :: rest = ids := Option.some.inj h
         subst ids
         have hv : v id = u id := ha id (source_dimacs_live s id rs hd)
         have htail := ih rest ht
+        have hhead : sourceVal v rs s = v id := by
+          unfold sourceVal
+          rw [hd]
         change u id :: rest.map u = sourceVal v rs s :: source.map (sourceVal v rs)
-        unfold sourceVal
-        rw [hd, htail, hv]
+        exact (congrArg (fun b => b :: rest.map u) (hv.symm.trans hhead.symm)).trans
+          (congrArg (fun tail => sourceVal v rs s :: tail) htail)
 
 theorem accepted_phase_monomial (n : Nat) (rs : List Record)
     (cs : List (List Int)) (ws : List Nat) (hr : replayRows n rs = some (cs, ws))
@@ -2198,6 +2226,7 @@ theorem accepted_phase_monomial (n : Nat) (rs : List Record)
 #print axioms uniqueIds
 #print axioms natListEq
 #print axioms sourceDimacs
+#print axioms sourceIds
 #print axioms phaseIds
 #print axioms andWitness
 #print axioms phaseRecordOK
@@ -2254,6 +2283,21 @@ def main (args : List String) : IO Unit := do
       QuPRS.CnfReplay.parseClause 2 [[120], [48]] != none then
     throw (IO.userError "DIMACS clause grammar regression")
   IO.println "CRR_LEAN_CLAUSE_GRAMMAR_PASS controls=8"
+  -- Small direct controls for the repaired source mapper and compact
+  -- live projection. No large-model enumeration.
+  let rs : List QuPRS.CnfReplay.Record :=
+    [.live 10 2, .live 20 1, .andGate 3 [2,1], .andGate 4 [],
+      .phase 3 [10,20], .phase 4 []]
+  if QuPRS.CnfReplay.sourceIds rs [10,20] != some [2,1] ||
+      QuPRS.CnfReplay.sourceIds rs [] != some [] ||
+      QuPRS.CnfReplay.sourceIds rs [10,99] != none ||
+      !(QuPRS.CnfReplay.phaseRecordOK rs (.phase 3 [10,20])) ||
+      QuPRS.CnfReplay.phaseRecordOK rs (.phase 3 [20,10]) ||
+      !(QuPRS.CnfReplay.phaseRecordOK rs (.phase 4 [])) ||
+      ([2,1] : List Nat).map (QuPRS.CnfReplay.decodeLive [2,1] [true,false]) != [true,false] ||
+      QuPRS.CnfReplay.uniqueIds [2,1,2] then
+    throw (IO.userError "live projection or phase binding regression")
+  IO.println "CRR_LEAN_PHASE_PROJECTION_PASS controls=8"
   let mode :: paths := args | throw (IO.userError "usage: CnfReplay accept|reject files")
   if (mode != "accept" && mode != "reject") || paths.isEmpty then
     throw (IO.userError "bad replay mode or empty cohort")

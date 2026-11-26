@@ -1032,12 +1032,12 @@ jobs:
           if grep -E 'sorryAx|Lean[.]trustCompiler|Classical[.]choice' /tmp/qasm-lean-affine-factor-scope.log; then
             factor_scope_status=1
           fi
-          test "$(grep -Ec 'does not depend on any axioms|depends on axioms' /tmp/qasm-lean-affine-factor-scope.log)" -eq 8 || factor_scope_status=1
-          for theorem in deposit_outside deposit_extract_on extract_write_outside extract_deposit factor_scope_projection factor_outside_invariant bucket_eliminate empty_bucket; do
+          test "$(grep -Ec 'does not depend on any axioms|depends on axioms' /tmp/qasm-lean-affine-factor-scope.log)" -eq 13 || factor_scope_status=1
+          for theorem in product_partition rest_product_independent partitioned_bucket_eliminate write_overwrite eliminated_variable_independent deposit_outside deposit_extract_on extract_write_outside extract_deposit factor_scope_projection factor_outside_invariant bucket_eliminate empty_bucket; do
             test "$(grep -Ec "^'QuPRS[.]AffineFactorScope[.]$theorem' (does not depend on any axioms|depends on axioms)" /tmp/qasm-lean-affine-factor-scope.log)" -eq 1 || factor_scope_status=1
           done
           if test "$factor_scope_status" -eq 0; then
-            echo 'LEAN4_AFFINE_FACTOR_SCOPE_PASS theorem_axiom_reports=8 scope_roundtrip=true projection=true bucket_distributivity=true empty_bucket=true packed_index_refinement=false'
+            echo 'LEAN4_AFFINE_FACTOR_SCOPE_PASS theorem_axiom_reports=13 scope_roundtrip=true projection=true bucket_distributivity=true partitioned_product=true eliminated_variable_independent=true empty_bucket=true packed_index_refinement=false'
           else
             echo 'LEAN4_AFFINE_FACTOR_SCOPE_FAIL' >&2
           fi

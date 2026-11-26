@@ -67,16 +67,18 @@ theorem extract_deposit {X : Type} [DecidableEq X] (scope : List X)
   | nil =>
       cases bits with
       | nil => rfl
-      | cons b bs => simp at hl
+      | cons b bs =>
+          exact False.elim (Nat.succ_ne_zero bs.length hl)
   | cons x xs ih =>
       cases bits with
-      | nil => simp at hl
+      | nil =>
+          exact False.elim (Nat.succ_ne_zero xs.length hl.symm)
       | cons b bs =>
           have hnd := List.nodup_cons.mp hn
           have hlen : bs.length = xs.length := Nat.succ.inj hl
           change write (deposit xs bs) x b x ::
             extract (write (deposit xs bs) x b) xs = b :: bs
-          have he : write (deposit xs bs) x b x = b := by simp [write]
+          have he : write (deposit xs bs) x b x = b := ite_eq_left rfl
           rw [he, extract_write_outside xs (deposit xs bs) x b hnd.1, ih bs hnd.2 hlen]
 
 def dependsOn {X A : Type} (scope : List X) (f : (X → Bool) → A) : Prop :=
@@ -110,7 +112,9 @@ theorem bucket_eliminate {X A : Type} [DecidableEq X]
     (hr : dependsOn scope rest) (x : X) (hx : x ∉ scope) (a : X → Bool) :
     eliminate add x (fun v => mul (rest v) (bucket v)) a =
       mul (rest a) (eliminate add x bucket a) := by
-  unfold eliminate
+  change add (mul (rest (write a x false)) (bucket (write a x false)))
+    (mul (rest (write a x true)) (bucket (write a x true))) =
+      mul (rest a) (add (bucket (write a x false)) (bucket (write a x true)))
   rw [factor_outside_invariant scope rest hr x hx a false,
       factor_outside_invariant scope rest hr x hx a true]
   exact dist _ _ _
@@ -119,6 +123,104 @@ theorem empty_bucket {X A : Type} [DecidableEq X] (add : A → A → A)
     (one : A) (x : X) (a : X → Bool) :
     eliminate add x (fun _ => one) a = add one one := rfl
 
+
+/-- A table's denotation includes its support invariant. The list order
+    models the native factor list; partition preserves each sublist order. -/
+structure ScopedFactor (X A : Type) where
+  scope : List X
+  eval : (X → Bool) → A
+  support : dependsOn scope eval
+
+def factorProduct {X A : Type} (one : A) (mul : A → A → A)
+    (a : X → Bool) : List (ScopedFactor X A) → A
+  | [] => one
+  | f :: fs => mul (f.eval a) (factorProduct one mul a fs)
+
+def bucketFactors {X A : Type} [DecidableEq X] (x : X) :
+    List (ScopedFactor X A) → List (ScopedFactor X A)
+  | [] => []
+  | f :: fs => if x ∈ f.scope then f :: bucketFactors x fs else bucketFactors x fs
+
+def restFactors {X A : Type} [DecidableEq X] (x : X) :
+    List (ScopedFactor X A) → List (ScopedFactor X A)
+  | [] => []
+  | f :: fs => if x ∈ f.scope then restFactors x fs else f :: restFactors x fs
+
+theorem product_partition {X A : Type} [DecidableEq X]
+    (one : A) (mul : A → A → A)
+    (unit : mul one one = one)
+    (assoc : ∀ p q r, mul (mul p q) r = mul p (mul q r))
+    (comm : ∀ p q, mul p q = mul q p)
+    (x : X) (a : X → Bool) (fs : List (ScopedFactor X A)) :
+    factorProduct one mul a fs =
+      mul (factorProduct one mul a (restFactors x fs))
+        (factorProduct one mul a (bucketFactors x fs)) := by
+  induction fs with
+  | nil => exact unit.symm
+  | cons f fs ih =>
+      by_cases hx : x ∈ f.scope
+      · simp only [factorProduct, restFactors, bucketFactors, ite_eq_left hx]
+        rw [ih, ← assoc, comm (f.eval a) (factorProduct one mul a (restFactors x fs)), assoc]
+      · simp only [factorProduct, restFactors, bucketFactors, ite_eq_right hx]
+        rw [ih, assoc]
+
+theorem rest_product_independent {X A : Type} [DecidableEq X]
+    (one : A) (mul : A → A → A) (x : X) (a : X → Bool) (b : Bool)
+    (fs : List (ScopedFactor X A)) :
+    factorProduct one mul (write a x b) (restFactors x fs) =
+      factorProduct one mul a (restFactors x fs) := by
+  induction fs with
+  | nil => rfl
+  | cons f fs ih =>
+      by_cases hx : x ∈ f.scope
+      · simpa only [restFactors, ite_eq_left hx] using ih
+      · simp only [restFactors, ite_eq_right hx, factorProduct,
+          factor_outside_invariant f.scope f.eval f.support x hx a b, ih]
+
+/-- One exact bucket step on the actual partitioned factor list.
+    Commutativity, associativity and distributivity are explicit
+    obligations for the coefficient algebra, not assumed Rust properties. -/
+theorem partitioned_bucket_eliminate {X A : Type} [DecidableEq X]
+    (one : A) (add mul : A → A → A)
+    (unit : mul one one = one)
+    (assoc : ∀ p q r, mul (mul p q) r = mul p (mul q r))
+    (comm : ∀ p q, mul p q = mul q p)
+    (dist : ∀ r p q, add (mul r p) (mul r q) = mul r (add p q))
+    (x : X) (a : X → Bool) (fs : List (ScopedFactor X A)) :
+    eliminate add x (fun v => factorProduct one mul v fs) a =
+      mul (factorProduct one mul a (restFactors x fs))
+        (eliminate add x (fun v => factorProduct one mul v (bucketFactors x fs)) a) := by
+  change add (factorProduct one mul (write a x false) fs)
+    (factorProduct one mul (write a x true) fs) =
+      mul (factorProduct one mul a (restFactors x fs))
+        (add (factorProduct one mul (write a x false) (bucketFactors x fs))
+          (factorProduct one mul (write a x true) (bucketFactors x fs)))
+  rw [product_partition one mul unit assoc comm x (write a x false) fs,
+      product_partition one mul unit assoc comm x (write a x true) fs,
+      rest_product_independent one mul x a false fs,
+      rest_product_independent one mul x a true fs]
+  exact dist _ _ _
+
+theorem write_overwrite {X : Type} [DecidableEq X] (a : X → Bool)
+    (x : X) (b c : Bool) :
+    write (write a x b) x c = write a x c := by
+  funext y
+  by_cases h : y = x
+  · simp [write, h]
+  · simp [write, h]
+
+theorem eliminated_variable_independent {X A : Type} [DecidableEq X]
+    (add : A → A → A) (x : X) (bucket : (X → Bool) → A)
+    (a : X → Bool) (b : Bool) :
+    eliminate add x bucket (write a x b) = eliminate add x bucket a := by
+  unfold eliminate
+  rw [write_overwrite a x b false, write_overwrite a x b true]
+
+#print axioms product_partition
+#print axioms rest_product_independent
+#print axioms partitioned_bucket_eliminate
+#print axioms write_overwrite
+#print axioms eliminated_variable_independent
 #print axioms deposit_outside
 #print axioms deposit_extract_on
 #print axioms extract_write_outside

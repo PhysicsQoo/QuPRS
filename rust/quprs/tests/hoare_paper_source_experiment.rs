@@ -1287,11 +1287,16 @@ enum FactorSpec8{Phase(u64,usize),Output(u64,Vec<u64>,Option<u64>,usize)}
 struct BoundaryPlan8{degree:usize,specs:Vec<FactorSpec8>,order:Vec<usize>,free:u64,fixed:u64,peak:usize,work:usize}
 fn prepare_cyclo_boundary(ps:&PathSum,fixed_mask:u64,degree:usize,deadline:std::time::Instant)
     ->Result<BoundaryPlan8,&'static str>{
+    if ps.v.num_qubits>16{return Err("UNSUPPORTED");}
+    prepare_cyclo_selected(ps,(1u64<<ps.v.num_qubits)-1,fixed_mask,degree,deadline)
+}
+fn prepare_cyclo_selected(ps:&PathSum,keep:u64,fixed_mask:u64,degree:usize,deadline:std::time::Instant)
+    ->Result<BoundaryPlan8,&'static str>{
     if !matches!(degree,1|2|4|8|16|32){return Err("UNSUPPORTED_PHASE");}
     let n=ps.v.num_qubits;let hidden=h(ps);
-    if hidden>60||n>16||hidden+n>63||!admitted(ps)||fixed_mask>>n!=0{return Err("UNSUPPORTED");}
+    if hidden>60||n>16||hidden+n>63||!admitted(ps)||keep>>n!=0||fixed_mask&!keep!=0{return Err("UNSUPPORTED");}
     if std::time::Instant::now()>=deadline{return Err("DEADLINE");}
-    let free=(((1u64<<n)-1)&!fixed_mask)<<hidden;
+    let free=(keep&!fixed_mask)<<hidden;
     let mut ids:Vec<_>=ps.v.path_vars.iter().copied().filter(|&i|i as usize>=n).collect();
     ids.sort_unstable();
     let positions:BTreeMap<_,_>=ids.iter().enumerate().map(|(j,&id)|(id,1u64<<j)).collect();
@@ -1313,6 +1318,7 @@ fn prepare_cyclo_boundary(ps:&PathSum,fixed_mask:u64,degree:usize,deadline:std::
         let scope=mask(m)?;charge(scope,1)?;specs.push(FactorSpec8::Phase(scope,k));
     }
     for (i,p) in ps.f.functions.iter().enumerate(){
+        if keep>>i&1==0{continue;}
         let ms=p.iter().map(|m|mask(m)).collect::<Result<Vec<_>,_>>()?;
         let bit=if fixed_mask>>i&1==0{Some(1u64<<(hidden+i))}else{None};
         let scope=ms.iter().fold(bit.unwrap_or(0),|a,b|a|b);
@@ -2427,6 +2433,117 @@ fn online_gpmc_sector(ps:&PathSum,x:u64,mask:u64,key:&str,dir:&std::path::Path,
         match result{"TIMEOUT"=>Err("TIMEOUT"),"SIGNAL_KILL"=>Err("SIGNAL_KILL"),_=>panic!("invalid helper result {result}")}
     }
 }
+
+// Exact output-coordinate quotient on a fixed-input checkpoint.
+// Group canonical Boolean ANFs modulo their constant coefficient.
+// No distinct reachable full labels are merged: each representative
+// is an original output coordinate, and every omitted bit is reconstructed.
+struct OutputQuotient{
+    keep:u64,fixed:u64,value:u64,rows:Vec<(Option<usize>,bool)>,impossible:bool,
+}
+fn output_quotient(ps:&PathSum,mask:u64,z:u64)->Result<OutputQuotient,&'static str>{
+    let n=ps.v.num_qubits;
+    if n==0||n>16||!admitted(ps)||mask>>n!=0||z&!mask!=0{return Err("UNSUPPORTED");}
+    // Check ALL coordinates and phase terms, even omitted ones.
+    if ps.f.functions.iter().flatten().chain(ps.p.terms.keys()).flatten().any(|&v|(v as usize)<n){
+        return Err("UNFIXED_INPUT");
+    }
+    let mut q=OutputQuotient{keep:0,fixed:0,value:0,rows:Vec::new(),impossible:false};
+    let mut groups=BTreeMap::<Vec<Vec<u32>>,(usize,bool)>::new();
+    for (i,p) in ps.f.functions.iter().enumerate(){
+        let c=p.contains(&vec![]);
+        let mut key:Vec<_>=p.iter().filter(|m|!m.is_empty()).cloned().collect();
+        key.sort_unstable();
+        let assigned=mask>>i&1!=0;let target=z>>i&1!=0;
+        if key.is_empty(){
+            q.rows.push((None,c));
+            if assigned&&target!=c{q.impossible=true;}
+        }else{
+            let &(r,rc)=groups.entry(key).or_insert((i,c));
+            q.keep|=1u64<<r;
+            let flip=c^rc;
+            q.rows.push((Some(r),flip));
+            if assigned{
+                let bit=1u64<<r;let want=target^flip;
+                if q.fixed&bit!=0&&(q.value&bit!=0)!=want{q.impossible=true;}
+                q.fixed|=bit;
+                if want{q.value|=bit;}else{q.value&=!bit;}
+            }
+        }
+    }
+    Ok(q)
+}
+fn quotient_label(q:&OutputQuotient,assignment:u64)->u64{
+    q.rows.iter().enumerate().fold(0u64,|z,(i,(r,flip))|{
+        let bit=r.is_some_and(|r|assignment>>r&1!=0)^*flip;
+        z|(u64::from(bit)<<i)
+    })
+}
+struct QuotientReceipt{values:BTreeMap<u64,Z64>,free:usize,width:usize,work:usize,impossible:bool}
+fn quotient_sector(ps:&PathSum,mask:u64,z:u64,deadline:std::time::Instant)
+    ->Result<QuotientReceipt,&'static str>{
+    if std::time::Instant::now()>=deadline{return Err("DEADLINE");}
+    let degree=minimum_cyclo_degree(ps)?;
+    let q=output_quotient(ps,mask,z)?;
+    let free=q.keep&!q.fixed;
+    if q.impossible{return Ok(QuotientReceipt{values:BTreeMap::new(),free:free.count_ones() as usize,width:0,work:0,impossible:true});}
+    let p=prepare_cyclo_selected(ps,q.keep,q.fixed,degree,deadline)?;
+    let (v,width,work)=execute_minimum_boundary(&p,q.value,deadline)?;
+    assert_eq!(v.len(),1usize<<free.count_ones());
+    let mut values=BTreeMap::new();
+    for (i,a) in v.into_iter().enumerate(){
+        let label=quotient_label(&q,q.value|deposit8(i,free));
+        assert_eq!(label&mask,z);
+        assert!(values.insert(label,a).is_none(),"quotient reconstruction not injective");
+    }
+    Ok(QuotientReceipt{values,free:free.count_ones() as usize,width,work,impossible:false})
+}
+#[test]
+fn native_output_quotient_parity(){
+    use quprs::{Rational,PhaseCoeff};
+    let deadline=std::time::Instant::now()+std::time::Duration::from_secs(30);
+    let mut seed=20261126u64;let mut checks=0usize;let mut queries=0;
+    let mut contradictions=0;let mut compressed=0;
+    for trial in 0..128{
+        let mut ps=PathSum::new(3);ps.set_auto_reduce(false);
+        let ids:Vec<_>=(0..3).map(|_|ps.v.get_fresh_var()).collect();
+        // Include constants, complements, identical coordinates, and
+        // nonlinear output ANFs with sparse phase coefficients.
+        let p=Poly::from_iter([vec![ids[0]],vec![ids[1],ids[2]]]);
+        let mut complement=p.clone();toggle(&mut complement,vec![]);
+        ps.f.functions=match trial%4{
+            0=>vec![p.clone(),p.clone(),complement.clone()],
+            1=>vec![Poly::default(),Poly::from_iter([vec![]]),p.clone()],
+            2=>vec![p.clone(),complement.clone(),Poly::from_iter([vec![ids[2]]])],
+            _=>vec![p.clone(),Poly::from_iter([vec![ids[0]]]),Poly::from_iter([vec![ids[1]]])],
+        };
+        let d=[2,4,8,16,32,64][trial%6];
+        for &y in &ids{
+            seed=seed.wrapping_mul(6364136223846793005).wrapping_add(1);
+            ps.p.add_term(vec![y],PhaseCoeff::new_constant(Rational::new((1+(seed>>32)%7) as _,d)));
+        }
+        ps.p.add_term(vec![ids[0],ids[2]],PhaseCoeff::new_constant(Rational::new(1,d)));
+        let fixed=fixed_input(ps,0);
+        for mask in 0..8u64{for z in 0..8u64{
+            if z&!mask!=0{continue;}
+            let ordinary=early_sector_minimum(&fixed,mask,z,deadline).unwrap();
+            let q=quotient_sector(&fixed,mask,z,deadline).unwrap();
+            contradictions+=usize::from(q.impossible);
+            compressed+=usize::from(q.free<(7&!mask).count_ones() as usize);
+            for (i,a) in ordinary.iter().enumerate(){
+                let label=z|deposit8(i,7&!mask);
+                assert_eq!(*a,q.values.get(&label).copied().unwrap_or([0;32]));checks+=1;
+            }
+            queries+=1;
+        }}
+    }
+    assert_eq!((queries,checks),(3456,8192));
+    assert!(contradictions>0&&compressed>0);
+    let ps=PathSum::new(2);
+    assert!(matches!(output_quotient(&ps,0,0),Err("UNFIXED_INPUT")));
+    println!("HOARE_NATIVE_OUTPUT_QUOTIENT queries={queries} vectors={checks} contradictions={contradictions} compressed={compressed} exact=true");
+}
+
 #[test]
 fn native_online_hybrid_sector(){
     let Some(solver)=std::env::var_os("HOARE_ONLINE_GPMC") else{return;};
@@ -2439,8 +2556,8 @@ fn native_online_hybrid_sector(){
         let mask=1u64<<(n-1);
         // QFT WMC-only timeout cohort is already frozen; do not rerun
         // it in this small integration pilot.
-        let routes:&[&str]=if name=="qft4"{&["factor-gpmc","tiling-gpmc"]}
-            else{&["factor-gpmc","tiling-gpmc","wmc-only"]};
+        let routes:&[&str]=if name=="qft4"{&["factor-gpmc","tiling-gpmc","quotient-gpmc"]}
+            else{&["factor-gpmc","tiling-gpmc","wmc-only","quotient-gpmc"]};
         for &route in routes{
             let start=std::time::Instant::now();
             let deadline=start+std::time::Duration::from_secs(30);
@@ -2450,7 +2567,7 @@ fn native_online_hybrid_sector(){
             assert!(!expired&&!gr.limit);
             let common=start.elapsed().as_nanos();
             let mut coverage=BTreeMap::<u64,String>::new();
-            let mut factor=0;let mut tiles=0;let mut wmc=0;let mut wmc_attempts=0;
+            let mut factor=0;let mut tiles=0;let mut quotient=0;let mut qwidth=0;let mut qfree=0;let mut qwork=0;let mut qlabels=0;let mut qempty=0;let mut wmc=0;let mut wmc_attempts=0;
             let mut visited=0;let mut first=None;let mut failures=BTreeMap::<&str,usize>::new();
             let mut rejects=BTreeMap::<&str,usize>::new();
             for (ord,&x) in inputs.iter().enumerate(){
@@ -2459,7 +2576,17 @@ fn native_online_hybrid_sector(){
                 let (p,r,_,_,expired,_)=reduce_indexed(fixed_input(general.clone(),x),deadline,true);
                 if expired||r.limit{*failures.entry(if expired{"DEADLINE"}else{"RR_LIMIT"}).or_default()+=1;continue;}
                 let mut result=None;
-                if route!="wmc-only"{
+                if route=="quotient-gpmc"{
+                    match quotient_sector(&p,mask,mask,deadline){
+                        Ok(q)=>{
+                            let v=q.values.values().flatten().try_fold(0i128,|s,&v|s.checked_add(v.checked_mul(v)?));
+                            if let Some(v)=v{
+                                result=Some(v.to_string());quotient+=1;qwidth=qwidth.max(q.width);qfree=qfree.max(q.free);qwork+=q.work;qlabels+=q.values.len();qempty+=usize::from(q.impossible);
+                            }else{*rejects.entry("OVERFLOW").or_default()+=1;}
+                        }
+                        Err(e)=>{*rejects.entry(e).or_default()+=1;}
+                    }
+                }else if route!="wmc-only"{
                     match early_sector_minimum(&p,mask,mask,deadline){
                         Ok(a)=>{
                             assert_eq!(a.len(),mask as usize);
@@ -2509,17 +2636,18 @@ fn native_online_hybrid_sector(){
             for (&x,v) in &coverage{let i=inputs.iter().position(|&z|z==x).unwrap();assert_eq!(v!="0",expected[i]);}
             let want=if expected.iter().any(|&v|v){"REFUTED"}else{"PROVED"};
             assert_eq!(verdict,want,"{name} {route}");
-            assert_eq!(factor+tiles+wmc,coverage.len());
+            assert_eq!(factor+tiles+quotient+wmc,coverage.len());
             if route=="factor-gpmc"&&name=="mixed13"{assert_eq!((factor,tiles,wmc),(1,0,1));}
             if route=="tiling-gpmc"&&name=="mixed13"{assert_eq!((factor,tiles,wmc),(1,1,0));}
-            if name=="wide14-zero"{assert_eq!((factor,tiles,wmc),(0,0,2));}
-            if name=="wide14-positive"{assert_eq!((factor,tiles,wmc),(0,0,1));assert_eq!(visited,1);}
-            println!("HOARE_ONLINE_HYBRID name={name} route={route} verdict={verdict} exact={} planned={} visited={visited} factor={factor} tiles={tiles} wmc={wmc} wmc_attempts={wmc_attempts} common_ns={common} elapsed_ns={} first={first:?} rejects={rejects:?} failures={failures:?}",coverage.len(),inputs.len(),start.elapsed().as_nanos());
+            if name=="wide14-zero"&&route!="quotient-gpmc"{assert_eq!((factor,tiles,wmc),(0,0,2));}
+            if name=="wide14-positive"&&route!="quotient-gpmc"{assert_eq!((factor,tiles,wmc),(0,0,1));assert_eq!(visited,1);}
+            if route=="quotient-gpmc"&&["wide14-zero","wide14-positive","mixed13"].contains(&name){assert_eq!(quotient,coverage.len());assert_eq!(wmc,0);}
+            println!("HOARE_ONLINE_HYBRID name={name} route={route} verdict={verdict} exact={} planned={} visited={visited} factor={factor} tiles={tiles} wmc={wmc} wmc_attempts={wmc_attempts} quotient={quotient} qwidth={qwidth} qfree={qfree} qwork={qwork} qlabels={qlabels} qempty={qempty} common_ns={common} elapsed_ns={} first={first:?} rejects={rejects:?} failures={failures:?}",coverage.len(),inputs.len(),start.elapsed().as_nanos());
             arms+=1;
         }
         cases+=1;
     }
-    assert_eq!((cases,arms),(7,20));
+    assert_eq!((cases,arms),(7,27));
     println!("HOARE_ONLINE_HYBRID_COHORT cases={cases} arms={arms} duplicate=0");
 }
 

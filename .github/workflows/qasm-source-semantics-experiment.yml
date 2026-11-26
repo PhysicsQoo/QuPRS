@@ -138,6 +138,7 @@ jobs:
           grep -F 'HOARE_NATIVE_INDEXED_RR cases=1024 ' evidence/hoare-paper-source.log
           grep -F 'HOARE_NATIVE_HH_INCIDENT checks=8192 ' evidence/hoare-paper-source.log
           grep -Fx 'HOARE_NATIVE_HYBRID_EXPORT sectors=22 factor=17 wmc_ready=5' evidence/hoare-paper-source.log
+          grep -F 'HOARE_NATIVE_OUTPUT_QUOTIENT queries=3456 vectors=8192 ' evidence/hoare-paper-source.log
           grep -Fx 'HOARE_NATIVE_TILING8_FAILURE recovered=4 partial_positive=3 partial_zero=3 unresolved=1' evidence/hoare-paper-source.log
           grep -Fx 'HOARE_NATIVE_TILING8_PARTIAL_RECOVERY retained=2048 recovered=2048 duplicate=0' evidence/hoare-paper-source.log
           for source in vchain noancilla; do
@@ -251,7 +252,7 @@ jobs:
             cargo test --locked --manifest-path rust/Cargo.toml -p quprs \
               --test hoare_paper_source_experiment native_online_hybrid_sector -- --exact --nocapture \
             2>&1 | tee evidence/hoare-online-hybrid.log
-          grep -Fx 'HOARE_ONLINE_HYBRID_COHORT cases=7 arms=20 duplicate=0' evidence/hoare-online-hybrid.log
+          grep -Fx 'HOARE_ONLINE_HYBRID_COHORT cases=7 arms=27 duplicate=0' evidence/hoare-online-hybrid.log
           # Reuse the same GPMC binary; isolate the upstream Python package.
           python3 -m venv "$tmp/quokka-env"
           "$tmp/quokka-env/bin/python" -m pip install --disable-pip-version-check numpy==2.2.6

@@ -10,7 +10,7 @@ on:
       suite:
         description: Experimental evidence suite
         type: choice
-        options: [legacy, cross-family, source-admission, root-profile, factor-classes, sparse-anchor, prefix-memo, axis-profile, direct-binary, operand-profile, pool-profile, last-use-donor, masked-donor, descendant-units, inplace-scan, inplace-branch, move-components, borrowed-cache, general-cumulative, general-simulation-repair, general-native-gpmc, scope-scratch, streaming-large-general, large-root-closure, large-descendant-closure, fixed-work-descendant, large-general-candidate, long-native-candidate, default-parser-isolation, scope-scratch-fair, scope-scratch-candidate, large-root-ownership, root-ownership-port, packed-index-scratch, owned-entry-isolation, root-long-regression, reversible-index-state, reversible-canonical-boundary, historical-gap-baseline, reversible-frontier-transitions, reversible-ordered-frontier, historical-grover5, grover5-precision-audit, grover5-seven-pairs, reversible-rank-generation]
+        options: [legacy, cross-family, source-admission, root-profile, factor-classes, sparse-anchor, prefix-memo, axis-profile, direct-binary, operand-profile, pool-profile, last-use-donor, masked-donor, descendant-units, inplace-scan, inplace-branch, move-components, borrowed-cache, general-cumulative, general-simulation-repair, general-native-gpmc, scope-scratch, streaming-large-general, large-root-closure, large-descendant-closure, fixed-work-descendant, large-general-candidate, long-native-candidate, default-parser-isolation, scope-scratch-fair, scope-scratch-candidate, large-root-ownership, root-ownership-port, packed-index-scratch, owned-entry-isolation, root-long-regression, reversible-index-state, reversible-canonical-boundary, historical-gap-baseline, reversible-frontier-transitions, reversible-ordered-frontier, historical-grover5, grover5-precision-audit, grover5-seven-pairs, reversible-rank-generation, reversible-single-unit-queue]
         default: legacy
 permissions:
   contents: read
@@ -4123,7 +4123,7 @@ jobs:
           if-no-files-found: warn
 
   grover5-seven-pairs:
-    if: github.event_name == 'push' || inputs.suite == 'grover5-seven-pairs'
+    if: github.event_name == 'workflow_dispatch' && inputs.suite == 'grover5-seven-pairs'
     name: Grover5 seven paired solves / ${{ matrix.digits }} working digits
     runs-on: ubuntu-24.04
     timeout-minutes: 10
@@ -4283,7 +4283,7 @@ jobs:
           if-no-files-found: warn
 
   reversible-rank-generation:
-    if: github.event_name == 'push' || inputs.suite == 'reversible-rank-generation'
+    if: github.event_name == 'workflow_dispatch' && inputs.suite == 'reversible-rank-generation'
     name: Reversible rank generation / dense and sparse fixed work
     runs-on: ubuntu-24.04
     timeout-minutes: 8
@@ -4320,5 +4320,46 @@ jobs:
         with:
           name: rawmocs-reversible-rank-generation
           path: .rank-evidence/
+          include-hidden-files: true
+          if-no-files-found: warn
+
+  reversible-single-unit-queue:
+    if: github.event_name == 'push' || inputs.suite == 'reversible-single-unit-queue'
+    name: Single ranked queue / dense and sparse factorial ablation
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: PhysicsQoo/RaWMoCS
+          ref: 8f710dd0857aa3d6046c4bf3a5d39631e9166509
+          path: .classes-candidate
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: .classes-candidate/crates/rawmocs-cli -> target
+          shared-key: rawmocs-general-dependencies
+          cache-workspace-crates: 'false'
+      - name: Compile and verify exact rank generation candidate
+        run: |
+          set -euo pipefail
+          test "$(git -C .classes-candidate rev-parse HEAD)" = 8f710dd0857aa3d6046c4bf3a5d39631e9166509
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libgmp-dev libmpfr-dev m4 make gcc time pkg-config
+          mkdir -p .queue-evidence
+          cargo test --locked --release --manifest-path .classes-candidate/crates/rawmocs-cli/Cargo.toml 2>&1 | tee .queue-evidence/science.log
+      - name: Sparse late-depth and dense fixed-work parity
+        run: |
+          set -euo pipefail
+          timeout -k 2s 100s prlimit --as=3221225472 -- cargo test --locked --release --manifest-path .classes-candidate/crates/rawmocs-cli/Cargo.toml single_queue_sparse_fixed_work -- --ignored --nocapture 2>&1 | tee .queue-evidence/sparse.log
+          test "$(grep -c '^SINGLE_QUEUE_FINAL cohort=sparse ' .queue-evidence/sparse.log)" -eq 32
+          timeout -k 2s 100s prlimit --as=3221225472 -- cargo test --locked --release --manifest-path .classes-candidate/crates/rawmocs-cli/Cargo.toml single_queue_dense_fixed_work -- --ignored --nocapture 2>&1 | tee .queue-evidence/dense.log
+          test "$(grep -c '^SINGLE_QUEUE_FINAL cohort=dense ' .queue-evidence/dense.log)" -eq 32
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: rawmocs-reversible-single-unit-queue
+          path: .queue-evidence/
           include-hidden-files: true
           if-no-files-found: warn

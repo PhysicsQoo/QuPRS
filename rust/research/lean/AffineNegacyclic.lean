@@ -27,13 +27,13 @@ theorem native_term_correct (d k i j : Nat) (a b : Int)
   by_cases h : i+j < d
   · have hn : i+j ≠ k+d := by omega
     rw [Nat.mod_eq_of_lt h]
-    simp [h, hn]
+    by_cases he : i+j = k <;> simp [h, hn, he]
   · have hd : d ≤ i+j := by omega
     have hsub : i+j-d < d := by omega
     have hn : i+j ≠ k := by omega
     have he : i+j-d = k ↔ i+j = k+d := by omega
     rw [Nat.mod_eq_sub_mod hd, Nat.mod_eq_of_lt hsub]
-    simp [h, hn, he]
+    by_cases heq : i+j = k+d <;> simp [h, hn, he, heq]
 
 theorem term_lift (d k i j s : Nat) (a b : Int) (hs : 0 < s) :
     exactTerm (d*s) (k*s) (i*s) (j*s) a b =
@@ -78,8 +78,69 @@ theorem pair_sum_off_grid (d k s : Nat) (hk : k % s ≠ 0) (ts : List PairTerm) 
   | cons t ts ih =>
       change exactTerm (d*s) k (t.i*s) (t.j*s) t.a t.b +
         pairSum (d*s) k (ts.map (scaled s)) = 0
-      rw [term_off_grid d k t.i t.j s t.a t.b hk, ih]
+      rw [term_off_grid d k t.i t.j s t.a t.b hk, ih, Int.zero_add]
 
+
+/-- Row-major Cartesian enumeration of every coefficient pair. -/
+def pairs (d : Nat) (a b : Nat → Int) : List PairTerm :=
+  (List.range d).flatMap (fun i =>
+    (List.range d).map (fun j => ⟨i, j, a i, b j⟩))
+
+theorem pairs_membership (d : Nat) (a b : Nat → Int) (t : PairTerm) :
+    t ∈ pairs d a b ↔
+      ∃ i j, i < d ∧ j < d ∧ t = ⟨i, j, a i, b j⟩ := by
+  unfold pairs
+  constructor
+  · intro ht
+    obtain ⟨i, hi, hm⟩ := List.mem_flatMap.mp ht
+    obtain ⟨j, hj, he⟩ := List.mem_map.mp hm
+    exact ⟨i, j, List.mem_range.mp hi, List.mem_range.mp hj, he.symm⟩
+  · rintro ⟨i, j, hi, hj, he⟩
+    apply List.mem_flatMap.mpr
+    exact ⟨i, List.mem_range.mpr hi, List.mem_map.mpr ⟨j, List.mem_range.mpr hj, he.symm⟩⟩
+
+def nativeAcc (d k : Nat) (acc : Int) : List PairTerm → Int
+  | [] => acc
+  | t :: ts =>
+      if t.a = 0 ∨ t.b = 0 then nativeAcc d k acc ts
+      else nativeAcc d k (acc + nativeTerm d k t.i t.j t.a t.b) ts
+
+theorem zero_pair_term (d k i j : Nat) (a b : Int)
+    (h : a = 0 ∨ b = 0) : exactTerm d k i j a b = 0 := by
+  rcases h with h | h
+  · simp [exactTerm, h]
+  · simp [exactTerm, h]
+
+theorem native_acc_correct (d k : Nat) (hk : k < d)
+    (ts : List PairTerm) (acc : Int)
+    (h : ∀ t, t ∈ ts → t.i < d ∧ t.j < d) :
+    nativeAcc d k acc ts = acc + pairSum d k ts := by
+  induction ts generalizing acc with
+  | nil => exact (Int.add_zero acc).symm
+  | cons t ts ih =>
+      have hb := h t (List.mem_cons.mpr (Or.inl rfl))
+      have ht : ∀ u, u ∈ ts → u.i < d ∧ u.j < d :=
+        fun u hu => h u (List.mem_cons.mpr (Or.inr hu))
+      by_cases hz : t.a = 0 ∨ t.b = 0
+      · simp only [nativeAcc, ite_eq_left hz, pairSum, zero_pair_term d k t.i t.j t.a t.b hz, Int.zero_add]
+        exact ih acc ht
+      · simp only [nativeAcc, ite_eq_right hz, pairSum]
+        rw [ih _ ht, native_term_correct d k t.i t.j t.a t.b hb.1 hb.2 hk, Int.add_assoc]
+
+theorem cartesian_acc_correct (d k : Nat) (hk : k < d)
+    (a b : Nat → Int) :
+    nativeAcc d k 0 (pairs d a b) = pairSum d k (pairs d a b) := by
+  have h : ∀ t, t ∈ pairs d a b → t.i < d ∧ t.j < d := by
+    intro t ht
+    obtain ⟨i, j, hi, hj, he⟩ := (pairs_membership d a b t).mp ht
+    rw [he]
+    exact ⟨hi, hj⟩
+  rw [native_acc_correct d k hk _ 0 h, Int.zero_add]
+
+#print axioms pairs_membership
+#print axioms zero_pair_term
+#print axioms native_acc_correct
+#print axioms cartesian_acc_correct
 #print axioms native_term_correct
 #print axioms term_lift
 #print axioms term_off_grid

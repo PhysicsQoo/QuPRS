@@ -15,6 +15,21 @@ open QuPRS.AffineOutputChecker
 open QuPRS.AffineOutputMask
 open QuPRS.AffineOutputWordCertificate
 
+/-- Force the finite-index equality and list membership decisions to
+    use explicit constructive instances; audit the definitions too. -/
+def finIndexDecEq (n : Nat) : DecidableEq (Fin n) :=
+  fun i j => if h : i.val = j.val then isTrue (Fin.ext h)
+    else isFalse (fun he => h (congrArg Fin.val he))
+
+local instance (priority := 2000) {n : Nat} : DecidableEq (Fin n) :=
+  finIndexDecEq n
+
+def constructiveMem {X : Type} [DecidableEq X] (i : X) (xs : List X) :
+    Decidable (i ∈ xs) := inferInstance
+
+local instance (priority := 2000) {n : Nat} (i : Fin n) (xs : List (Fin n)) :
+    Decidable (i ∈ xs) := constructiveMem i xs
+
 def buildColumn {n : Nat} {X : Type} (one : X → BitVec n) (p : X → Bool)
     (xs : List X) : BitVec n :=
   xs.foldr (fun j tail => if p j then one j ||| tail else tail) 0
@@ -367,6 +382,8 @@ theorem gathered_phase_coordinate_preserved {n : Nat} {M Y : Type} [DecidableEq 
 #print axioms mem_cons_bit
 #print axioms column_step_bit
 #print axioms decode_if_bit
+#print axioms finIndexDecEq
+#print axioms constructiveMem
 #print axioms buildColumn
 #print axioms column_decode_generic
 #print axioms column_decode

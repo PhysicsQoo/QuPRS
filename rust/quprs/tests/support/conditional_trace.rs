@@ -135,6 +135,34 @@ impl Trace{
         }
         None
     }
+    // Exact omega integration on trace-only state. The integrator
+    // must not occur in ANY constraint. Raw multiplier is sqrt(2).
+    fn omega(&mut self)->Option<u32>{
+        use quprs::rational::{PhaseCoeff,Rational};
+        if self.empty()||self.size()>TERM_CAP{return None;}
+        let mut ids:Vec<_>=self.live.iter().copied().filter(|&v|v as usize>=self.n).collect();
+        ids.sort_unstable();
+        for y in ids{
+            if self.constraints.iter().flatten().any(|m|m.contains(&y)){continue;}
+            let Some(c)=self.p.terms.get(&vec![y])else{continue;};
+            let positive=c.is_pure_quarter();
+            if !positive&&!c.is_pure_three_quarters(){continue;}
+            let ys:Vec<_>=self.p.terms.iter().filter(|(m,_)|m.len()>1&&m.contains(&y)).collect();
+            if ys.len()>RHS_CAP||ys.iter().any(|(_,c)|!c.is_pure_half()){continue;}
+            let phi:Poly=ys.iter().map(|(m,_)|m.iter().copied().filter(|&v|v!=y).collect()).collect();
+            if (1usize<<phi.len())>WORK_CAP{continue;}
+            let mut q=self.clone();
+            q.p.terms.retain(|m,_|!m.contains(&y));
+            q.p+=PhaseCoeff::new_constant(Rational::new(if positive{1}else{7},8));
+            q.p+=(&phi,PhaseCoeff::new_constant(Rational::new(if positive{3}else{1},4)));
+            if q.size()>TERM_CAP{continue;}
+            assert!(q.live.remove(&y));
+            assert!(q.p.terms.keys().all(|m|m.iter().all(|v|q.live.contains(v))));
+            *self=q;
+            return Some(y);
+        }
+        None
+    }
 }
 // Alternate unique extension (factor 1) and exact integration (factor 2).
 // The fuel cap applies to their combined number of accepted steps.
@@ -150,6 +178,23 @@ fn iterate(t:&mut Trace)->(usize,usize,usize){
         }
     }
     (subs,elim,hh)
+}
+// Full alternation; keep the earlier Elim/HH oracle on its original
+// routine so its results remain comparable.
+fn iterate_all(t:&mut Trace)->(usize,usize,usize,usize){
+    let (mut subs,mut elim,mut hh,mut omega)=(0,0,0,0);
+    for _ in 0..STEP_CAP{
+        if t.step().is_some(){subs+=1;continue;}
+        match t.integrate(){
+            Some(("elim",_))=>{elim+=1;continue;},
+            Some(("hh",_))=>{hh+=1;continue;},
+            None=>{},
+            _=>unreachable!(),
+        }
+        if t.omega().is_some(){omega+=1;continue;}
+        break;
+    }
+    (subs,elim,hh,omega)
 }
 pub(super) fn profile(ps:&PathSum,case:&str){
     let start=std::time::Instant::now();
@@ -173,17 +218,17 @@ pub(super) fn profile(ps:&PathSum,case:&str){
     if std::env::var_os("CRR_GPMC_COMPARE").is_some(){
         let mut iterated=Trace::from_native(ps).expect("admitted");
         let it_start=std::time::Instant::now();
-        let (subs,elim,hh)=iterate(&mut iterated);
+        let (subs,elim,hh,omega)=iterate_all(&mut iterated);
         let multiplier_power=elim+hh;
-        println!("CRR_ITERATE case={case} subs={subs} elim={elim} hh={hh} multiplier_power={multiplier_power} hidden_after={} phase_after={} constraints_after={} iterate_s={}",
+        println!("CRR_ITERATE case={case} subs={subs} elim={elim} hh={hh} omega={omega} multiplier_power={multiplier_power} multiplier_sqrt2_power={omega} hidden_after={} phase_after={} constraints_after={} iterate_s={}",
             iterated.live.len()-iterated.n,iterated.p.terms.len(),iterated.constraints.iter().filter(|q|!q.is_empty()).count(),it_start.elapsed().as_secs_f64());
-        compare_gpmc(ps,&t,&iterated,multiplier_power,case);
+        compare_gpmc(ps,&t,&iterated,multiplier_power,omega,case);
     }
 }
 
 // Same existing encoder and GPMC adapter on both arms. The count is
 // raw, not rescaled using the modified view's number of variables.
-fn compare_gpmc(original:&PathSum,t:&Trace,iterated:&Trace,multiplier_power:usize,case:&str){
+fn compare_gpmc(original:&PathSum,t:&Trace,iterated:&Trace,multiplier_power:usize,omega:usize,case:&str){
     use quprs::wmc::WmcManager;
     use quprs::precision_count::{PrintedCount,observed_distance_verdict};
     use num_bigint::BigInt;
@@ -240,13 +285,30 @@ fn compare_gpmc(original:&PathSum,t:&Trace,iterated:&Trace,multiplier_power:usiz
     let dx=observed_distance_verdict(&x,original_twice,"1e-8").expect("baseline distance");
     let dy=observed_distance_verdict(&y,original_twice,"1e-8").expect("conditioned distance");
     assert!(std::mem::discriminant(&dx)==std::mem::discriminant(&dy));
-    let factor=BigRational::from_integer(BigInt::from(1u8)<<multiplier_power);
+    let factor=BigRational::from_integer(BigInt::from(1u8)<<(multiplier_power+omega/2));
     z.real*=&factor;z.imag*=&factor;
     z.real_half_unit*=&factor;z.imag_half_unit*=&factor;
+    // Exact rational midpoint distance: absorb only the residual odd
+    // sqrt(2) into the squared normalization exponent, not the count.
+    let vz=observed_distance_verdict(&z,original_twice-(omega%2) as i32,"1e-8").expect("iterated distance");
+    assert!(std::mem::discriminant(&dx)==std::mem::discriminant(&vz));
+    // For the complex count parity observation, use a rational lower
+    // enclosure of sqrt(2) with width 2^-384, constructed by integer
+    // bisection and verified. This is not a solver error certificate.
+    if omega%2==1{
+        let den=BigInt::from(1u8)<<384usize;
+        let target=&den*&den*2u8;
+        let mut lo=den.clone();let mut hi=&den*2u8;
+        while &hi-&lo>BigInt::from(1u8){
+            let mid=(&hi+&lo)/2u8;
+            if &mid*&mid<=target{lo=mid;}else{hi=mid;}
+        }
+        assert!(&lo*&lo<=target&&&hi*&hi>target);
+        let root=BigRational::new(lo,den);
+        z.real*=&root;z.imag*=&root;
+    }
     let dz=(&x.real-&z.real).abs()+(&x.imag-&z.imag).abs();
     assert!(dz<=bound,"iterated raw complex count disagreement for {case}");
-    let vz=observed_distance_verdict(&z,original_twice,"1e-8").expect("iterated distance");
-    assert!(std::mem::discriminant(&dx)==std::mem::discriminant(&vz));
     println!("CRR_COMPARE case={case} status=matched normalized_l1_delta={:.5e} iterated_normalized_l1_delta={:.5e} distance_midpoint_match=true normalization_twice={original_twice}",
         (delta/&scale).to_f64().unwrap_or(f64::INFINITY),(dz/&scale).to_f64().unwrap_or(f64::INFINITY));
 }
@@ -359,4 +421,71 @@ fn exact_trace_iterated_elim_hh(){
     let (_,e,h)=iterate(&mut t);assert_eq!((e,h),(1,0));
     assert_ne!(coeff(&orig,0,0),coeff(&t,0,0));
     assert_eq!(coeff(&orig,0,0),coeff(&t,0,1));
+}
+
+
+#[test]
+fn exact_trace_iterated_omega(){
+    use quprs::rational::{PhaseCoeff,Rational};
+    // Exact multiplication by sqrt(2)=zeta8-zeta8^3 in Z[z]/(z^4+1).
+    fn coeff(t:&Trace,x:usize,pow:usize,omega:usize)->[i64;4]{
+        let h=hist(t,x);
+        let mut a:[i64;4]=std::array::from_fn(|i|(h[i] as i64-h[i+4] as i64)*(1i64<<pow));
+        for _ in 0..omega{
+            let mut b=[0i64;4];
+            for (i,&v) in a.iter().enumerate(){
+                for (shift,sign) in [(1usize,1i64),(3,-1)]{
+                    let j=i+shift;
+                    b[j%4]+=v*sign*if j>=4{-1}else{1};
+                }
+            }
+            a=b;
+        }
+        a
+    }
+    let (mut checks,mut total_omega,mut odd,mut even)=(0,0,0,0);
+    for k in 0u32..512{
+        let mut ps=PathSum::new(2);ps.rr_tolerance=0.0;
+        for _ in 0..4{ps.v.get_fresh_var();}
+        // q0= y2 XOR x1: unique extension first; exposes a quarter
+        // singleton on y3 from an originally obstructing interaction.
+        ps.f.functions[0].insert(vec![2]);
+        ps.f.functions[0].insert(vec![1]);
+        ps.p.add_term(vec![3],PhaseCoeff::new_constant(Rational::new(if k&1==0{1}else{3},4)));
+        ps.p.add_term(vec![2,3],PhaseCoeff::HALF);
+        if k&2!=0{ps.p.add_term(vec![0,3],PhaseCoeff::HALF);}
+        if k&4!=0{ps.p.add_term(vec![0,1,3],PhaseCoeff::HALF);}
+        // Optional second omega, giving even/odd powers. Variable y5
+        // remains constrained or free depending on fixture.
+        if k&8!=0{
+            ps.p.add_term(vec![4],PhaseCoeff::new_constant(Rational::new(if k&16==0{1}else{3},4)));
+            if k&32!=0{ps.p.add_term(vec![0,4],PhaseCoeff::HALF);}
+        }
+        if k&64!=0{ps.f.functions[1].insert(vec![0,5]);}
+        if k&128!=0{ps.p.add_term(vec![0,1],PhaseCoeff::new_constant(Rational::new(3,8)));}
+        if k&256!=0{ps.p.add_term(vec![5],PhaseCoeff::HALF);}
+        let orig=Trace::from_native(&ps).unwrap();let mut t=orig.clone();
+        let (_,e,h,o)=iterate_all(&mut t);
+        total_omega+=o;if o%2==1{odd+=1;}else{even+=1;}
+        let round=Trace::from_native(&t.encoding_view(&ps)).unwrap();
+        for x in 0..4{
+            assert_eq!(coeff(&orig,x,0,0),coeff(&t,x,e+h,o));
+            assert_eq!(coeff(&t,x,e+h,o),coeff(&round,x,e+h,o));
+            checks+=1;
+        }
+    }
+    assert!(odd>0&&even>0&&total_omega>=512);
+    // A constrained omega candidate cannot be integrated out.
+    let mut ps=PathSum::new(1);ps.rr_tolerance=0.0;
+    let y=ps.v.get_fresh_var();
+    ps.p.add_term(vec![y],PhaseCoeff::QUARTER);
+    ps.f.functions[0].insert(vec![0,y]);
+    let mut t=Trace::from_native(&ps).unwrap();assert!(t.omega().is_none());
+    // Missing sqrt(2) is observably wrong.
+    ps.f.functions[0].remove(&vec![0,y]);
+    let orig=Trace::from_native(&ps).unwrap();let mut t=orig.clone();
+    assert_eq!(t.omega(),Some(y));
+    assert_ne!(coeff(&orig,0,0,0),coeff(&t,0,0,0));
+    assert_eq!(coeff(&orig,0,0,0),coeff(&t,0,0,1));
+    println!("CRR_OMEGA_ORACLE models=512 checks={checks} omega={total_omega} odd_models={odd} even_models={even}");
 }

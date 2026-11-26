@@ -914,6 +914,91 @@ fn exact_trace_union_phase_certificate(){
     println!("CRR_UNION_PHASE_CERTIFICATE mixed_positive=1 rejected_mutations=6 rejected_native_cap=1 normalization_certified=false");
 }
 
+// Alias-only normalization certificate, relative to the represented native
+// post-RR residual. Do not derive its exponent from the encoder adapter:
+// diagonal conditioning removes a uniquely determined variable, not a
+// Hadamard normalization factor. No Elim/HH/omega or source-QASM claim.
+#[cfg(test)]
+fn check_alias_normalization(original:&PathSum,before:&Trace,after:&Trace,
+    steps:&[UnionWitness],claimed:&AliasMap,twice:i32,m:usize,o:usize)
+    ->Result<(), &'static str>{
+    use std::collections::BTreeSet;
+    let n=original.v.num_qubits;
+    if original.rr_approximate||original.rr_tolerance!=0.0||!original.v.continuous_vars.is_empty(){
+        return Err("residual admission");
+    }
+    if n!=before.n||original.v.path_vars!=before.live||original.p.terms!=before.p.terms
+        ||original.f.functions.len()!=n{return Err("residual binding");}
+    // Reconstruct diagonal equations independently, retaining empty source
+    // rows here (the subsequent union certificate may delete them).
+    for (i,row) in original.f.functions.iter().enumerate(){
+        let mut q:BTreeSet<_>=row.iter().cloned().collect();
+        let x=vec![u32::try_from(i).map_err(|_|"input index overflow")?];
+        if !q.insert(x.clone()){q.remove(&x);}
+        if before.constraints.get(i).map(|r|r.iter().cloned().collect::<BTreeSet<_>>())!=Some(q){
+            return Err("residual diagonal binding");
+        }
+    }
+    if before.constraints.len()!=n{return Err("residual diagonal binding");}
+    check_union_certificate(before,after,steps,claimed)?;
+    let hidden=before.live.len().checked_sub(n).ok_or("hidden underflow")?;
+    let expected=n.checked_mul(2).and_then(|v|v.checked_add(hidden))
+        .and_then(|v|i32::try_from(v).ok()).ok_or("normalization overflow")?;
+    if twice!=expected{return Err("original normalization mismatch");}
+    if m!=0||o!=0{return Err("alias multiplier must be one");}
+    // Independent cardinality check: every committed link removes exactly
+    // one hidden variable, with unique extension supplied by union replay.
+    if before.live.len().checked_sub(after.live.len())!=Some(claimed.len()){
+        return Err("alias cardinality mismatch");
+    }
+    Ok(())
+}
+
+#[test]
+fn exact_trace_alias_normalization_certificate(){
+    use quprs::rational::PhaseCoeff;
+    // H H residual on one qubit: y,z are two hidden variables.
+    // Conditioning z=x eliminates one variable with multiplicity one.
+    let mut ps=PathSum::new(1);ps.rr_tolerance=0.0;
+    let y=ps.v.get_fresh_var();let z=ps.v.get_fresh_var();
+    ps.f.functions[0].clear();ps.f.functions[0].insert(vec![z]);
+    ps.p.add_term(vec![0,y],PhaseCoeff::HALF);
+    ps.p.add_term(vec![y,z],PhaseCoeff::HALF);
+    let before=Trace::from_native(&ps).unwrap();
+    let mut after=before.clone();
+    let (n,steps,cert)=recorded_batch_alias(&mut after,64);assert_eq!(n,1);
+    let cert=cert.unwrap();
+    let twice=(ps.v.num_qubits+ps.v.path_vars.len()) as i32;
+    assert_eq!(twice,4);
+    assert_eq!(check_alias_normalization(&ps,&before,&after,&steps,&cert,twice,0,0),Ok(()));
+    let adapter=after.encoding_view(&ps);
+    let wrong=(adapter.v.num_qubits+adapter.v.path_vars.len()) as i32;
+    assert_eq!(wrong,3);
+    assert_eq!(check_alias_normalization(&ps,&before,&after,&steps,&cert,wrong,0,0),
+        Err("original normalization mismatch"));
+    assert_eq!(check_alias_normalization(&ps,&before,&after,&steps,&cert,twice+1,0,0),
+        Err("original normalization mismatch"));
+    assert_eq!(check_alias_normalization(&ps,&before,&after,&steps,&cert,twice,1,0),
+        Err("alias multiplier must be one"));
+    assert_eq!(check_alias_normalization(&ps,&before,&after,&steps,&cert,twice,0,1),
+        Err("alias multiplier must be one"));
+    let mut bad=ps.clone();bad.p.add_term(vec![],PhaseCoeff::HALF);
+    assert_eq!(check_alias_normalization(&bad,&before,&after,&steps,&cert,twice,0,0),
+        Err("residual binding"));
+    let mut bad=ps.clone();bad.f.functions[0].clear();bad.f.functions[0].insert(vec![y]);
+    assert_eq!(check_alias_normalization(&bad,&before,&after,&steps,&cert,twice,0,0),
+        Err("residual diagonal binding"));
+    let mut bad=ps.clone();bad.v.get_fresh_var();
+    assert_eq!(check_alias_normalization(&bad,&before,&after,&steps,&cert,twice,0,0),
+        Err("residual binding"));
+    let mut bad=ps.clone();bad.rr_tolerance=1e-8;
+    assert_eq!(check_alias_normalization(&bad,&before,&after,&steps,&cert,twice,0,0),
+        Err("residual admission"));
+    // Unnormalized trace equals 4, not 4 times an extra sqrt(2).
+    for x in 0..2{assert_eq!(hist(&before,x),hist(&after,x));}
+    println!("CRR_ALIAS_NORMALIZATION_CERTIFICATE positive=1 rejected=8 original_twice=4 adapter_twice=3 alias_multiplier=1 source_qasm_certified=false integration_certified=false");
+}
+
 // Free hidden variables contribute exactly 2 per variable, regardless
 // of the remaining constraints. Preserve original input representatives.
 fn batch_free(t:&mut Trace,fuel:usize)->usize{
@@ -1207,7 +1292,10 @@ fn exact_trace_batched_alias_forest(){
         }
         let mut q=orig.clone();
         let (n,steps,cert)=recorded_batch_alias(&mut q,64);assert_eq!(n,if k%2==0{2}else{3});
-        assert_eq!(check_union_certificate(&orig,&q,&steps,&cert.unwrap()),Ok(()));
+        let cert=cert.unwrap();
+        let residual=orig.encoding_view(&ps);
+        let twice=(residual.v.num_qubits+residual.v.path_vars.len()) as i32;
+        assert_eq!(check_alias_normalization(&residual,&orig,&q,&steps,&cert,twice,0,0),Ok(()));
         aliases+=n;
         assert!((0..3).all(|x|q.live.contains(&x)));
         let f=batch_free(&mut q,64-n);assert!(f>=1);free_count+=f;
@@ -1239,7 +1327,7 @@ fn exact_trace_batched_alias_forest(){
     assert_eq!(q.constraints.len(),1);
     assert!(q.constraints[0].contains(&vec![1]));
     for x in 0..16{assert_eq!(hist(&orig,x),hist(&q,x));checks+=1;}
-    println!("CRR_BATCH_ORACLE models=513 histogram_checks={checks} alias_eliminations={aliases} free_eliminations={free_count} cycle_control=1 union_certificate_checks=513");
+    println!("CRR_BATCH_ORACLE models=513 histogram_checks={checks} alias_eliminations={aliases} free_eliminations={free_count} cycle_control=1 union_certificate_checks=513 alias_normalization_checks=512");
 }
 
 

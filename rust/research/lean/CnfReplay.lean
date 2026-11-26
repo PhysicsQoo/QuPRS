@@ -4486,6 +4486,165 @@ theorem ledger_accepted_free_polynomial {P A : Type} [Zero P] [Add P] [Zero A] [
   exact ⟨ledger_free_polynomial_value zl zr shuffle coeff ex s.before s.trial ha hb
     (inputs_known_sound _ _ hp.1) hp.2.1, hp.2.2⟩
 
+
+-- Read the exact coefficient pairs from the same token and parser
+-- used by the executable support checker; do not change admission.
+def parseLedgerPhaseEntry (s : Token) : Option PhaseEntry :=
+  match splitBytes 58 s with
+  | [m,tn,td,rn,rd] => do
+    let ids ← parseGuardMono m
+    let e ← parsePhaseEntry ([99,111,101,102] :: [48] :: tn :: td :: rn :: rd ::
+      (if m == [45] then [] else splitBytes 44 m))
+    if natListEq ids e.source then some e else none
+  | _ => none
+
+theorem ledger_phase_entry_lift (raw : Token) (ids : List Nat)
+    (h : parseLedgerPhase raw = some ids) :
+    ∃ e, parseLedgerPhaseEntry raw = some e ∧ e.source = ids := by
+  unfold parseLedgerPhase at h
+  unfold parseLedgerPhaseEntry
+  generalize splitBytes 58 raw = fields at h ⊢
+  cases fields with
+  | nil => cases h
+  | cons m tail =>
+    cases tail with
+    | nil => cases h
+    | cons tn tail =>
+      cases tail with
+      | nil => cases h
+      | cons td tail =>
+        cases tail with
+        | nil => cases h
+        | cons rn tail =>
+          cases tail with
+          | nil => cases h
+          | cons rd tail =>
+            cases tail with
+            | cons extra rest => cases h
+            | nil =>
+              obtain ⟨ms, hm, h1⟩ := ledger_bind_some _ _ _ h
+              obtain ⟨e, he, h2⟩ := ledger_bind_some _ _ _ h1
+              cases hg : natListEq ms e.source with
+              | false =>
+                rw [ledger_bool_false _ _ _ hg] at h2
+                cases h2
+              | true =>
+                rw [ledger_bool_true _ _ _ hg] at h2
+                have hi : ms = ids := Option.some.inj h2
+                refine ⟨e, ?_, ((nat_list_eq_iff _ _).mp hg).symm.trans hi⟩
+                change ((parseGuardMono m).bind (fun zs =>
+                  (parsePhaseEntry ([99,111,101,102] :: [48] :: tn :: td :: rn :: rd ::
+                    (if m == [45] then [] else splitBytes 44 m))).bind (fun q =>
+                      if natListEq zs q.source then some q else none))) = some e
+                rw [hm]
+                change ((parsePhaseEntry ([99,111,101,102] :: [48] :: tn :: td :: rn :: rd ::
+                  (if m == [45] then [] else splitBytes 44 m))).bind (fun q =>
+                    if natListEq ms q.source then some q else none)) = some e
+                rw [he]
+                change (if natListEq ms e.source then some e else none) = some e
+                exact ledger_bool_true _ _ _ hg
+
+theorem ledger_phase_entries_lift (tokens : List Token) (ms : List (List Nat))
+    (h : tokens.mapM parseLedgerPhase = some ms) :
+    ∃ es, tokens.mapM parseLedgerPhaseEntry = some es ∧ es.map PhaseEntry.source = ms := by
+  induction tokens generalizing ms with
+  | nil =>
+    change some [] = some ms at h
+    cases h
+    exact ⟨[], rfl, rfl⟩
+  | cons tok rest ih =>
+    rw [List.mapM_cons] at h
+    obtain ⟨m, hm, h1⟩ := ledger_bind_some _ _ _ h
+    obtain ⟨mt, ht, h2⟩ := ledger_bind_some _ _ _ h1
+    have heq : some (m :: mt) = some ms := h2
+    obtain ⟨e, he, hs⟩ := ledger_phase_entry_lift tok m hm
+    obtain ⟨es, hes, hms⟩ := ih mt ht
+    refine ⟨e :: es, ?_, ?_⟩
+    · rw [List.mapM_cons, he]
+      change ((rest.mapM parseLedgerPhaseEntry).bind (fun qs => some (e :: qs))) = some (e :: es)
+      rw [hes]
+      rfl
+    · change e.source :: es.map PhaseEntry.source = ms
+      rw [hs, hms, Option.some.inj heq]
+
+def parseLedgerCoefficients (raw : Token) : Option (List PhaseEntry) :=
+  if raw == [126] then some [] else (splitBytes 124 raw).mapM parseLedgerPhaseEntry
+
+theorem canonical_ledger_coefficient_binding (s : LedgerSnap) (h : canonicalLedgerSnap s) :
+    ∃ es, parseLedgerCoefficients s.phaseText = some es ∧
+      es.map PhaseEntry.source = s.phaseSupport := by
+  have hp := (canonical_ledger_snap_fields s h).2.1
+  unfold parseLedgerCoefficients
+  cases he : (s.phaseText == [126]) with
+  | true =>
+    rw [ledger_bool_true _ _ _ he] at hp
+    exact ⟨[], ledger_bool_true _ _ _ he, Option.some.inj hp⟩
+  | false =>
+    rw [ledger_bool_false _ _ _ he] at hp
+    obtain ⟨es, hes, hs⟩ := ledger_phase_entries_lift _ _ hp
+    exact ⟨es, (ledger_bool_false _ _ _ he).trans hes, hs⟩
+
+-- The lookup is assignment independent and retains exact pairs
+-- (Int numerator, Nat denominator) until interpretation.
+def ledgerEntryCoeff {P : Type} [Zero P]
+    (interpret : DecimalValue → DecimalValue → P) : List PhaseEntry → Nat → P
+  | [], _ => 0
+  | e :: _, 0 => interpret e.turns e.radians
+  | _ :: es, i+1 => ledgerEntryCoeff interpret es i
+
+def ledgerExactCoeff {P : Type} [Zero P]
+    (interpret : DecimalValue → DecimalValue → P) (raw : Token) (i : Nat) : P :=
+  match parseLedgerCoefficients raw with
+  | some es => ledgerEntryCoeff interpret es i
+  | none => 0
+
+def ledgerExactValue {P A : Type} [Zero P] [Add P] [Zero A] [Add A]
+    (interpret : DecimalValue → DecimalValue → P) (ex : P → A) (s : LedgerSnap) : A :=
+  ledgerPhaseValue (ledgerExactCoeff interpret) ex s
+
+theorem ledger_exact_coefficient_lookup {P : Type} [Zero P]
+    (interpret : DecimalValue → DecimalValue → P) (raw : Token) (es : List PhaseEntry)
+    (i : Nat) (h : parseLedgerCoefficients raw = some es) :
+    ledgerExactCoeff interpret raw i = ledgerEntryCoeff interpret es i := by
+  unfold ledgerExactCoeff
+  rw [h]
+
+theorem canonical_ledger_coeff_count (s : LedgerSnap) (h : canonicalLedgerSnap s) :
+    ∃ es, parseLedgerCoefficients s.phaseText = some es ∧
+      es.map PhaseEntry.source = s.phaseSupport ∧ es.length = s.phaseSupport.length := by
+  obtain ⟨es, he, hs⟩ := canonical_ledger_coefficient_binding s h
+  exact ⟨es, he, hs, (List.length_map PhaseEntry.source).symm.trans (congrArg List.length hs)⟩
+
+theorem ledger_free_exact_entries (a b : LedgerSnap)
+    (ha : canonicalLedgerSnap a) (hb : canonicalLedgerSnap b) (hf : freeSnapOK a b = true) :
+    ∃ es, parseLedgerCoefficients a.phaseText = some es ∧
+      parseLedgerCoefficients b.phaseText = some es ∧
+      es.map PhaseEntry.source = a.phaseSupport ∧ es.map PhaseEntry.source = b.phaseSupport := by
+  obtain ⟨es, he, hs⟩ := canonical_ledger_coefficient_binding a ha
+  have ht := free_snapshot_payload a b hf
+  have hp := free_snapshot_typed_payload a b ha hb hf
+  exact ⟨es, he, ht.1 ▸ he, hs, hs.trans hp.1⟩
+
+-- Both endpoints have a successful, support-aligned coefficient
+-- parse; no use of the total lookup's parse-failure default.
+theorem ledger_accepted_free_exact {P A : Type} [Zero P] [Add P] [Zero A] [Add A]
+    (zl : ∀ a : A, 0+a=a) (zr : ∀ a : A, a+0=a)
+    (shuffle : ∀ a b c d : A, (a+b)+(c+d) = (a+c)+(b+d))
+    (interpret : DecimalValue → DecimalValue → P) (ex : P → A)
+    (t next : LedgerTally) (s : LedgerStep)
+    (ha : canonicalLedgerSnap s.before) (hb : canonicalLedgerSnap s.trial)
+    (hc : s.commit = true) (hk : s.kind = 1 ∨ s.kind = 3)
+    (h : ledgerAdvance t s = some next) :
+    (∃ es, parseLedgerCoefficients s.before.phaseText = some es ∧
+      parseLedgerCoefficients s.trial.phaseText = some es ∧
+      es.map PhaseEntry.source = s.before.phaseSupport ∧ es.map PhaseEntry.source = s.trial.phaseSupport) ∧
+    ledgerExactValue interpret ex s.before =
+      freeDouble (removedIds s.before s.trial).length (ledgerExactValue interpret ex s.trial) ∧
+    ledgerStepExponent s = 2 * (removedIds s.before s.trial).length := by
+  have hp := ledger_advance_free_obligations t next s hc hk h
+  exact ⟨ledger_free_exact_entries s.before s.trial ha hb hp.2.1,
+    ledger_accepted_free_polynomial zl zr shuffle (ledgerExactCoeff interpret) ex t next s ha hb hc hk h⟩
+
 -- Localize any unexpected dependency to a definition vs theorem.
 #print axioms splitBytes
 #print axioms digits
@@ -4812,6 +4971,18 @@ theorem ledger_accepted_free_polynomial {P A : Type} [Zero P] [Add P] [Zero A] [
 #print axioms ledger_free_term_retained
 #print axioms ledger_free_polynomial_value
 #print axioms ledger_accepted_free_polynomial
+#print axioms parseLedgerPhaseEntry
+#print axioms ledger_phase_entry_lift
+#print axioms ledger_phase_entries_lift
+#print axioms parseLedgerCoefficients
+#print axioms canonical_ledger_coefficient_binding
+#print axioms ledgerEntryCoeff
+#print axioms ledgerExactCoeff
+#print axioms ledgerExactValue
+#print axioms ledger_exact_coefficient_lookup
+#print axioms canonical_ledger_coeff_count
+#print axioms ledger_free_exact_entries
+#print axioms ledger_accepted_free_exact
 end QuPRS.CnfReplay
 
 def main (args : List String) : IO Unit := do

@@ -641,18 +641,28 @@ type AliasMap=rustc_hash::FxHashMap<u32,u32>;
 fn alias_root(parent:&AliasMap,mut v:u32)->u32{
     while let Some(&p)=parent.get(&v){v=p;}v
 }
-fn alias_map(t:&Trace)->AliasMap{
+// Optional witness recording uses the very same union loop as the
+// uninstrumented experimental reducer; the no-op callback allocates no log.
+#[derive(Clone,Copy,Debug,PartialEq,Eq)]
+struct UnionWitness { x:u32, y:u32, child:u32, par:u32 }
+fn alias_map_observe(t:&Trace,mut emit:impl FnMut(UnionWitness))->AliasMap{
     let mut pairs:Vec<_>=t.constraints.iter().filter(|q|q.len()==2&&q.iter().all(|m|m.len()==1))
         .map(|q|{let mut v:Vec<_>=q.iter().map(|m|m[0]).collect();v.sort_unstable();(v[0],v[1])}).collect();
     pairs.sort_unstable();
     let mut parent=AliasMap::default();
-    for (a,b) in pairs{
-        let a=alias_root(&parent,a);let b=alias_root(&parent,b);
+    for (x,y) in pairs{
+        let a=alias_root(&parent,x);let b=alias_root(&parent,y);
         let lo=a.min(b);let hi=a.max(b);
-        if lo!=hi&&hi as usize>=t.n{parent.insert(hi,lo);}
+        if lo!=hi&&hi as usize>=t.n{
+            // Orient endpoints to match the Lean UnionStep relation.
+            let (x,y)=if a==hi{(x,y)}else{(y,x)};
+            emit(UnionWitness{x,y,child:hi,par:lo});
+            parent.insert(hi,lo);
+        }
     }
     parent
 }
+fn alias_map(t:&Trace)->AliasMap{alias_map_observe(t,|_|{})}
 fn alias_mono(parent:&AliasMap,m:&[u32])->Vec<u32>{
     let mut v:Vec<_>=m.iter().map(|&x|alias_root(parent,x)).collect();
     v.sort_unstable();v.dedup();v
@@ -668,8 +678,14 @@ fn alias_screen(t:&Trace)->(usize,usize,usize){
 // cycles, and constraints relating two inputs); only zero rows vanish.
 // Coefficients merge in the native exact phase domain, constraints in F2.
 fn batch_alias(t:&mut Trace,fuel:usize)->usize{
+    batch_alias_observe(t,fuel,|_|{},|_|{})
+}
+// A trial may emit tentative links, but only the commit callback
+// publishes a final parent map after all admission checks succeed.
+fn batch_alias_observe(t:&mut Trace,fuel:usize,emit:impl FnMut(UnionWitness),
+    commit:impl FnOnce(&AliasMap))->usize{
     if t.empty()||t.size()>TERM_CAP{return 0;}
-    let parent=alias_map(t);
+    let parent=alias_map_observe(t,emit);
     if parent.is_empty()||parent.len()>fuel{return 0;}
     let mut q=t.clone();
     let mut phase=PhasePolynomial::new();
@@ -687,8 +703,124 @@ fn batch_alias(t:&mut Trace,fuel:usize)->usize{
     assert!(q.p.terms.keys().all(|m|m.iter().all(|v|q.live.contains(v))));
     assert!(q.constraints.iter().flatten().all(|m|m.iter().all(|v|q.live.contains(v))));
     if q.size()>TERM_CAP||!t.accepts(&q){return 0;}
-    let n=parent.len();*t=q;n
+    let n=parent.len();*t=q;commit(&parent);n
 }
+
+// Research-only independent structural certificate checker. It never calls
+// alias_map, alias_root, alias_mono, toggle or the reducer. It consumes the
+// original trace and the claimed committed result, with no solver verdict.
+#[cfg(test)]
+fn check_union_certificate(before:&Trace,after:&Trace,steps:&[UnionWitness],
+    claimed:&AliasMap)->Result<(), &'static str>{
+    use std::collections::{BTreeMap,BTreeSet};
+    fn root(map:&BTreeMap<u32,u32>,mut v:u32)->Result<u32,&'static str>{
+        while let Some(&p)=map.get(&v){
+            if p>=v{return Err("nondecreasing parent");}
+            v=p;
+        }
+        Ok(v)
+    }
+    if before.n!=after.n{return Err("input count");}
+    if before.n>before.live.len()||(0..before.n).any(|v|u32::try_from(v).ok().map_or(true,|v|!before.live.contains(&v))){
+        return Err("missing input");
+    }
+    if before.constraints.iter().flatten().chain(before.p.terms.keys()).flatten()
+        .any(|v|!before.live.contains(v)){return Err("dangling original support");}
+    let mut edges=BTreeSet::new();
+    for row in &before.constraints{
+        if row.len()==2&&row.iter().all(|m|m.len()==1){
+            let mut ids=row.iter().map(|m|m[0]);
+            let a=ids.next().unwrap();let b=ids.next().unwrap();
+            edges.insert((a.min(b),a.max(b)));
+        }
+    }
+    let mut map=BTreeMap::new();
+    for s in steps{
+        if ![s.x,s.y,s.child,s.par].iter().all(|v|before.live.contains(v)){
+            return Err("nonlive link");
+        }
+        if s.x==s.y||!edges.contains(&(s.x.min(s.y),s.x.max(s.y))){return Err("source row");}
+        if s.par>=s.child{return Err("nondecreasing parent");}
+        if (s.child as usize)<before.n{return Err("input child");}
+        if root(&map,s.x)?!=s.child||root(&map,s.y)?!=s.par{return Err("stale root");}
+        if map.contains_key(&s.child)||map.contains_key(&s.par){return Err("nonterminal root");}
+        map.insert(s.child,s.par);
+    }
+    if claimed.len()!=map.len()||map.iter().any(|(v,p)|claimed.get(v)!=Some(p)){
+        return Err("parent map mismatch");
+    }
+    let live:BTreeSet<_>=before.live.iter().copied().filter(|v|!map.contains_key(v)).collect();
+    if live!=after.live.iter().copied().collect(){return Err("live domain mismatch");}
+    // Independently map every original row, cancel identical supports over F2,
+    // and preserve row order. Only genuinely empty rows may be removed.
+    let mut rows=Vec::new();
+    for row in &before.constraints{
+        let mut parity=BTreeSet::new();
+        for mono in row{
+            let mut support=BTreeSet::new();
+            for &v in mono{support.insert(root(&map,v)?);}
+            let m:Vec<_>=support.into_iter().collect();
+            if !parity.insert(m.clone()){parity.remove(&m);}
+        }
+        if !parity.is_empty(){rows.push(parity);}
+    }
+    let actual:Vec<BTreeSet<Vec<u32>>>=after.constraints.iter().map(|q|q.iter().cloned().collect()).collect();
+    if rows!=actual{return Err("ANF transport mismatch");}
+    if after.p.terms.keys().flatten().any(|v|!after.live.contains(v)){return Err("dangling reduced phase");}
+    // IMPORTANT: phase coefficients and normalization are NOT certified here.
+    Ok(())
+}
+
+#[cfg(test)]
+fn recorded_batch_alias(t:&mut Trace,fuel:usize)->(usize,Vec<UnionWitness>,Option<AliasMap>){
+    let mut steps=Vec::new();let mut committed=None;
+    let n=batch_alias_observe(t,fuel,|s|steps.push(s),|m|committed=Some(m.clone()));
+    (n,steps,committed)
+}
+
+#[test]
+fn exact_trace_union_certificate_negative_controls(){
+    use quprs::rational::PhaseCoeff;
+    let mut ps=PathSum::new(2);ps.rr_tolerance=0.0;
+    for _ in 0..4{ps.v.get_fresh_var();}
+    let mut before=Trace::from_native(&ps).unwrap();
+    // The final edge 3 -> 0 is not literally in the source rows.
+    // The input-input equation implied by 1=3 and 0=2=3 remains.
+    before.constraints=vec![
+        [vec![0],vec![2]].into_iter().collect(),
+        [vec![2],vec![3]].into_iter().collect(),
+        [vec![1],vec![3]].into_iter().collect(),
+        [vec![2],vec![4]].into_iter().collect(),
+        [vec![2,4],vec![3],vec![5]].into_iter().collect(),
+    ];
+    before.p.add_term(vec![2,3],PhaseCoeff::HALF);
+    let mut after=before.clone();
+    let (n,steps,committed)=recorded_batch_alias(&mut after,64);
+    assert_eq!(n,3);
+    let parent=committed.unwrap();
+    assert_eq!(check_union_certificate(&before,&after,&steps,&parent),Ok(()));
+    let mut rejected=0;
+    let reject=|b:&Trace,a:&Trace,s:&[UnionWitness],m:&AliasMap|{
+        assert!(check_union_certificate(b,a,s,m).is_err());
+    };
+    let mut bad=steps.clone();bad[0].x=5;reject(&before,&after,&bad,&parent);rejected+=1;
+    let mut bad=steps.clone();bad[0].child=99;reject(&before,&after,&bad,&parent);rejected+=1;
+    let mut bad=steps.clone();bad[0].par=bad[0].child;reject(&before,&after,&bad,&parent);rejected+=1;
+    let mut bad=steps.clone();bad[0].child=1;bad[0].par=0;reject(&before,&after,&bad,&parent);rejected+=1;
+    let mut bad=steps.clone();bad[0].child=5;reject(&before,&after,&bad,&parent);rejected+=1;
+    let mut bad=steps.clone();bad.push(steps[0]);reject(&before,&after,&bad,&parent);rejected+=1;
+    let mut bad=steps.clone();bad.pop();reject(&before,&after,&bad,&parent);rejected+=1;
+    let mut bad=parent.clone();bad.insert(5,0);reject(&before,&after,&steps,&bad);rejected+=1;
+    let mut bad=after.clone();bad.live.remove(&0);reject(&before,&bad,&steps,&parent);rejected+=1;
+    let mut bad=after.clone();bad.constraints.pop();reject(&before,&bad,&steps,&parent);rejected+=1;
+    let mut bad=before.clone();bad.live.remove(&2);reject(&bad,&after,&steps,&parent);rejected+=1;
+    let mut bad=after.clone();bad.n+=1;reject(&before,&bad,&steps,&parent);rejected+=1;
+    let mut capped=before.clone();
+    let (count,_,commit)=recorded_batch_alias(&mut capped,1);
+    assert_eq!(count,0);assert!(commit.is_none());assert_eq!(before.cost(),capped.cost());
+    println!("CRR_UNION_CERTIFICATE_NEGATIVE accepted=1 rejected={rejected} rejected_trial_uncommitted=1 phase_coefficients_certified=false");
+}
+
 // Free hidden variables contribute exactly 2 per variable, regardless
 // of the remaining constraints. Preserve original input representatives.
 fn batch_free(t:&mut Trace,fuel:usize)->usize{
@@ -981,7 +1113,8 @@ fn exact_trace_batched_alias_forest(){
             if next()%9==0{orig.p.add_term(m,PhaseCoeff::new_constant(Rational::new((next()%8) as i64,8)));}
         }
         let mut q=orig.clone();
-        let n=batch_alias(&mut q,64);assert_eq!(n,if k%2==0{2}else{3});
+        let (n,steps,cert)=recorded_batch_alias(&mut q,64);assert_eq!(n,if k%2==0{2}else{3});
+        assert_eq!(check_union_certificate(&orig,&q,&steps,&cert.unwrap()),Ok(()));
         aliases+=n;
         assert!((0..3).all(|x|q.live.contains(&x)));
         let f=batch_free(&mut q,64-n);assert!(f>=1);free_count+=f;
@@ -1008,11 +1141,12 @@ fn exact_trace_batched_alias_forest(){
         [vec![0,4],vec![0,5],vec![1]].into_iter().collect()
     ];
     orig.p.add_term(vec![4,6],PhaseCoeff::HALF);
-    let mut q=orig.clone();assert_eq!(batch_alias(&mut q,64),2);
+    let mut q=orig.clone();let (n,steps,cert)=recorded_batch_alias(&mut q,64);assert_eq!(n,2);
+    assert_eq!(check_union_certificate(&orig,&q,&steps,&cert.unwrap()),Ok(()));
     assert_eq!(q.constraints.len(),1);
     assert!(q.constraints[0].contains(&vec![1]));
     for x in 0..16{assert_eq!(hist(&orig,x),hist(&q,x));checks+=1;}
-    println!("CRR_BATCH_ORACLE models=513 histogram_checks={checks} alias_eliminations={aliases} free_eliminations={free_count} cycle_control=1");
+    println!("CRR_BATCH_ORACLE models=513 histogram_checks={checks} alias_eliminations={aliases} free_eliminations={free_count} cycle_control=1 union_certificate_checks=513");
 }
 
 

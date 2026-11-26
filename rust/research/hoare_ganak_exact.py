@@ -1249,6 +1249,115 @@ def run_rus_unit(directory,exe,tmp,direct):
         print("HOARE_RUS_UNIT_GPMC "+json.dumps(r),flush=True)
     print("HOARE_RUS_UNIT_SUMMARY "+json.dumps(dict(expected=6,exported=len(rows),exact=exact,raw_crosschecked=cross)),flush=True)
 
+
+def rus_unit_moment_classes(vs,dl,odd):
+    """Full-equivalence one-hot flags determined by the existing exponent."""
+    assert odd>0 and len(dl)==6+odd.bit_length()
+    counter=dl[6:]
+    flags=list(range(vs+1,vs+odd+2))
+    extra=[]
+    for k,l in enumerate(flags):
+        bits=[v if k>>j&1 else -v for j,v in enumerate(counter)]
+        extra.extend([[-l,b] for b in bits])
+        extra.append([l]+[-b for b in bits])
+    extra.append(flags)
+    # Exhaustively verify the small decoder, including invalid counter codes
+    # and all possible flag vectors. No source assignments are required here:
+    # the original native UP receipt already verifies the counter semantics.
+    tested=0
+    for k in range(1<<len(counter)):
+        extensions=0
+        for mask in range(1<<len(flags)):
+            truth={v:bool(k>>j&1) for j,v in enumerate(counter)}
+            truth.update({v:bool(mask>>j&1) for j,v in enumerate(flags)})
+            valid=all(any(truth[abs(l)]==(l>0) for l in c) for c in extra)
+            if valid:
+                assert k<=odd and mask==1<<k
+                extensions+=1
+            tested+=1
+        assert extensions==int(k<=odd)
+    return flags,extra,tested
+
+
+def run_rus_unit_moments(directory,exe,tmp,direct):
+    """Compress unit exponent to two nonnegative Pell coefficients.
+
+    The two coefficient sums occupy subdigits of one natural count.
+    Existing deterministic counter + equality flags, no new primary bits.
+    """
+    with (directory/"native-rus-unit.tsv").open() as f:rows=list(csv.reader(f,delimiter="\t"))
+    exact=0;cross=0;skipped=0;tested=0;start=time.monotonic()
+    for case,h0,h,primary,odd,vs,cs,B,ds,ex,base,ref,enc,checks,admitted in rows:
+        h0,h,primary,odd,vs,cs,B,enc,checks,admitted=map(int,(h0,h,primary,odd,vs,cs,B,enc,checks,admitted))
+        if odd==0:
+            skipped+=1
+            print("HOARE_RUS_MOMENT_SKIP "+json.dumps(dict(case=case,reason="no-odd-factors")),flush=True)
+            continue
+        assert 0<h<=h0<=17 and primary==h+1 and B==(1<<primary)+1
+        # Pilot bounded to the observed fixture range. No unbounded decoder
+        # enumeration or implicit cap increase for future larger circuits.
+        assert 1<=odd<=6 and odd<=h0-h
+        dl=list(map(int,ds.split(",")));expected=list(map(int,ex.split(",")))
+        K=list(map(int,base.split(",")));ref=list(map(int,ref.split(",")))
+        assert len(dl)==6+odd.bit_length() and len(dl)==len(set(dl)) and all(0<l<=vs for l in dl)
+        assert len(K)==4 and len(ref)==32 and len(expected)==1<<len(dl)
+        assert sum(expected)==admitted and all(0<=v<B for v in expected) and not any(expected[64*(odd+1):])
+        N=1<<primary
+        A=[1];C=[0]
+        for k in range(odd):
+            A.append(A[-1]+2*C[-1]);C.append(A[-2]+C[-1])
+        R=N*max(A[-1],C[-1])+1;radix=R*R
+        want_a=[sum(expected[64*k+j]*A[k] for k in range(odd+1)) for j in range(64)]
+        want_b=[sum(expected[64*k+j]*C[k] for k in range(odd+1)) for j in range(64)]
+        assert all(0<=v<R for v in want_a+want_b)
+        t=time.monotonic_ns()
+        flags,extra,local_checks=rus_unit_moment_classes(vs,dl,odd)
+        tested+=local_checks
+        header,*body=(directory/f"{case}.cnf").read_text().splitlines()
+        assert header==f"p cnf {vs} {cs}" and len(body)==cs
+        nv=vs+len(flags);nc=cs+len(extra)
+        assert nv<=4096 and nc<=32768
+        weights={l:radix**(1<<i) for i,l in enumerate(dl[:6])}
+        weights.update({l:A[k]+R*C[k] for k,l in enumerate(flags)})
+        weights.update({-l:1 for l in list(weights)})
+        p=pathlib.Path(tmp)/"rus-unit-moment.cnf"
+        p.write_text("c t wmc\n"+f"p cnf {nv} {nc}\n"+"".join(f"c p weight {l} {w} 0\n" for l,w in sorted(weights.items()))+"\n".join(body)+"\n"+"".join(" ".join(map(str,c))+" 0\n" for c in extra))
+        augment_ns=time.monotonic_ns()-t
+        r=dict(case=case,h0=h0,h=h,primary=primary,odd=odd,vars=nv,clauses=nc,
+               base_vars=vs,base_clauses=cs,base_encode_ns=enc,augment_ns=augment_ns,
+               class_checks=local_checks,radix=radix,subradix=R,checks=checks,
+               query_sha256=hashlib.sha256(p.read_bytes()).hexdigest(),metrics=[],status="UNKNOWN")
+        try:
+            remaining=40-(time.monotonic()-start)
+            if remaining<=0:raise TimeoutError("moment scheduling deadline")
+            out=profile_gpmc([str(exe),"-mode=1","-natw",str(p)],min(5,remaining),pathlib.Path(tmp)/"rus-unit-moment-time.tsv",r["metrics"])
+            val=parse_gpmc_integer(out,"wmc",radix**64-1)
+            bits=val.bit_length()
+            t=time.monotonic_ns()
+            got_a=[];got_b=[];coeff=[[0]*4 for _ in range(8)]
+            for j in range(64):
+                digit=val%radix;val//=radix
+                a=digit%R;b=digit//R
+                got_a.append(a);got_b.append(b)
+                e=j%8;q=[0]*4;q[e%4]=1 if e<4 else -1
+                term=rus_mul(rus_mul(K,[a,b,0,-b]),q)
+                for i,c in enumerate(term):coeff[j//8][i]+=c
+            decode_ns=time.monotonic_ns()-t
+            assert val==0 and got_a==want_a and got_b==want_b
+            assert [c for v in coeff for c in v]==ref
+            name=case.removeprefix("rus-unit-")
+            if name in direct:
+                assert direct[name]==coeff
+                cross+=1;r["raw_crosscheck"]=True
+            exact+=1
+            r.update(status="EXACT",packed_bits=bits,decode_ns=decode_ns,coeff=coeff,
+                     moments_a=got_a,moments_b=got_b)
+        except (TimeoutError,subprocess.TimeoutExpired):r["status"]="TIMEOUT"
+        except SolverSignalKilled:r["status"]="UNATTRIBUTED_SIGNAL_KILL"
+        print("HOARE_RUS_MOMENT_GPMC "+json.dumps(r),flush=True)
+    print("HOARE_RUS_MOMENT_SUMMARY "+json.dumps(dict(expected=5,exact=exact,raw_crosschecked=cross,
+          skipped_no_odd=skipped,class_checks=tested)),flush=True)
+
 def run_rus_gram(directory,exe,tmp,reference,linear):
     """Independent reduced-source Gram queries; no oracle in verdict computation."""
     with (directory/"native-rus-gram.tsv").open() as f:
@@ -1798,6 +1907,7 @@ def run_gpmc_pure(directory, exe, tmp, deadline):
             run_rus_gram(directory,exe,tmp,direct,dr)
         if (directory/"native-rus-unit.tsv").is_file():
             run_rus_unit(directory,exe,tmp,direct)
+            run_rus_unit_moments(directory,exe,tmp,direct)
         if (directory/"native-rus-composite.tsv").is_file():
             run_rus_composite(directory,exe,tmp)
             replay=os.environ.get("HOARE_CUBIC_REPLAY","0")

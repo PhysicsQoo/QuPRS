@@ -10,7 +10,7 @@ on:
       suite:
         description: Experimental evidence suite
         type: choice
-        options: [legacy, cross-family, source-admission, root-profile, factor-classes, sparse-anchor, prefix-memo, axis-profile, direct-binary, operand-profile, pool-profile, last-use-donor, masked-donor, descendant-units, inplace-scan, inplace-branch, move-components, borrowed-cache, general-cumulative, general-simulation-repair, general-native-gpmc, scope-scratch, streaming-large-general, large-root-closure, large-descendant-closure, fixed-work-descendant, large-general-candidate, long-native-candidate, default-parser-isolation, scope-scratch-fair, scope-scratch-candidate, large-root-ownership, root-ownership-port, packed-index-scratch, owned-entry-isolation, root-long-regression, reversible-index-state, reversible-canonical-boundary, historical-gap-baseline, reversible-frontier-transitions, reversible-ordered-frontier, historical-grover5]
+        options: [legacy, cross-family, source-admission, root-profile, factor-classes, sparse-anchor, prefix-memo, axis-profile, direct-binary, operand-profile, pool-profile, last-use-donor, masked-donor, descendant-units, inplace-scan, inplace-branch, move-components, borrowed-cache, general-cumulative, general-simulation-repair, general-native-gpmc, scope-scratch, streaming-large-general, large-root-closure, large-descendant-closure, fixed-work-descendant, large-general-candidate, long-native-candidate, default-parser-isolation, scope-scratch-fair, scope-scratch-candidate, large-root-ownership, root-ownership-port, packed-index-scratch, owned-entry-isolation, root-long-regression, reversible-index-state, reversible-canonical-boundary, historical-gap-baseline, reversible-frontier-transitions, reversible-ordered-frontier, historical-grover5, grover5-precision-audit]
         default: legacy
 permissions:
   contents: read
@@ -3770,7 +3770,7 @@ jobs:
           if-no-files-found: warn
 
   reversible-ordered-frontier:
-    if: github.event_name == 'push' || inputs.suite == 'reversible-ordered-frontier'
+    if: github.event_name == 'workflow_dispatch' && inputs.suite == 'reversible-ordered-frontier'
     name: Ordered frontier / bitmap and materialized keys
     runs-on: ubuntu-24.04
     timeout-minutes: 8
@@ -3809,7 +3809,7 @@ jobs:
           if-no-files-found: warn
 
   historical-grover5:
-    if: github.event_name == 'push' || inputs.suite == 'historical-grover5'
+    if: github.event_name == 'workflow_dispatch' && inputs.suite == 'historical-grover5'
     name: Historical long case / v0.1.1 vs GPMC / ${{ matrix.case }}
     runs-on: ubuntu-24.04
     timeout-minutes: 8
@@ -3961,6 +3961,163 @@ jobs:
         if: always()
         with:
           name: rawmocs-historical-gap-${{ matrix.case }}
+          path: .gap-evidence/
+          include-hidden-files: true
+          if-no-files-found: warn
+
+  grover5-precision-audit:
+    if: github.event_name == 'push' || inputs.suite == 'grover5-precision-audit'
+    name: Grover5 precision audit / ${{ matrix.digits }} working digits
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    strategy:
+      fail-fast: false
+      matrix:
+        digits: [60, 100, 130]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: PhysicsQoo/RaWMoCS
+          ref: b3d02b2720c2fae5231c0ed5cf44950164a5780d
+          path: .gap-release
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: PhysicsQoo/GPMC
+          ref: 89bbc89d0de918e7a5385740355df55765039230
+          path: .gpmc
+          submodules: recursive
+          persist-credentials: false
+      - name: Recover exact historic original CNFs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          zip="$RUNNER_TEMP/historical-trail.zip"
+          gh api repos/PhysicsQoo/RaWMoCS/actions/artifacts/14234415131/zip > "$zip"
+          echo '5f91528c376448c537e4ff08e26e9bb38b81bb7574c3596c8b0f8f3a50a632f4  '"$zip" | sha256sum -c -
+          unzip -q "$zip" -d .gap-input
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: .gap-release/crates/rawmocs-cli -> target
+          shared-key: rawmocs-general-dependencies
+          cache-workspace-crates: 'false'
+      - name: Build pinned original GPMC and released RaWMoCS
+        run: |
+          set -euo pipefail
+          test "$(git -C .gap-release rev-parse HEAD)" = b3d02b2720c2fae5231c0ed5cf44950164a5780d
+          test "$(git -C .gpmc rev-parse HEAD)" = 89bbc89d0de918e7a5385740355df55765039230
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends cmake ninja-build libgmp-dev libmpfr-dev zlib1g-dev m4 make gcc time pkg-config
+          cargo build --locked --release --manifest-path .gap-release/crates/rawmocs-cli/Cargo.toml
+          cmake -S .gpmc -B .gpmc/build -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake --build .gpmc/build --target gpmc-bin --parallel 2
+      - name: Fresh paired counts, bounded independent oracle, and route attribution
+        env:
+          DIGITS: ${{ matrix.digits }}
+        run: |
+          set -euo pipefail
+          mkdir -p .gap-evidence
+          python3 - <<'PY'
+          import hashlib,json,os,re,statistics,subprocess,sys,time
+          from fractions import Fraction
+          from pathlib import Path
+          root=Path(".gap-evidence").resolve()
+          tools=Path(".gap-release/crates/rawmocs-cli/tools").resolve()
+          sys.path.insert(0,str(tools))
+          from release_transfer import check_count
+          from release_native_paired import parse
+          def digest(p): return hashlib.sha256(p.read_bytes()).hexdigest()
+          name="feynman_grover_5"
+          expected={"feynman_grover_5":"eeb8e82273b1e9dc105e004d73b3e59f1d48bb893fe768bb4034262224a780b0"}[name]
+          cnf,=Path(".gap-input").rglob(name+"-gpmc.cnf")
+          cnf=cnf.resolve()
+          assert digest(cnf)==expected
+          bins={"rawmocs":Path(".gap-release/crates/rawmocs-cli/target/release/rawmocs").resolve(),"gpmc":Path(".gpmc/build/gpmc").resolve()}
+          report={"case":name,"source_sha256":expected,"source_bytes":cnf.stat().st_size,"header":cnf.open().readline().strip(),"revisions":{"rawmocs":"b3d02b2720c2fae5231c0ed5cf44950164a5780d","gpmc":"89bbc89d0de918e7a5385740355df55765039230","original_quprs":"0b28736651b3740ed3b201edd2efdef3da541e0d"},"binaries":{a:digest(p) for a,p in bins.items()},"oracle_attempts":[],"cohorts":{}}
+          def save(): (root/"report.json").write_text(json.dumps(report,indent=2)+"\n")
+          save()
+          # The pinned standalone fixed-interval script emits an unlabelled
+          # result after its self-test. The release regeneration wrapper
+          # adds status only after validating the successful result.
+          p=subprocess.run(["timeout","-k","2s","45s","prlimit","--as=3221225472","--",sys.executable,str(tools/"repro"/"original_fixed_interval.py"),str(cnf),expected],capture_output=True,text=True,timeout=50)
+          (root/"fixed-interval.stdout").write_text(p.stdout)
+          (root/"fixed-interval.stderr").write_text(p.stderr)
+          assert p.returncode==0 and "FIXED_INTERVAL_SELF_TEST PASS" in p.stderr
+          ref=json.loads(p.stdout)
+          assert ref["source_sha256"]==expected and ref["bits"]==550
+          assert ref["variables"]==607 and ref["clauses"]==1121 and type(ref["sat"]) is bool
+          assert ref["order_policy"] in ("fill-reverse","degree-reverse") and ref["width"]<=19 and ref["work"]<=40000000 and ref["peak"]<=2000000
+          bounds={k:tuple(map(Fraction,ref[k])) for k in ("real","imag")}
+          assert all(len(v)==2 and v[0]<=v[1] for v in bounds.values())
+          ref["status"]="INDEPENDENT_FIXED_INTERVAL_COMPLETE"
+          witness=root/"independent-reference.json"
+          witness.write_text(json.dumps(ref,indent=2)+"\n")
+          report["witness_status"]=ref["status"]
+          report["witness_sha256"]=digest(witness)
+          report["oracle"]={k:ref[k] for k in ("bits","width","work","peak","order_policy","wall_s","real","imag","sat")}
+          digits=int(os.environ["DIGITS"])
+          bits={60:200,100:333,130:432}[digits]
+          target=30 if digits==60 else 100
+          report.update(digits=digits,bits=bits,target=target,rows=[])
+          def assess(row):
+              x={k:Fraction(row[k]) for k in bounds}
+              errors={k:max(abs(x[k]-v) for v in bounds[k]) for k in bounds}
+              scale=max(Fraction(1),*(abs(v) for v in x.values()),*(min(map(abs,v)) if v[0]*v[1]>0 else Fraction(0) for v in bounds.values()))
+              upper=max(errors.values())/scale
+              row["witness_upper"]=str(upper)
+              row["component_upper"]={k:str(errors[k]/max(Fraction(1),abs(x[k]),min(map(abs,bounds[k])) if bounds[k][0]*bounds[k][1]>0 else Fraction(0))) for k in bounds}
+              row["passes"]={str(t):row["sat"]==ref["sat"] and upper<=Fraction(1,10**(t-6)) for t in sorted({30,100,digits})}
+              row["status"]="WITNESSED_TARGET_PASS" if row["passes"][str(target)] else "WITNESSED_TARGET_FAIL"
+          cmds={"gpmc":[str(bins["gpmc"]),"-mode=1",f"-prec={digits}",str(cnf)],"rawmocs":[str(bins["rawmocs"]),"--digits",str(digits),"--timeout-ms","45000",str(cnf)]}
+          for i,arm in enumerate(("gpmc","rawmocs","rawmocs","gpmc")):
+              prefix=root/f"{digits}-{i}-{arm}"
+              assert digest(cnf)==expected
+              start=time.monotonic_ns()
+              p=subprocess.run(["timeout","-k","2s","45s","prlimit","--as=3221225472","--","/usr/bin/time","-f","%M","-o",str(prefix.with_suffix(".rss")),*cmds[arm]],capture_output=True,text=True,timeout=52)
+              row={"arm":arm,"exit":p.returncode,"wall_ns":time.monotonic_ns()-start}
+              report["rows"].append(row)
+              prefix.with_suffix(".stdout").write_text(p.stdout)
+              prefix.with_suffix(".stderr").write_text(p.stderr)
+              rss=prefix.with_suffix(".rss")
+              if rss.exists():
+                  vals=[x for x in rss.read_text().splitlines() if x.strip().isdigit()]
+                  if len(vals)==1: row["rss_kib"]=int(vals[0])
+              if p.returncode!=0: row["status"]="CENSORED_OR_FAILED"
+              else:
+                  try:
+                      row.update(parse(p.stdout,arm))
+                      if arm=="rawmocs":
+                          route,solve=re.findall(r"^RAWMOCS_COMPLETE route=(\w+) digits="+str(digits)+r" bits="+str(bits)+r" solve_ns=(\d+)$",p.stderr,re.M)[0]
+                          row["route"]=route
+                          row["solve_ns"]=int(solve)
+                      else: row["working_digits_requested"]=digits
+                      assess(row)
+                  except (AssertionError,ValueError,IndexError,KeyError) as e:
+                      row["status"]="NUMERIC_OR_PROTOCOL_INCONCLUSIVE"
+                      row["error"]=str(e)
+              save()
+          rows=report["rows"]
+          if all(x["status"] in ("WITNESSED_TARGET_PASS","WITNESSED_TARGET_FAIL") for x in rows):
+              stable=all((x["sat"],x["real"],x["imag"])==next((y["sat"],y["real"],y["imag"]) for y in rows if y["arm"]==x["arm"]) for x in rows)
+              a,b=rows[:2]
+              scale=max(Fraction(1),*(abs(Fraction(x[k])) for x in (a,b) for k in bounds))
+              agreement=max(abs(Fraction(a[k])-Fraction(b[k])) for k in bounds)/scale
+              report["stable_counts"]=stable
+              report["cross_solver_upper"]=str(agreement)
+              report["target_pass"]=stable and a["sat"]==b["sat"] and agreement<=Fraction(1,10**(target-6)) and all(x["status"]=="WITNESSED_TARGET_PASS" for x in rows)
+              report["median"]={a:{k:statistics.median(x[k] for x in rows if x["arm"]==a) for k in ("wall_ns","rss_kib")} for a in bins}
+              if report["target_pass"]: report["gpmc_over_rawmocs"]=report["median"]["gpmc"]["wall_ns"]/report["median"]["rawmocs"]["wall_ns"]
+              report["status"]="WITNESSED_TARGET_PAIRS_PASS" if report["target_pass"] else "NUMERIC_TARGET_INCONCLUSIVE"
+          else: report["status"]="CENSORED_OR_FAILED"
+          save()
+          print("GROVER5_PRECISION_FINAL",json.dumps(report),flush=True)
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: rawmocs-grover5-precision-${{ matrix.digits }}
           path: .gap-evidence/
           include-hidden-files: true
           if-no-files-found: warn

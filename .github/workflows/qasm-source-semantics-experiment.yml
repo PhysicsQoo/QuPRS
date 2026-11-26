@@ -1028,7 +1028,7 @@ jobs:
           fi
 
           factor_scope_status=0
-          lean AffineFactorScope.lean 2>&1 | tee /tmp/qasm-lean-affine-factor-scope.log || factor_scope_status=$?
+          lean -o AffineFactorScope.olean AffineFactorScope.lean 2>&1 | tee /tmp/qasm-lean-affine-factor-scope.log || factor_scope_status=$?
           if grep -E 'sorryAx|Lean[.]trustCompiler|Classical[.]choice' /tmp/qasm-lean-affine-factor-scope.log; then
             factor_scope_status=1
           fi
@@ -1040,6 +1040,25 @@ jobs:
             echo 'LEAN4_AFFINE_FACTOR_SCOPE_PASS theorem_axiom_reports=13 scope_roundtrip=true projection=true bucket_distributivity=true partitioned_product=true eliminated_variable_independent=true empty_bucket=true packed_index_refinement=false'
           else
             echo 'LEAN4_AFFINE_FACTOR_SCOPE_FAIL' >&2
+          fi
+
+          elimination_status=0
+          if test "$factor_scope_status" -eq 0; then
+            LEAN_PATH=. lean AffineFactorElimination.lean 2>&1 | tee /tmp/qasm-lean-affine-factor-elimination.log || elimination_status=$?
+            if grep -E 'sorryAx|Lean[.]trustCompiler|Classical[.]choice' /tmp/qasm-lean-affine-factor-elimination.log; then
+              elimination_status=1
+            fi
+            test "$(grep -Ec 'does not depend on any axioms|depends on axioms' /tmp/qasm-lean-affine-factor-elimination.log)" -eq 8 || elimination_status=1
+            for theorem in mem_without removed_not_member product_support eliminate_support contracted_scope_closed product_append contract_step_sound contract_order_sound; do
+              test "$(grep -Ec "^'QuPRS[.]AffineFactorElimination[.]$theorem' (does not depend on any axioms|depends on axioms)" /tmp/qasm-lean-affine-factor-elimination.log)" -eq 1 || elimination_status=1
+            done
+          else
+            elimination_status=1
+          fi
+          if test "$elimination_status" -eq 0; then
+            echo 'LEAN4_AFFINE_FACTOR_ELIMINATION_PASS theorem_axiom_reports=8 scope_closure=true single_step=true ordered_elimination=true explicit_algebra_laws=true packed_index_refinement=false checked_execution_refinement=false'
+          else
+            echo 'LEAN4_AFFINE_FACTOR_ELIMINATION_FAIL' >&2
           fi
 
           incidence_status=0
@@ -1057,7 +1076,7 @@ jobs:
           else
             echo 'LEAN4_AFFINE_NATIVE_INCIDENCE_FAIL' >&2
           fi
-          test "$normalization_status" -eq 0 && test "$lift_status" -eq 0 && test "$incidence_status" -eq 0 && test "$negacyclic_status" -eq 0 && test "$checked_status" -eq 0 && test "$schedule_status" -eq 0 && test "$factor_scope_status" -eq 0
+          test "$normalization_status" -eq 0 && test "$lift_status" -eq 0 && test "$incidence_status" -eq 0 && test "$negacyclic_status" -eq 0 && test "$checked_status" -eq 0 && test "$schedule_status" -eq 0 && test "$factor_scope_status" -eq 0 && test "$elimination_status" -eq 0
 
       - name: Build and test std-only independent verifier
         run: |

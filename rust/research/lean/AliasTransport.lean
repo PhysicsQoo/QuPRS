@@ -163,7 +163,7 @@ theorem phase_insert {C : Type} [Zero C] [Add C]
       · rename_i h
         subst k
         simp only [phaseEval]
-        cases hm : monoEval a m <;> simp [mask, hm, zl, assoc]
+        cases hm : monoEval a m <;> simp [mask, zl, assoc]
       · simp only [phaseEval, ih]
         rw [← assoc, comm (mask (monoEval a k) d) (mask (monoEval a m) c), assoc]
 

@@ -324,6 +324,38 @@ fn export_projected(dir:&std::path::Path,name:&str,mode:&str,ps:&PathSum,h0:usiz
     rows.push_str(&format!("{name}\t{mode}\t{width}\t{h0}\t{residual}\t{scale2}\t{vars}\t{clauses}\t{sign}\t{d}\t{status}\t{build_ns}\t{rr_ns}\t{enc_ns}\t{expected_bad}\n"));
     println!("HOARE_PAPER_PROJECTED_EXPORT name={name} mode={mode} h={residual} vars={vars} clauses={clauses} denominator={d} status={status} encoding_ns={enc_ns}");
 }
+
+// The original labels are fixed before the single-copy encoder runs.
+// Oracle-known witnesses are explicit controls, not discovery results.
+fn export_single_fibres(dir:&std::path::Path,name:&str,ps:&PathSum,scale2:u32,
+                        build_ns:u128,rr_ns:u128,rows:&mut String){
+    let probes:&[(u64,u64,&str,bool)]=if name=="vchain"{
+        &[(0,16,"blind",false)]
+    }else{
+        &[(0,16,"blind",false),(0,17,"blind",false),(0,28,"oracle-control",true)]
+    };
+    for &(x,z,kind,expected) in probes{
+        assert_eq!(x&16,0);assert_eq!(z&16,16);
+        for affine in [false,true]{
+            let route=if affine{"affine"}else{"fixed"};
+            let key=format!("single-{name}-{x}-{z}-{route}");
+            let t=std::time::Instant::now();
+            let result=native_dyadic_cnf::native_dyadic_fibre(ps,x,z,affine,32768,262144);
+            let enc=t.elapsed().as_nanos();
+            let (status,vars,clauses,phase,d,primary)=if let Some((c,bits,d,primary))=result{
+                let mut text=format!("p cnf {} {}\n",c.vars,c.clauses.len());
+                for row in &c.clauses{
+                    for l in row{text.push_str(&format!("{l} "));}text.push_str("0\n");
+                }
+                std::fs::write(dir.join(format!("{key}.cnf")),text).unwrap();
+                let phase=bits.iter().map(|l|l.to_string()).collect::<Vec<_>>().join(",");
+                ("READY",c.vars,c.clauses.len(),phase,d,primary)
+            }else{("ENCODING_LIMIT_OR_UNSUPPORTED",0,0,String::new(),0,0)};
+            rows.push_str(&format!("{key}\t{name}\t{x}\t{z}\t{kind}\t{route}\t{status}\t{primary}\t{vars}\t{clauses}\t{phase}\t{d}\t{scale2}\t{build_ns}\t{rr_ns}\t{enc}\t{expected}\n"));
+        }
+    }
+}
+
 #[test]
 fn paper_qwalk_native_source_admission(){
     let Some(dir)=std::env::var_os("HOARE_PAPER_QWALK_DIR") else{
@@ -331,6 +363,7 @@ fn paper_qwalk_native_source_admission(){
     };
     let export=std::env::var_os("HOARE_PAPER_PROJECTED_DIR").map(std::path::PathBuf::from);
     let mut rows=String::new();
+    let mut single_rows=String::new();
     for (name,gates,rx,expected_bad) in [("vchain",417,51,false),("noancilla",1305,183,true)]{
         let src=std::fs::read_to_string(std::path::Path::new(&dir).join(format!("{name}.qasm"))).unwrap();
         let (ops,n,rxc)=source_ops(&src);
@@ -370,7 +403,8 @@ fn paper_qwalk_native_source_admission(){
             assert_eq!(initial_h-h(&out),r.elim+2*r.hh+r.omega);
             if let Some(dir)=&export{
                 export_projected(dir,name,if specialize{"hybrid-pre"}else{"hybrid"},&out,initial_h,r.scale2,build_ns,rr_ns,expected_bad,&mut rows);
-                if specialize{export_projected(dir,name,"hybrid-pre-heap",&out,initial_h,r.scale2,build_ns,rr_ns,expected_bad,&mut rows);}
+                if specialize{export_projected(dir,name,"hybrid-pre-heap",&out,initial_h,r.scale2,build_ns,rr_ns,expected_bad,&mut rows);
+                    export_single_fibres(dir,name,&out,r.scale2,build_ns,rr_ns,&mut single_rows); }
             }
             let mut bad=0usize;let mut checks=0usize;
             let status=if let Some(a)=entries(&out){
@@ -386,5 +420,6 @@ fn paper_qwalk_native_source_admission(){
                 h(&out),terms(&out),r.scale2,r.elim,r.hh,r.omega,r.limit);
         }
     }
-    if let Some(dir)=&export{std::fs::write(dir.join("paper-projected.tsv"),rows).unwrap();}
+    if let Some(dir)=&export{std::fs::write(dir.join("paper-projected.tsv"),rows).unwrap();
+        std::fs::write(dir.join("paper-single-fibre.tsv"),single_rows).unwrap();}
 }

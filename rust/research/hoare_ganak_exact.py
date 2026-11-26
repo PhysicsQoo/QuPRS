@@ -1929,6 +1929,8 @@ def run_gpmc_pure(directory, exe, tmp, deadline):
         run_native_gse_wmc(directory,solve,deadline,long_metrics)
         long_metrics=None
         query_cap=5
+    if (directory/"paper-single-fibre.tsv").is_file():
+        run_paper_single_fibre(directory,exe,tmp)
     if (directory/"paper-projected.tsv").is_file():
         query_cap=30
         deadline=time.monotonic()+240
@@ -2173,6 +2175,95 @@ def run_native_gse_wmc(directory,solve,deadline,metrics):
         baseline_terminal=sum(r["mode"]==m and r["status"]=="BASELINE_TERMINAL" for r in rows)) for m in ("baseline","gse")}),flush=True)
 
 
+
+
+def single_fibre_pack(base, phase, primary):
+    """One MPZ query: independent deterministic aliases even for signed/constant bits."""
+    header,*clauses=base.splitlines()
+    p,kind,vs,cs=header.split()
+    v,c=int(vs),int(cs)
+    if (p,kind)!=("p","cnf") or len(clauses)!=c or not 0<=primary<=v:
+        raise ValueError("invalid fibre CNF")
+    if not 1<=len(phase)<=6 or any(not 0<abs(l)<=v for l in phase):
+        raise ValueError("invalid phase bits")
+    bound=1<<primary
+    radix=bound+1
+    weights=[]
+    for i,l in enumerate(phase):
+        a=v+i+1
+        clauses.extend((f"{-a} {l} 0",f"{a} {-l} 0"))
+        weights.extend((f"c p weight {a} {radix**(1<<i)} 0",f"c p weight {-a} 1 0"))
+    return "\n".join(["c t wmc",f"p cnf {v+len(phase)} {len(clauses)}",*weights,*clauses])+"\n",radix,bound
+
+def single_fibre_decode(value,radix,bound,d):
+    if value<0 or radix!=bound+1 or d not in (2,4,8,16,32,64):
+        raise ValueError("invalid packed fibre count")
+    digits=[]
+    for _ in range(d):
+        value,digit=divmod(value,radix)
+        digits.append(digit)
+    if value or sum(digits)>bound:
+        raise ValueError("packed fibre exceeds primary bound")
+    return digits
+
+def run_paper_single_fibre(directory,exe,tmp):
+    fields="key case x z kind route status primary vars clauses phase denominator scale build_ns rr_ns encoding_ns expected".split()
+    with (directory/"paper-single-fibre.tsv").open() as f:
+        plans=list(csv.DictReader(f,fieldnames=fields,delimiter="\t"))
+    assert len(plans)==8
+    rows=[]
+    # Each route gets its own equal 120 s solver-stage envelope, 30 s/query.
+    # Alternate route order on successive probes, no oracle-driven stopping.
+    spent={"fixed":0.0,"affine":0.0}
+    for i in range(0,len(plans),2):
+        pair=plans[i:i+2]
+        if (i//2)%2:pair.reverse()
+        for p in pair:
+            r=dict(p);route=p["route"]
+            for k in ("x","z","primary","vars","clauses","denominator","scale","build_ns","rr_ns","encoding_ns"):
+                r[k]=int(p[k])
+            assert r["x"]&16==0 and r["z"]&16==16
+            r.update(digits=None,coefficients=None,verdict="UNKNOWN",metrics=[],query_s=0.0)
+            if p["status"]=="READY":
+                base=(directory/(p["key"]+".cnf")).read_text()
+                assert base.splitlines()[0]==f'p cnf {r["vars"]} {r["clauses"]}'
+                t=time.monotonic()
+                data,radix,bound=single_fibre_pack(base,list(map(int,p["phase"].split(","))),r["primary"])
+                r["pack_s"]=time.monotonic()-t
+                r["base_sha256"]=hashlib.sha256(base.encode()).hexdigest()
+                r["query_sha256"]=hashlib.sha256(data.encode()).hexdigest()
+                query=pathlib.Path(tmp)/"single-fibre.cnf"
+                query.write_text(data)
+                t=time.monotonic()
+                remaining=min(30,120-spent[route])
+                try:
+                    if remaining<=0:raise TimeoutError("route budget")
+                    out=profile_gpmc([str(exe),"-mode=1","-natw",str(query)],remaining,
+                                     pathlib.Path(tmp)/"single-fibre-time.tsv",r["metrics"])
+                    d=r["denominator"]
+                    value=parse_gpmc_integer(out,"wmc",bound*radix**(d-1))
+                    bins=single_fibre_decode(value,radix,bound,d)
+                    coeff=[bins[j]-bins[j+d//2] for j in range(d//2)]
+                    nonzero=any(coeff)
+                    assert nonzero==(p["expected"]=="true"),(p["key"],coeff)
+                    r.update(status="EXACT",digits=bins,coefficients=coeff,
+                             verdict="REFUTED" if nonzero else "UNKNOWN",
+                             fibre_status="NONZERO" if nonzero else "ZERO")
+                except (TimeoutError,subprocess.TimeoutExpired):r["status"]="TIMEOUT"
+                except SolverSignalKilled:r["status"]="SIGNAL_KILL"
+                r["query_s"]=time.monotonic()-t
+                spent[route]+=r["query_s"]
+            rows.append(r)
+            print("HOARE_PAPER_SINGLE_GPMC "+json.dumps(r),flush=True)
+    for i in range(0,len(rows),2):
+        a,b=rows[i:i+2]
+        if a["digits"] is not None and b["digits"] is not None:
+            assert a["digits"]==b["digits"],(a["key"],b["key"])
+    print("HOARE_PAPER_SINGLE_GPMC_SUMMARY "+json.dumps(dict(
+        records=len(rows),exact=sum(r["digits"] is not None for r in rows),
+        blind_nonzero=sum(r["verdict"]=="REFUTED" and r["kind"]=="blind" for r in rows),
+        oracle_control_nonzero=sum(r["verdict"]=="REFUTED" and r["kind"]=="oracle-control" for r in rows),
+        spent_s=spent)),flush=True)
 
 def run_paper_projected_optimized(directory,count,deadline,metrics):
     fields="case mode n h0 h scale vars clauses sign denominator status build_ns rr_ns encoding_ns expected_bad".split()

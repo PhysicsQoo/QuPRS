@@ -133,6 +133,7 @@ def main():
         # Primary GPMC pilot uses a separate budget before Ganak regressions.
         gpmc_rows=run_gpmc_pure(directory,pathlib.Path(sys.argv[4]).resolve(),tmp,time.monotonic()+45)
         run_predicate_moment_gpmc(directory,pathlib.Path(sys.argv[4]).resolve(),tmp,pathlib.Path(sys.argv[3]).resolve())
+        run_frame_scaling_gpmc(directory,pathlib.Path(sys.argv[4]).resolve(),tmp)
         deadline=time.monotonic()+90
         # Qualify unweighted free variables, UNSAT and large integers.
         assert count("p cnf 3 1\n1 0\n", []) == 4
@@ -4731,6 +4732,80 @@ def run_predicate_moment_gpmc(directory, exe, tmp, sat_exe):
         fourth_calls=sum(len(r["receipts"]) for r in results if r["route"]=="fourth"),
         staged_calls=sum(len(r["receipts"]) for r in results if r["route"]=="staged"),
         staged_leakage_stops=sum(r["reason"]=="LEAKAGE" for r in results),screened_structural=sum(r["reason"]=="STRUCTURAL_UNSAT" for r in results),screened_empty=sum(r["reason"]=="EMPTY_PRE" for r in results),screened_gpmc_calls=sum(q["route"]!="structural" for r in results if r["route"]=="screened" for q in r["receipts"]),spent=spent)),flush=True)
+
+
+def run_frame_scaling_gpmc(directory, exe, tmp):
+    """Exact matched pure-GPMC and existing RR-first hybrid baseline."""
+    directory=directory/"frame-scaling"
+    plans=dispatch_rr_rows(directory,20)
+    fields="case n afree bfree coeff witnesses".split()
+    with (directory/"oracle.tsv").open() as f:
+        oracle={r["case"]:r for r in csv.DictReader(f,fieldnames=fields,delimiter="\t")}
+    assert set(plans)==set(oracle)
+    spent={"pure":0.0,"rr-first":0.0}
+    rows=[]
+    for i,(name,p) in enumerate(plans.items()):
+        o=oracle[name]
+        expected=tuple(map(int,o["coeff"].split(",")))
+        witnesses=set() if o["witnesses"]=="-" else set(map(int,o["witnesses"].split(",")))
+        assert (expected==(0,0))==(not witnesses)
+        for arm in (("pure","rr-first") if i%2==0 else ("rr-first","pure")):
+            start=time.monotonic()
+            end=start+min(4.0,max(0.0,20.0-spent[arm]))
+            reduced=arm=="rr-first"
+            status=p["status"] if reduced else p["pure_status"]
+            prep_us=int(p["rr_us"])+int(p["encoding_us"]) if reduced else int(p["build_us"])+int(p["pure_us"])
+            row=dict(case=name,n=int(o["n"]),arm=arm,verdict="UNKNOWN",
+                     status=status,h=int(p["h"]),hr=int(p["hr"]) if reduced else int(p["h"]),
+                     prep_us=prep_us,metrics=[],queries=0)
+            if reduced and status in ("PROVED","REFUTED"):
+                row["verdict"]=status
+                if status=="REFUTED":
+                    assert int(p["witness"]) in witnesses
+                    row["witness"]=int(p["witness"])
+            elif status=="READY":
+                try:
+                    kind="rr" if reduced else "pure"
+                    base=(directory/f"dispatch-{kind}-{name}.cnf").read_text()
+                    vars_,clauses=map(int,base.splitlines()[0].split()[2:])
+                    assert vars_==int(p["vars" if reduced else "pure_vars"])
+                    assert clauses==int(p["clauses" if reduced else "pure_clauses"])
+                    delta=list(map(int,p["delta" if reduced else "pure_delta"].split(",")))
+                    # A conservative full-variable bound is valid even if
+                    # representation selection changes primary variables.
+                    packed,radix,bound=single_fibre_pack(base,delta,vars_)
+                    query=pathlib.Path(tmp)/"frame-scaling-packed.cnf"
+                    query.write_text(packed)
+                    row.update(vars=vars_,clauses=clauses,base_sha256=hashlib.sha256(base.encode()).hexdigest(),
+                               query_sha256=hashlib.sha256(packed.encode()).hexdigest())
+                    remain=end-time.monotonic()
+                    if remain<=0:raise TimeoutError("frame scaling budget")
+                    row["queries"]=1
+                    out=profile_gpmc([str(exe),"-mode=1","-natw",str(query)],remain,
+                                    pathlib.Path(tmp)/"frame-scaling-time.tsv",row["metrics"])
+                    val=parse_gpmc_integer(out,"wmc",bound*radix**7)
+                    bins=single_fibre_decode(val,radix,bound,8)
+                    coeff=tuple(bins[j]-bins[j+4] for j in range(4))
+                    assert coeff[2]==0 and coeff[3]==-coeff[1]
+                    scale=int(p["scale"]) if reduced else 0
+                    raw=(coeff[0]*(1<<scale),coeff[1]*(1<<scale))
+                    assert raw==expected,(name,arm,raw,expected)
+                    row.update(verdict="PROVED" if raw==(0,0) else "REFUTED",status="EXACT_ROOT",coeff=raw)
+                except (TimeoutError,subprocess.TimeoutExpired,SolverSignalKilled):
+                    row["status"]="RESOURCE"
+            if row["verdict"]!="UNKNOWN":
+                assert (row["verdict"]=="PROVED")== (not witnesses)
+            row["wall_s"]=time.monotonic()-start
+            spent[arm]+=row["wall_s"]
+            row["total_with_prep_s"]=row["wall_s"]+prep_us/1e6
+            print("HOARE_FRAME_MATCHED_GPMC "+json.dumps(row),flush=True)
+            rows.append(row)
+    summary={arm:dict(exact=sum(r["verdict"]!="UNKNOWN" for r in rows if r["arm"]==arm),
+                      unknown=sum(r["verdict"]=="UNKNOWN" for r in rows if r["arm"]==arm),
+                      queries=sum(r["queries"] for r in rows if r["arm"]==arm),
+                      total_with_prep_s=sum(r["total_with_prep_s"] for r in rows if r["arm"]==arm))
+             for arm in spent}
+    print("HOARE_FRAME_MATCHED_GPMC_SUMMARY "+json.dumps(dict(cases=len(plans),arms=len(rows),routes=summary,spent=spent)),flush=True)
 
 if __name__ == "__main__":
     if len(sys.argv)>1 and sys.argv[1]=="--online-sector":

@@ -4505,6 +4505,7 @@ fn partition_export(dir:&std::path::Path){
         std::fs::write(dir.join("manifest.tsv"),manifest).unwrap();
         println!("HOARE_EXTERNAL_FIXTURES cases=7 variants=14");
         super::constrained_predicate_overlap::export_global_predicate(&dir);
+        export_frame_scaling_matched(&dir);
         export_scaled(&dir);
         export_hybrid(&dir);
         export_rare_wmc(&dir);
@@ -7609,6 +7610,37 @@ fn partition_export(dir:&std::path::Path){
             initial.h,base.vars,base.clauses.len(),d[0],d[1],d[2]));
     }
 
+
+    // Matched baseline for the exact same 20 gate-level QHTs.
+    // Independent dense leakage and witnesses never select solver routes.
+    fn export_frame_scaling_matched(root:&std::path::Path){
+        let dir=root.join("frame-scaling");
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut plans=String::new();let mut oracle=String::new();
+        for n in [4usize,6,8,10,12]{
+            for kind in ["relaxed","support-negative","phase-negative","hh-fallback"]{
+                let (ops,afree,bfree)=super::constrained_predicate_overlap::scaling_full_fixture(n,kind);
+                let p:Vec<_>=(0..n).filter(|&i|afree>>i&1==0).map(|i|bit(i,false)).collect();
+                let q:Vec<_>=(0..n).filter(|&i|bfree>>i&1==0).map(|i|bit(i,false)).collect();
+                let name=format!("frame-{n}-{kind}");
+                let mut coeff=[0i128;2];let mut witnesses=Vec::new();
+                for x in (0..1u64<<n).filter(|&x|x&!afree==0){
+                    let v=raw_for_input(n,&ops,&q,x);
+                    coeff[0]+=v[0];coeff[1]+=v[1];
+                    if v!=[0,0]{witnesses.push(x.to_string());}
+                }
+                assert_eq!(coeff==[0,0],matches!(kind,"relaxed"|"hh-fallback"));
+                let witness=if witnesses.is_empty(){"-".to_owned()}else{witnesses.join(",")};
+                oracle.push_str(&format!("{name}\t{n}\t{afree}\t{bfree}\t{},{}\t{witness}\n",coeff[0],coeff[1]));
+                export_dispatch_rr(&dir,&name,n,&ops,&p,&q,&mut plans);
+                export_external_property(&dir,&name,n,&ops,&p,&q);
+            }
+        }
+        std::fs::write(dir.join("dispatch-rr.tsv"),plans).unwrap();
+        std::fs::write(dir.join("oracle.tsv"),oracle).unwrap();
+        println!("HOARE_FRAME_MATCHED_EXPORT cases=20");
+    }
+
     fn export_property_factor_case(dir:&std::path::Path,name:&str,n:usize,ops:&[G],p:&[Anf],q:&[Anf],raw:[i128;2],oracle:&str,manifest:&mut String,branches:&mut String){
         let h=ops.iter().filter(|g|matches!(g,G::H(_))).count();
         let t=std::time::Instant::now();
@@ -9173,10 +9205,7 @@ mod constrained_predicate_overlap {
         let mut proved=0;let mut refuted=0;let mut split=0;
         let mut residual_exact=0;let mut residual_unknown=0;
         for n in [4usize,6,8,10,12]{
-            let h=n/2-1;
-            let logical=n-2;let extra=n-1;
-            let afree=1u64<<logical;
-            let common=vec![G::CZ(0,logical),G::T(h-1),G::CX(0,h)];
+            let afree=1u64<<(n-2);
             let alabels=scaling_labels(afree,n);
             for kind in ["relaxed","support-negative","phase-negative","hh-fallback"]{
                 // A prepares h coherent bits and one free logical label.
@@ -9184,15 +9213,7 @@ mod constrained_predicate_overlap {
                 // negative case, makes bit0 a free label instead of a
                 // coherent bit. This permits an intermediate of rank4,
                 // smaller than the safe space of rank8.
-                let mut ga=Vec::new();
-                if kind=="hh-fallback"{ga.extend([G::H(h),G::H(h)]);}
-                ga.extend((0..h).map(G::H));ga.push(G::T(0));ga.extend(common.clone());
-                let phase_negative=kind=="phase-negative";
-                let bfree=afree|(1u64<<extra)|if phase_negative{0}else{1};
-                let mut gb=Vec::new();
-                if kind=="support-negative"{gb.push(G::X(h));}
-                gb.extend((if phase_negative{0}else{1}..h).map(G::H));
-                gb.extend(common.clone());
+                let (ga,gb,_,bfree)=scaling_fixture(n,kind);
                 let suffix=inverse_ops(&gb);
                 let mut full=ga.clone();full.extend(suffix);
                 let b_labels=scaling_labels(bfree,n);
@@ -9289,6 +9310,29 @@ mod constrained_predicate_overlap {
         assert_eq!((cases,admitted,rejected,proved,refuted,split),(20,15,5,5,10,5));
         assert_eq!(residual_exact+residual_unknown,cases);
         println!("HOARE_FRAME_SCALING_SUMMARY cases={cases} admitted={admitted} rejected={rejected} proved={proved} refuted={refuted} split={split} residual_exact={residual_exact} residual_unknown={residual_unknown}");
+    }
+
+    // Same source gate lists and domains for structural and RR/WMC routes.
+    pub(super) fn scaling_fixture(n:usize,kind:&str)->(Vec<G>,Vec<G>,u64,u64){
+        let h=n/2-1;let logical=n-2;let extra=n-1;
+        let afree=1u64<<logical;
+        let common=vec![G::CZ(0,logical),G::T(h-1),G::CX(0,h)];
+                let mut ga=Vec::new();
+                if kind=="hh-fallback"{ga.extend([G::H(h),G::H(h)]);}
+                ga.extend((0..h).map(G::H));ga.push(G::T(0));ga.extend(common.clone());
+                let phase_negative=kind=="phase-negative";
+                let bfree=afree|(1u64<<extra)|if phase_negative{0}else{1};
+                let mut gb=Vec::new();
+                if kind=="support-negative"{gb.push(G::X(h));}
+                gb.extend((if phase_negative{0}else{1}..h).map(G::H));
+                gb.extend(common.clone());
+
+        (ga,gb,afree,bfree)
+    }
+    pub(super) fn scaling_full_fixture(n:usize,kind:&str)->(Vec<G>,u64,u64){
+        let (mut a,b,afree,bfree)=scaling_fixture(n,kind);
+        a.extend(inverse_ops(&b));
+        (a,afree,bfree)
     }
 }
 

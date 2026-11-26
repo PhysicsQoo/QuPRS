@@ -3271,6 +3271,177 @@ theorem replay_ledger_scale_from_zero {A : Type} (scale : Nat → A → A)
   rw [hm]
   exact replay_ledger_scale scale h0 ha value current {} steps final out chain stepSound h
 
+
+-- Canonicality is a property of a successfully parsed record, not
+-- an assumption about arbitrary records sharing a raw token.
+def canonicalLedgerSnap (s : LedgerSnap) : Prop :=
+  parseLedgerSnap s.raw = some s
+
+theorem ledger_bind_some {A B : Type} (x : Option A) (f : A → Option B) (out : B)
+    (h : x.bind f = some out) : ∃ a, x = some a ∧ f a = some out := by
+  cases x with
+  | none => cases h
+  | some a => exact ⟨a, rfl, h⟩
+
+theorem ledger_if_some_branch {A : Type} (b : Bool) (x : Option A) (out : A)
+    (h : (if b then x else none) = some out) : x = some out := by
+  cases b with
+  | false => cases h
+  | true => exact h
+
+theorem parse_ledger_snap_raw (raw : Token) (s : LedgerSnap)
+    (h : parseLedgerSnap raw = some s) : s.raw = raw := by
+  unfold parseLedgerSnap at h
+  generalize splitBytes 59 raw = fields at h
+  cases fields with
+  | nil => cases h
+  | cons n tail =>
+    cases tail with
+    | nil => cases h
+    | cons live tail =>
+      cases tail with
+      | nil => cases h
+      | cons phase tail =>
+        cases tail with
+        | nil => cases h
+        | cons cs tail =>
+          cases tail with
+          | cons extra rest => cases h
+          | nil =>
+            obtain ⟨nv, _, h1⟩ := ledger_bind_some _ _ _ h
+            obtain ⟨ids, _, h2⟩ := ledger_bind_some _ _ _ h1
+            obtain ⟨ps, _, h3⟩ := ledger_bind_some _ _ _ h2
+            obtain ⟨rs, _, h4⟩ := ledger_bind_some _ _ _ h3
+            have he : some (LedgerSnap.mk raw nv ids phase cs ps rs) = some s :=
+              ledger_if_some_branch _ _ _ h4
+            exact (congrArg LedgerSnap.raw (Option.some.inj he)).symm
+
+theorem parsed_ledger_snap_canonical (raw : Token) (s : LedgerSnap)
+    (h : parseLedgerSnap raw = some s) : canonicalLedgerSnap s := by
+  unfold canonicalLedgerSnap
+  rw [parse_ledger_snap_raw raw s h]
+  exact h
+
+theorem canonical_ledger_snap_eq (a b : LedgerSnap)
+    (ha : canonicalLedgerSnap a) (hb : canonicalLedgerSnap b)
+    (hr : a.raw = b.raw) : a = b := by
+  unfold canonicalLedgerSnap at ha hb
+  rw [hr, hb] at ha
+  exact (Option.some.inj ha).symm
+
+theorem parse_ledger_step_canonical (tokens : List Token) (s : LedgerStep)
+    (h : parseLedgerStep tokens = some s) :
+    canonicalLedgerSnap s.before ∧ canonicalLedgerSnap s.trial := by
+  cases tokens with
+  | nil => cases h
+  | cons tag tail =>
+    cases tail with
+    | nil => cases h
+    | cons k tail =>
+      cases tail with
+      | nil => cases h
+      | cons c tail =>
+        cases tail with
+        | nil => cases h
+        | cons wi tail =>
+          cases tail with
+          | nil => cases h
+          | cons b tail =>
+            cases tail with
+            | nil => cases h
+            | cons a tail =>
+              cases tail with
+              | cons extra rest => cases h
+              | nil =>
+                unfold parseLedgerStep at h
+                have h0 := ledger_if_some_branch _ _ _ h
+                obtain ⟨kind, _, h1⟩ := ledger_bind_some _ _ _ h0
+                obtain ⟨commit, _, h2⟩ := ledger_bind_some _ _ _ h1
+                obtain ⟨before, hb, h3⟩ := ledger_bind_some _ _ _ h2
+                obtain ⟨trial, ht, h4⟩ := ledger_bind_some _ _ _ h3
+                have he : some (LedgerStep.mk kind (commit == 1) wi before trial) = some s :=
+                  ledger_if_some_branch _ _ _ h4
+                have hs := Option.some.inj he
+                rw [← hs]
+                exact ⟨parsed_ledger_snap_canonical b before hb,
+                  parsed_ledger_snap_canonical a trial ht⟩
+
+theorem ledger_next_canonical (current : LedgerSnap) (s : LedgerStep)
+    (hc : canonicalLedgerSnap current) (ht : canonicalLedgerSnap s.trial) :
+    canonicalLedgerSnap (ledgerNext current s) := by
+  cases h : s.commit with
+  | false => rw [rejected_ledger_next current s h]; exact hc
+  | true => rw [committed_ledger_next current s h]; exact ht
+
+theorem replay_ledger_canonical (current : LedgerSnap) (t : LedgerTally)
+    (steps : List LedgerStep) (final : LedgerSnap) (out : LedgerTally)
+    (hc : canonicalLedgerSnap current)
+    (hs : ∀ s, s ∈ steps → canonicalLedgerSnap s.before ∧ canonicalLedgerSnap s.trial)
+    (h : replayLedger current t steps = some (final,out)) :
+    canonicalLedgerSnap final := by
+  induction steps generalizing current t with
+  | nil =>
+    change some (current,t) = some (final,out) at h
+    cases h
+    exact hc
+  | cons s ss ih =>
+    obtain ⟨next, _, _, _, htail⟩ := replay_ledger_cons current t s ss final out h
+    have hnext := ledger_next_canonical current s hc (hs s (List.mem_cons.mpr (Or.inl rfl))).2
+    exact ih (ledgerNext current s) next hnext
+      (fun q hm => hs q (List.mem_cons.mpr (Or.inr hm))) htail
+
+-- No arbitrary raw-equality semantic premise: both chain records
+-- are canonical, so equality is obtained from parser determinism.
+theorem replay_ledger_canonical_scale {A : Type} (scale : Nat → A → A)
+    (h0 : ∀ a, scale 0 a = a)
+    (ha : ∀ i j a, scale i (scale j a) = scale (i+j) a)
+    (value : LedgerSnap → A) (current : LedgerSnap) (t : LedgerTally)
+    (steps : List LedgerStep) (final : LedgerSnap) (out : LedgerTally)
+    (hc : canonicalLedgerSnap current)
+    (hs : ∀ s, s ∈ steps → canonicalLedgerSnap s.before ∧ canonicalLedgerSnap s.trial)
+    (stepSound : ∀ s, s ∈ steps → s.commit = true →
+      value s.before = scale (ledgerStepExponent s) (value s.trial))
+    (h : replayLedger current t steps = some (final,out)) :
+    value current = scale (steps.map ledgerStepExponent).sum (value final) := by
+  induction steps generalizing current t with
+  | nil =>
+    change some (current,t) = some (final,out) at h
+    cases h
+    exact (h0 (value final)).symm
+  | cons s ss ih =>
+    obtain ⟨next, hchain, _, _, htail⟩ := replay_ledger_cons current t s ss final out h
+    have hstep := hs s (List.mem_cons.mpr (Or.inl rfl))
+    have he := canonical_ledger_snap_eq current s.before hc hstep.1 hchain
+    have hlocal : value current = scale (ledgerStepExponent s) (value (ledgerNext current s)) := by
+      cases hcommit : s.commit with
+      | false => simp [ledgerStepExponent, ledgerNext, hcommit, h0]
+      | true =>
+        rw [committed_ledger_next current s hcommit]
+        exact (congrArg value he).trans (stepSound s (List.mem_cons.mpr (Or.inl rfl)) hcommit)
+    have ht := ih (ledgerNext current s) next
+      (ledger_next_canonical current s hc hstep.2)
+      (fun q hm => hs q (List.mem_cons.mpr (Or.inr hm)))
+      (fun q hm => stepSound q (List.mem_cons.mpr (Or.inr hm))) htail
+    exact hlocal.trans ((congrArg (scale (ledgerStepExponent s)) ht).trans
+      (ha (ledgerStepExponent s) (ss.map ledgerStepExponent).sum (value final)))
+
+theorem replay_ledger_canonical_scale_from_zero {A : Type} (scale : Nat → A → A)
+    (h0 : ∀ a, scale 0 a = a)
+    (ha : ∀ i j a, scale i (scale j a) = scale (i+j) a)
+    (value : LedgerSnap → A) (current : LedgerSnap)
+    (steps : List LedgerStep) (final : LedgerSnap) (out : LedgerTally)
+    (hc : canonicalLedgerSnap current)
+    (hs : ∀ s, s ∈ steps → canonicalLedgerSnap s.before ∧ canonicalLedgerSnap s.trial)
+    (stepSound : ∀ s, s ∈ steps → s.commit = true →
+      value s.before = scale (ledgerStepExponent s) (value s.trial))
+    (h : replayLedger current {} steps = some (final,out)) :
+    value current = scale (ledgerMultiplier out) (value final) := by
+  have hm := replay_ledger_multiplier current {} steps final out h
+  change ledgerMultiplier out = 0 + (steps.map ledgerStepExponent).sum at hm
+  rw [Nat.zero_add] at hm
+  rw [hm]
+  exact replay_ledger_canonical_scale scale h0 ha value current {} steps final out hc hs stepSound h
+
 -- Localize any unexpected dependency to a definition vs theorem.
 #print axioms splitBytes
 #print axioms digits
@@ -3538,6 +3709,17 @@ theorem replay_ledger_scale_from_zero {A : Type} (scale : Nat → A → A)
 #print axioms replay_ledger_multiplier
 #print axioms replay_ledger_scale
 #print axioms replay_ledger_scale_from_zero
+#print axioms canonicalLedgerSnap
+#print axioms ledger_bind_some
+#print axioms ledger_if_some_branch
+#print axioms parse_ledger_snap_raw
+#print axioms parsed_ledger_snap_canonical
+#print axioms canonical_ledger_snap_eq
+#print axioms parse_ledger_step_canonical
+#print axioms ledger_next_canonical
+#print axioms replay_ledger_canonical
+#print axioms replay_ledger_canonical_scale
+#print axioms replay_ledger_canonical_scale_from_zero
 end QuPRS.CnfReplay
 
 def main (args : List String) : IO Unit := do

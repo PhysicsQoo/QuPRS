@@ -855,6 +855,246 @@ def rus_gram_real_sign(a):
 
 
 
+
+def cubic_edges(n):
+    """Stable generated scalar benchmarks, independent of platform RNG."""
+    state=0x43637a21+n
+    edges=[];seen=set()
+    for _ in range(10000):
+        a=[]
+        for j in range(3):
+            state=(1664525*state+1013904223)&0xffffffff
+            a.append((state>>8)%n)
+        e=tuple(sorted(set(a)))
+        if len(e)==3 and e not in seen:
+            seen.add(e);edges.append(e)
+        if len(edges)==3*n:return edges
+    raise AssertionError("cubic generator cap")
+
+
+def cubic_cnf(n,edges,alternate=False):
+    """Same scalar polynomial, two distinct full-equivalence encodings.
+
+    Primary z_i, true constant1, fresh weighted phase aliases. No source
+    PathSum or unverified quantum norm is assumed by this scalar pilot.
+    """
+    nv=n+1;clauses=[[1]];cache={}
+    def fresh():
+        nonlocal nv
+        nv+=1
+        return nv
+    def gate(op,a,b):
+        if op=="and":
+            if a==-1 or b==-1 or a==-b:return -1
+            if a==1:return b
+            if b==1 or a==b:return a
+        else:
+            if a==-1:return b
+            if b==-1:return a
+            if a==1:return -b
+            if b==1:return -a
+            if a==b:return -1
+            if a==-b:return 1
+            if (a<0)!=(b<0):return -gate(op,abs(a),abs(b))
+            a,b=abs(a),abs(b)
+        a,b=sorted((a,b));key=(op,a,b)
+        if key in cache:return cache[key]
+        z=fresh();cache[key]=z
+        if op=="and":clauses.extend(([-a,-b,z],[a,-z],[b,-z]))
+        else:clauses.extend(([-a,-b,-z],[a,b,-z],[a,-b,z],[-a,b,z]))
+        return z
+    def relation(inputs,width,fn):
+        # Truth-table transition with one implication per output bit for
+        # every possible input row. Inconsistent constant rows are tautologies.
+        out=[fresh() for _ in range(width)]
+        for a in range(1<<len(inputs)):
+            prefix=[-v if a>>i&1 else v for i,v in enumerate(inputs)]
+            value=fn(a)
+            for i,z in enumerate(out):
+                clauses.append(prefix+[z if value>>i&1 else -z])
+        return out
+    p=[-1]*3
+    for i in range(n):
+        r=1+3*i%7;z=i+2
+        if alternate:
+            p=relation(p+[z],3,lambda a:((a&7)+r*(a>>3&1))%8)
+        else:
+            q=[];carry=-1
+            for j in range(3):
+                b=z if r>>j&1 else -1
+                t=gate("xor",p[j],b);q.append(gate("xor",t,carry))
+                if j<2:carry=gate("xor",gate("and",p[j],b),gate("and",t,carry))
+            p=q
+    for i,j,k in edges:
+        if alternate:
+            p[2]=relation([p[2],i+2,j+2,k+2],1,
+                          lambda a:(a&1)^int(a>>1==7))[0]
+        else:p[2]=gate("xor",p[2],gate("and",gate("and",i+2,j+2),k+2))
+    aliases=[]
+    for l in p:
+        z=fresh();clauses.extend(([-z,l],[z,-l]));aliases.append(z)
+    assert nv<=4096 and len(clauses)<=32768
+    return nv,clauses,aliases
+
+
+def cubic_up(n,nv,clauses,aliases,edges,x):
+    a=[0]*(nv+1)
+    for i in range(n):a[i+2]=1 if x>>i&1 else -1
+    while True:
+        changed=False
+        for cl in clauses:
+            free=0;last=0;ok=False
+            for l in cl:
+                v=a[abs(l)]*(1 if l>0 else -1)
+                if v==1:ok=True;break
+                if v==0:free+=1;last=l
+            if ok:continue
+            assert free,"unexpected conflict in cubic transition"
+            if free==1:
+                a[abs(last)]=1 if last>0 else -1;changed=True
+        if not changed:break
+    assert all(a[1:]),"nonunique or incomplete primary extension"
+    e=sum((1+3*i%7) for i in range(n) if x>>i&1)
+    e+=4*sum(all(x>>i&1 for i in edge) for edge in edges)
+    d=sum((1<<j) for j,l in enumerate(aliases) if a[l]==1)
+    assert d==e%8
+    return d
+
+
+def cubic_bitset(n,edges):
+    """Independent bit-parallel exhaustive truth table, bounded at 24 bits.
+
+    No CNF, solver or weighted formula. Partition assignments by number
+    of selected weight-2 variables set, then popcount each phase class.
+    """
+    assert 3<=n<=24
+    N=1<<n;mask=(1<<N)-1;zs=[]
+    for i in range(n):
+        if i<3:v=int.from_bytes(bytes(([0xaa,0xcc,0xf0][i],))*(N//8),"little")
+        else:
+            p=1<<(i-3)
+            v=int.from_bytes((b"\x00"*p+b"\xff"*p)*(N//(16*p)),"little")
+        zs.append(v)
+    d=[0,0,0]
+    for i,z in enumerate(zs):
+        r=1+3*i%7;c=0
+        for j in range(3):
+            b=z if r>>j&1 else 0;x=d[j]^b
+            carry=(d[j]&b)|(x&c);d[j]=x^c;c=carry
+    for i,j,k in edges:d[2]^=zs[i]&zs[j]&zs[k]
+    classes=[mask]
+    for z in zs[::3]:
+        new=[0]*(len(classes)+1)
+        for i,a in enumerate(classes):
+            new[i]|=a&(mask^z);new[i+1]|=a&z
+        classes=new
+    assert sum(v.bit_count() for v in classes)==N
+    bins=[];weighted=[]
+    for j in range(8):
+        a=mask
+        for k,v in enumerate(d):a&=v if j>>k&1 else mask^v
+        bins.append(a.bit_count())
+        weighted.append(sum((a&c).bit_count()*(1<<i) for i,c in enumerate(classes)))
+    assert sum(bins)==N and sum(weighted)==3**len(zs[::3])*2**(n-len(zs[::3]))
+    return bins,weighted
+
+
+def run_weighted_cubic(exe,ganak,tmp):
+    """Research-only condensed scalar fallback comparison.
+
+    Separate exact solver status from independent admission. No quantum
+    verdict, no claim of end-to-end speed, no unbounded count retry.
+    """
+    known={
+        14:([2016,2024,2048,2072,2080,2072,2048,2024],
+            [15484,15148,15556,15620,15620,15956,15548,15484]),
+        18:([32768,32848,32800,32656,32768,32688,32736,32880],
+            [372920,373960,373032,371920,373576,372536,373464,374576]),
+        24:([2095936,2096704,2098496,2098368,2098368,2097600,2095808,2095936],
+            [53705536,53770608,53799536,53789408,53789888,53724816,53695888,53706016]),
+    }
+    # Distinct exact positive-weight qualification of Ganak, including
+    # an integer larger than 2^53. It was hash-qualified by main.
+    qual=pathlib.Path(tmp)/"cubic-ganak-qualification.cnf"
+    qual.write_text("c t wmc\np cnf 2 1\nc p weight 2 1152921504606846976 0\nc p weight -2 1 0\n1 0\n")
+    qmetrics=[];ganak_ok=False
+    try:
+        out=profile_gpmc([str(ganak),"--mode","1","--prob","0",str(qual)],5,
+                         pathlib.Path(tmp)/"cubic-time.tsv",qmetrics)
+        assert parse_count(out,(1<<60)+1,weighted=True)==(1<<60)+1
+        ganak_ok=True
+    except (TimeoutError,subprocess.TimeoutExpired,SolverSignalKilled,subprocess.CalledProcessError,ValueError) as err:
+        print("HOARE_CUBIC_GANAK_QUALIFICATION "+json.dumps(dict(status="UNAVAILABLE",reason=type(err).__name__,metrics=qmetrics)),flush=True)
+    if ganak_ok:print("HOARE_CUBIC_GANAK_QUALIFICATION "+json.dumps(dict(status="PASS",metrics=qmetrics)),flush=True)
+    deadline=time.monotonic()+100
+    admitted=0;gexact=0;aexact=0;matches=0
+    for n in (14,18,24,32):
+        edges=cubic_edges(n);oracle=None
+        if n<=24:
+            t=time.monotonic_ns();oracle=cubic_bitset(n,edges)
+            assert oracle==known[n]
+            print("HOARE_CUBIC_ORACLE "+json.dumps(dict(n=n,assignments=1<<n,bins=oracle,ns=time.monotonic_ns()-t)),flush=True)
+        compiled=[]
+        for alt in (False,True):
+            t=time.monotonic_ns();nv,cs,dl=cubic_cnf(n,edges,alt)
+            enc=time.monotonic_ns()-t
+            state=0x43435a31;xs=[0,(1<<n)-1]
+            for _ in range(254):
+                state=(1664525*state+1013904223)&0xffffffff;xs.append(state&((1<<n)-1))
+            covered={cubic_up(n,nv,cs,dl,edges,x) for x in xs}
+            assert len(covered)==8
+            if not alt:assert (nv,len(cs))=={14:(196,625),18:(259,829),24:(344,1103),32:(471,1513)}[n]
+            compiled.append((nv,cs,dl,enc))
+            print("HOARE_CUBIC_EXPORT "+json.dumps(dict(n=n,encoding="table" if alt else "gates",vars=nv,clauses=len(cs),checks=len(xs),phase_bins=len(covered),encode_ns=enc)),flush=True)
+        for mode in (0,1):
+            m=[2 if mode and i%3==0 else 1 for i in range(n)]
+            total=1
+            maxprod=1
+            for w in m:total*=1+w;maxprod*=w
+            B=(1<<n)*maxprod+1
+            counts={}
+            for alt,(nv,cs,dl,enc) in enumerate(compiled):
+                backend="ganak" if alt else "gpmc"
+                r=dict(n=n,mode="magnitude" if mode else "phase",backend=backend,
+                       encoding="table" if alt else "gates",vars=nv,clauses=len(cs),encode_ns=enc,metrics=[],status="UNKNOWN")
+                if alt and not ganak_ok:
+                    r["status"]="BACKEND_UNAVAILABLE"
+                    print("HOARE_CUBIC_COUNT "+json.dumps(r),flush=True);continue
+                weights={i+2:w for i,w in enumerate(m) if w!=1}
+                weights.update({l:B**(1<<i) for i,l in enumerate(dl)})
+                weights.update({-l:1 for l in list(weights)})
+                body="c t wmc\n"+f"p cnf {nv} {len(cs)}\n"+"".join(f"c p weight {l} {w} 0\n" for l,w in sorted(weights.items()))+"".join(" ".join(map(str,c))+" 0\n" for c in cs)
+                path=pathlib.Path(tmp)/"weighted-cubic.cnf";path.write_text(body)
+                r["query_sha256"]=hashlib.sha256(path.read_bytes()).hexdigest()
+                try:
+                    remaining=deadline-time.monotonic()
+                    if remaining<=0:raise TimeoutError("cubic scheduling deadline")
+                    args=[str(ganak),"--mode","1","--prob","0"] if alt else [str(exe),"-mode=1","-natw"]
+                    out=profile_gpmc(args+[str(path)],min(5,remaining),pathlib.Path(tmp)/"cubic-time.tsv",r["metrics"])
+                    value=parse_count(out,B**8-1,weighted=True) if alt else parse_gpmc_integer(out,"wmc",B**8-1)
+                    assert value>=0
+                    bits=value.bit_length();bins=[]
+                    for _ in range(8):bins.append(value%B);value//=B
+                    assert value==0 and sum(bins)==total
+                    if oracle is not None:assert bins==oracle[mode]
+                    counts[backend]=bins
+                    gexact+=int(not alt);aexact+=int(bool(alt))
+                    r.update(status="EXACT",digits=bins,coeff=[bins[i]-bins[i+4] for i in range(4)],packed_bits=bits,oracle_checked=oracle is not None)
+                except (TimeoutError,subprocess.TimeoutExpired):r["status"]="TIMEOUT"
+                except SolverSignalKilled:r["status"]="UNATTRIBUTED_SIGNAL_KILL"
+                except subprocess.CalledProcessError:r["status"]="SOLVER_ERROR"
+                except ValueError as err:r.update(status="INVALID_SOLVER_OUTPUT",reason=str(err))
+                print("HOARE_CUBIC_COUNT "+json.dumps(r),flush=True)
+            paired=len(counts)==2
+            if paired:
+                assert counts["gpmc"]==counts["ganak"];matches+=1
+            accepted="gpmc" in counts and (oracle is not None or paired)
+            admitted+=int(accepted)
+            print("HOARE_CUBIC_ADMISSION "+json.dumps(dict(n=n,mode="magnitude" if mode else "phase",
+                  status="VERIFIED" if accepted else "UNKNOWN",independent_oracle=oracle is not None,paired=paired)),flush=True)
+    print("HOARE_CUBIC_SUMMARY "+json.dumps(dict(expected=8,gpmc_exact=gexact,ganak_exact=aexact,paired=matches,admitted=admitted)),flush=True)
+
+
 def run_rus_composite(directory,exe,tmp):
     """One source copy; source norm derived from local gate certificates,
     not from any global self query. Fixed all-success product scope only."""
@@ -1500,6 +1740,7 @@ def run_gpmc_pure(directory, exe, tmp, deadline):
             run_rus_gram(directory,exe,tmp,direct,dr)
         if (directory/"native-rus-composite.tsv").is_file():
             run_rus_composite(directory,exe,tmp)
+            run_weighted_cubic(exe,pathlib.Path(sys.argv[1]).resolve(),tmp)
     if (directory/"native-affine-wmc.tsv").is_file():
         query_cap=30
         deadline=time.monotonic()+720

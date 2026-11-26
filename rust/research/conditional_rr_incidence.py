@@ -31,7 +31,7 @@ for case_id in IDS:
            "--", "--exact", "--nocapture"]
     run = subprocess.run(cmd, cwd=ROOT, env=env, capture_output=True, text=True)
     records = [l for l in run.stdout.splitlines() if l.startswith("CRR_")]
-    status = "COMPLETE" if run.returncode == 0 and len(records) == 2 else (
+    status = "COMPLETE" if run.returncode == 0 and sum(l.startswith("CRR_BASE ") for l in records) == 1 and sum(l.startswith(("CRR_INCIDENCE ", "CRR_SKIP ")) for l in records) == 1 else (
         "TIMEOUT" if run.returncode in (124, 137) else "ERROR")
     failed |= status == "ERROR"
     print(json.dumps(dict(case=case_id, status=status, returncode=run.returncode,

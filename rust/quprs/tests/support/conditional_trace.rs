@@ -767,7 +767,49 @@ fn check_union_certificate(before:&Trace,after:&Trace,steps:&[UnionWitness],
     let actual:Vec<BTreeSet<Vec<u32>>>=after.constraints.iter().map(|q|q.iter().cloned().collect()).collect();
     if rows!=actual{return Err("ANF transport mismatch");}
     if after.p.terms.keys().flatten().any(|v|!after.live.contains(v)){return Err("dangling reduced phase");}
-    // IMPORTANT: phase coefficients and normalization are NOT certified here.
+    // Independently reconstruct exact phase coefficients. Keep the
+    // rational turns (modulo 1) separate from the rational radian part.
+    // In particular, do not use Rational::add or PhasePolynomial::add_term:
+    // native fixed-width arithmetic can approximate after a denominator cap.
+    use num_bigint::BigInt;
+    use num_integer::Integer;
+    use num_rational::BigRational;
+    use num_traits::Zero;
+    type ExactCoeff=(BigRational,BigRational);
+    fn mod_one(q:BigRational)->BigRational{
+        BigRational::new(q.numer().mod_floor(q.denom()),q.denom().clone())
+    }
+    fn exact(c:&quprs::rational::PhaseCoeff)->Result<ExactCoeff,&'static str>{
+        if !c.symbols.is_empty(){return Err("unsupported symbolic phase");}
+        let r=c.constant;
+        if r.denom<=0||r.numer<0||r.numer>=r.denom{return Err("noncanonical phase fraction");}
+        let turns=BigRational::new(BigInt::from(r.numer),BigInt::from(r.denom));
+        if turns.numer()!=&BigInt::from(r.numer)||turns.denom()!=&BigInt::from(r.denom){
+            return Err("noncanonical phase fraction");
+        }
+        if c.radians.as_ref().is_some_and(|r|r.is_zero()){return Err("noncanonical zero radians");}
+        Ok((turns,c.radians.clone().unwrap_or_else(BigRational::zero)))
+    }
+    let mut expected:BTreeMap<Vec<u32>,ExactCoeff>=BTreeMap::new();
+    for (mono,c) in &before.p.terms{
+        let mut support=BTreeSet::new();
+        for &v in mono{support.insert(root(&map,v)?);}
+        let key:Vec<_>=support.into_iter().collect();
+        let (turns,rad)=exact(c)?;
+        let e=expected.entry(key).or_insert_with(||(BigRational::zero(),BigRational::zero()));
+        e.0=mod_one(e.0.clone()+turns);e.1+=rad;
+    }
+    expected.retain(|_,(turns,rad)|!turns.is_zero()||!rad.is_zero());
+    let mut actual=BTreeMap::new();
+    for (mono,c) in &after.p.terms{
+        let coeff=exact(c)?;
+        if coeff.0.is_zero()&&coeff.1.is_zero(){return Err("noncanonical zero phase term");}
+        actual.insert(mono.clone(),coeff);
+    }
+    // A capped or otherwise inaccurate native result cannot pass this check,
+    // even when the reducer did not set an approximate flag.
+    if expected!=actual{return Err("exact phase transport mismatch");}
+    // Original-source phase provenance and normalization are NOT certified.
     Ok(())
 }
 
@@ -784,8 +826,8 @@ fn exact_trace_union_certificate_negative_controls(){
     let mut ps=PathSum::new(2);ps.rr_tolerance=0.0;
     for _ in 0..4{ps.v.get_fresh_var();}
     let mut before=Trace::from_native(&ps).unwrap();
-    // The final edge 3 -> 0 is not literally in the source rows.
-    // The input-input equation implied by 1=3 and 0=2=3 remains.
+    // The final edge 4 -> 0 is not literally in the source rows.
+    // The input-input equation implied by 1=3=2=0 remains.
     before.constraints=vec![
         [vec![0],vec![2]].into_iter().collect(),
         [vec![2],vec![3]].into_iter().collect(),
@@ -818,7 +860,58 @@ fn exact_trace_union_certificate_negative_controls(){
     let mut capped=before.clone();
     let (count,_,commit)=recorded_batch_alias(&mut capped,1);
     assert_eq!(count,0);assert!(commit.is_none());assert_eq!(before.cost(),capped.cost());
-    println!("CRR_UNION_CERTIFICATE_NEGATIVE accepted=1 rejected={rejected} rejected_trial_uncommitted=1 phase_coefficients_certified=false");
+    println!("CRR_UNION_CERTIFICATE_NEGATIVE accepted=1 rejected={rejected} rejected_trial_uncommitted=1 phase_coefficients_certified=true");
+}
+
+
+#[test]
+fn exact_trace_union_phase_certificate(){
+    use quprs::rational::{PhaseCoeff,Rational,FreeRational};
+    use num_bigint::BigInt;
+    use num_rational::BigRational;
+    let rad=BigRational::new(BigInt::from(7),BigInt::from(19));
+    let mut ps=PathSum::new(1);ps.rr_tolerance=0.0;
+    for _ in 0..3{ps.v.get_fresh_var();}
+    let mut before=Trace::from_native(&ps).unwrap();
+    before.constraints=vec![[vec![0],vec![1]].into_iter().collect(),
+        [vec![0],vec![2]].into_iter().collect()];
+    let mut a=PhaseCoeff::new_constant(Rational::new(1,3));a.radians=Some(rad.clone());
+    let mut b=PhaseCoeff::new_constant(Rational::new(2,3));b.radians=Some(-rad.clone());
+    before.p.add_term(vec![1],a);
+    before.p.add_term(vec![2],b);
+    let mut c=PhaseCoeff::QUARTER;c.radians=Some(rad.clone());
+    before.p.add_term(vec![1,3],c);
+    before.p.add_term(vec![2,3],PhaseCoeff::HALF);
+    let mut after=before.clone();
+    let (n,steps,cert)=recorded_batch_alias(&mut after,64);assert_eq!(n,2);
+    let cert=cert.unwrap();
+    assert_eq!(check_union_certificate(&before,&after,&steps,&cert),Ok(()));
+    assert!(!after.p.terms.contains_key(&vec![0]));
+    let key=vec![0,3];
+    assert_eq!(after.p.terms[&key].constant,Rational::THREE_QUARTERS);
+    assert_eq!(after.p.terms[&key].radians,Some(rad));
+    let mut bad=after.clone();bad.p.terms.get_mut(&key).unwrap().constant=Rational::HALF;
+    assert_eq!(check_union_certificate(&before,&bad,&steps,&cert),Err("exact phase transport mismatch"));
+    let mut bad=after.clone();bad.p.terms.get_mut(&key).unwrap().radians=None;
+    assert_eq!(check_union_certificate(&before,&bad,&steps,&cert),Err("exact phase transport mismatch"));
+    let mut bad=after.clone();bad.p.terms.remove(&key);
+    assert_eq!(check_union_certificate(&before,&bad,&steps,&cert),Err("exact phase transport mismatch"));
+    let mut bad=after.clone();bad.p.add_term(vec![3],PhaseCoeff::HALF);
+    assert_eq!(check_union_certificate(&before,&bad,&steps,&cert),Err("exact phase transport mismatch"));
+    let mut bad=before.clone();bad.p.terms.get_mut(&vec![1]).unwrap().symbols.insert(0,FreeRational::HALF);
+    assert_eq!(check_union_certificate(&bad,&after,&steps,&cert),Err("unsupported symbolic phase"));
+    let mut bad=after.clone();bad.p.terms.get_mut(&key).unwrap().constant=Rational{numer:2,denom:4};
+    assert_eq!(check_union_certificate(&before,&bad,&steps,&cert),Err("noncanonical phase fraction"));
+
+    // These coprime denominators yield an exact reduced denominator
+    // larger than i64::MAX, so no native Rational can encode the sum.
+    let mut capped=before.clone();capped.p=PhasePolynomial::new();
+    capped.p.add_term(vec![1],PhaseCoeff::new_constant(Rational::new(1,4_000_000_007)));
+    capped.p.add_term(vec![2],PhaseCoeff::new_constant(Rational::new(1,4_000_000_009)));
+    let mut candidate=capped.clone();
+    let (n,s,m)=recorded_batch_alias(&mut candidate,64);assert_eq!(n,2);
+    assert_eq!(check_union_certificate(&capped,&candidate,&s,&m.unwrap()),Err("exact phase transport mismatch"));
+    println!("CRR_UNION_PHASE_CERTIFICATE mixed_positive=1 rejected_mutations=6 rejected_native_cap=1 normalization_certified=false");
 }
 
 // Free hidden variables contribute exactly 2 per variable, regardless

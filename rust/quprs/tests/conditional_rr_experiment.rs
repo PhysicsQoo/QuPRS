@@ -2,6 +2,8 @@
 use quprs::{check_equivalence_with_options, PathSum, VerificationMethod, VerificationOptions};
 use quprs::qasm::parse_qasm_str;
 use rustc_hash::FxHashSet;
+#[path="support/conditional_trace.rs"]
+mod conditional_trace;
 const TERM_CAP: usize = 4096;
 const GUARD_CAP: usize = 8;
 const TARGET_CAP: usize = 96;
@@ -142,6 +144,7 @@ fn native_eq_residual_incidence() {
         || terms(p)>TERM_CAP || result.equivalent() == "timeout" {
         println!("CRR_SKIP case={case} reason=residual_admission"); return;
     }
+    conditional_trace::profile(p,&case);
     let start=std::time::Instant::now();
     // Types: 0 internal singleton, 1 input singleton, 2 two guards.
     let mut probes=[[0usize;3];3];

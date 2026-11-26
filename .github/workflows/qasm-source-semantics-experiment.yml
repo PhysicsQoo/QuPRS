@@ -8,6 +8,7 @@ on:
       - experiment/conditional-rr
     paths:
       - rust/quprs/tests/conditional_rr_experiment.rs
+      - rust/quprs/tests/support/conditional_trace.rs
       - rust/research/conditional_rr_incidence.py
       - rust/quprs/tests/qasm_source_semantics_experiment.rs
       - rust/quprs/tests/property_hoare_experiment.rs
@@ -881,7 +882,7 @@ jobs:
           mkdir -p evidence
           git rev-parse HEAD | tee evidence/source-head.txt
           rustc --version | tee evidence/rustc-version.txt
-          sha256sum rust/quprs/tests/conditional_rr_experiment.rs rust/research/conditional_rr_incidence.py docs/development/paper-corpus-manifest.json > evidence/source-sha256.txt
+          sha256sum rust/quprs/tests/conditional_rr_experiment.rs rust/quprs/tests/support/conditional_trace.rs rust/research/conditional_rr_incidence.py docs/development/paper-corpus-manifest.json > evidence/source-sha256.txt
           cargo test --locked --manifest-path rust/Cargo.toml -p quprs --test conditional_rr_experiment exact_ -- --nocapture 2>&1 | tee evidence/conditional-controls.log
       - name: Profile source-locked original EQ pairs
         run: |

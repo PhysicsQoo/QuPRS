@@ -3877,6 +3877,212 @@ theorem sum_bits_free_prefix {A : Type} [Add A] (d n : Nat)
       exact h (true :: xs) ys (congrArg Nat.succ hx) hy
     rw [ih _ hfalse, ih _ htrue]
 
+
+-- Bind every relevant typed field to the successful actual parser.
+-- In particular, equal payload text is not assumed to imply equal
+-- typed fields for arbitrary noncanonical records.
+def LedgerSnapFields (s : LedgerSnap) : Prop :=
+  (natLE s.n 4096 && uniqueIds s.live && inputsKnown s.live (List.range s.n) &&
+    s.phaseSupport.all (fun m => uniqueIds m && inputsKnown s.live m) &&
+    s.constraints.all (fun p => p.all (fun m => uniqueIds m && inputsKnown s.live m))) = true ∧
+  (if s.phaseText == [126] then some [] else
+    (splitBytes 124 s.phaseText).mapM parseLedgerPhase) = some s.phaseSupport ∧
+  (if s.rowText == [33] then some [] else
+    (splitBytes 124 s.rowText).mapM parseLedgerPoly) = some s.constraints
+
+theorem ledger_snap_fields_of_admission (raw phase cs : Token) (nv : Nat)
+    (ids : List Nat) (ps : List (List Nat)) (rs : List (List (List Nat))) (s : LedgerSnap)
+    (hp : (if phase == [126] then some [] else
+      (splitBytes 124 phase).mapM parseLedgerPhase) = some ps)
+    (hr : (if cs == [33] then some [] else
+      (splitBytes 124 cs).mapM parseLedgerPoly) = some rs)
+    (h : (if natLE nv 4096 && uniqueIds ids && inputsKnown ids (List.range nv) &&
+      ps.all (fun m => uniqueIds m && inputsKnown ids m) &&
+      rs.all (fun p => p.all (fun m => uniqueIds m && inputsKnown ids m)) then
+        some (LedgerSnap.mk raw nv ids phase cs ps rs) else none) = some s) :
+    LedgerSnapFields s := by
+  cases hb : (natLE nv 4096 && uniqueIds ids && inputsKnown ids (List.range nv) &&
+      ps.all (fun m => uniqueIds m && inputsKnown ids m) &&
+      rs.all (fun p => p.all (fun m => uniqueIds m && inputsKnown ids m))) with
+  | false =>
+    rw [ledger_bool_false _ _ _ hb] at h
+    cases h
+  | true =>
+    rw [ledger_bool_true _ _ _ hb] at h
+    have he := Option.some.inj h
+    rw [← he]
+    exact ⟨hb, hp, hr⟩
+
+theorem parse_ledger_snap_fields (raw : Token) (s : LedgerSnap)
+    (h : parseLedgerSnap raw = some s) : LedgerSnapFields s := by
+  unfold parseLedgerSnap at h
+  generalize splitBytes 59 raw = fields at h
+  cases fields with
+  | nil => cases h
+  | cons n tail =>
+    cases tail with
+    | nil => cases h
+    | cons live tail =>
+      cases tail with
+      | nil => cases h
+      | cons phase tail =>
+        cases tail with
+        | nil => cases h
+        | cons cs tail =>
+          cases tail with
+          | cons extra rest => cases h
+          | nil =>
+            obtain ⟨nv, _, h1⟩ := ledger_bind_some _ _ _ h
+            obtain ⟨ids, _, h2⟩ := ledger_bind_some _ _ _ h1
+            -- Lean 4.36 elaborates conditional do-binds to join points.
+            -- Eliminate the two sentinel guards before extracting binds.
+            cases hp : (phase == [126]) with
+            | false =>
+              rw [ledger_bool_false _ _ _ hp] at h2
+              obtain ⟨ps, hps, h3⟩ := ledger_bind_some _ _ _ h2
+              have hphase : (if phase == [126] then some [] else
+                  (splitBytes 124 phase).mapM parseLedgerPhase) = some ps :=
+                (ledger_bool_false _ _ _ hp).trans hps
+              -- Normalize the applied phase join point explicitly. Keep
+              -- the sentinel test at the head of the hypothesis.
+              change (if cs == [33] then
+                (some ([] : List (List (List Nat)))).bind (fun rs =>
+                  if natLE nv 4096 && uniqueIds ids && inputsKnown ids (List.range nv) &&
+                      ps.all (fun m => uniqueIds m && inputsKnown ids m) &&
+                      rs.all (fun p => p.all (fun m => uniqueIds m && inputsKnown ids m)) then
+                    some (LedgerSnap.mk raw nv ids phase cs ps rs)
+                  else none)
+                else (splitBytes 124 cs).mapM parseLedgerPoly >>= fun rs =>
+                  if natLE nv 4096 && uniqueIds ids && inputsKnown ids (List.range nv) &&
+                      ps.all (fun m => uniqueIds m && inputsKnown ids m) &&
+                      rs.all (fun p => p.all (fun m => uniqueIds m && inputsKnown ids m)) then
+                    some (LedgerSnap.mk raw nv ids phase cs ps rs)
+                  else none) = some s at h3
+              cases hc : (cs == [33]) with
+              | false =>
+                rw [ledger_bool_false _ _ _ hc] at h3
+                obtain ⟨rs, hrs, h4⟩ := ledger_bind_some _ _ _ h3
+                change (if natLE nv 4096 && uniqueIds ids && inputsKnown ids (List.range nv) &&
+                      ps.all (fun m => uniqueIds m && inputsKnown ids m) &&
+                      rs.all (fun p => p.all (fun m => uniqueIds m && inputsKnown ids m)) then
+                  some (LedgerSnap.mk raw nv ids phase cs ps rs)
+                  else none) = some s at h4
+                have hrows : (if cs == [33] then some [] else
+                    (splitBytes 124 cs).mapM parseLedgerPoly) = some rs :=
+                  (ledger_bool_false _ _ _ hc).trans hrs
+                exact ledger_snap_fields_of_admission raw phase cs nv ids ps rs s hphase hrows h4
+              | true =>
+                rw [ledger_bool_true _ _ _ hc] at h3
+                change (if natLE nv 4096 && uniqueIds ids && inputsKnown ids (List.range nv) &&
+                      ps.all (fun m => uniqueIds m && inputsKnown ids m) &&
+                      ([] : List (List (List Nat))).all (fun p => p.all (fun m => uniqueIds m && inputsKnown ids m)) then
+                  some (LedgerSnap.mk raw nv ids phase cs ps [])
+                  else none) = some s at h3
+                have hrows : (if cs == [33] then some [] else
+                    (splitBytes 124 cs).mapM parseLedgerPoly) = some [] :=
+                  ledger_bool_true _ _ _ hc
+                exact ledger_snap_fields_of_admission raw phase cs nv ids ps [] s hphase hrows h3
+            | true =>
+              rw [ledger_bool_true _ _ _ hp] at h2
+              obtain ⟨ps, hps, h3⟩ := ledger_bind_some _ _ _ h2
+              have hphase : (if phase == [126] then some [] else
+                  (splitBytes 124 phase).mapM parseLedgerPhase) = some ps :=
+                (ledger_bool_true _ _ _ hp).trans hps
+              -- Normalize the applied phase join point explicitly. Keep
+              -- the sentinel test at the head of the hypothesis.
+              change (if cs == [33] then
+                (some ([] : List (List (List Nat)))).bind (fun rs =>
+                  if natLE nv 4096 && uniqueIds ids && inputsKnown ids (List.range nv) &&
+                      ps.all (fun m => uniqueIds m && inputsKnown ids m) &&
+                      rs.all (fun p => p.all (fun m => uniqueIds m && inputsKnown ids m)) then
+                    some (LedgerSnap.mk raw nv ids phase cs ps rs)
+                  else none)
+                else (splitBytes 124 cs).mapM parseLedgerPoly >>= fun rs =>
+                  if natLE nv 4096 && uniqueIds ids && inputsKnown ids (List.range nv) &&
+                      ps.all (fun m => uniqueIds m && inputsKnown ids m) &&
+                      rs.all (fun p => p.all (fun m => uniqueIds m && inputsKnown ids m)) then
+                    some (LedgerSnap.mk raw nv ids phase cs ps rs)
+                  else none) = some s at h3
+              cases hc : (cs == [33]) with
+              | false =>
+                rw [ledger_bool_false _ _ _ hc] at h3
+                obtain ⟨rs, hrs, h4⟩ := ledger_bind_some _ _ _ h3
+                change (if natLE nv 4096 && uniqueIds ids && inputsKnown ids (List.range nv) &&
+                      ps.all (fun m => uniqueIds m && inputsKnown ids m) &&
+                      rs.all (fun p => p.all (fun m => uniqueIds m && inputsKnown ids m)) then
+                  some (LedgerSnap.mk raw nv ids phase cs ps rs)
+                  else none) = some s at h4
+                have hrows : (if cs == [33] then some [] else
+                    (splitBytes 124 cs).mapM parseLedgerPoly) = some rs :=
+                  (ledger_bool_false _ _ _ hc).trans hrs
+                exact ledger_snap_fields_of_admission raw phase cs nv ids ps rs s hphase hrows h4
+              | true =>
+                rw [ledger_bool_true _ _ _ hc] at h3
+                change (if natLE nv 4096 && uniqueIds ids && inputsKnown ids (List.range nv) &&
+                      ps.all (fun m => uniqueIds m && inputsKnown ids m) &&
+                      ([] : List (List (List Nat))).all (fun p => p.all (fun m => uniqueIds m && inputsKnown ids m)) then
+                  some (LedgerSnap.mk raw nv ids phase cs ps [])
+                  else none) = some s at h3
+                have hrows : (if cs == [33] then some [] else
+                    (splitBytes 124 cs).mapM parseLedgerPoly) = some [] :=
+                  ledger_bool_true _ _ _ hc
+                exact ledger_snap_fields_of_admission raw phase cs nv ids ps [] s hphase hrows h3
+
+theorem canonical_ledger_snap_fields (s : LedgerSnap) (h : canonicalLedgerSnap s) :
+    LedgerSnapFields s :=
+  parse_ledger_snap_fields s.raw s h
+
+theorem canonical_ledger_live_admission (s : LedgerSnap) (h : canonicalLedgerSnap s) :
+    uniqueIds s.live = true ∧ inputsKnown s.live (List.range s.n) = true ∧
+    s.phaseSupport.all (fun m => uniqueIds m && inputsKnown s.live m) = true ∧
+    s.constraints.all (fun p => p.all (fun m => uniqueIds m && inputsKnown s.live m)) = true := by
+  have hf := canonical_ledger_snap_fields s h
+  have hvalid : (natLE s.n 4096 && uniqueIds s.live && inputsKnown s.live (List.range s.n) &&
+    s.phaseSupport.all (fun m => uniqueIds m && inputsKnown s.live m) &&
+    s.constraints.all (fun p => p.all (fun m => uniqueIds m && inputsKnown s.live m))) = true := hf.1
+  have h1 := and_true_parts hvalid
+  have h2 := and_true_parts h1.1
+  have h3 := and_true_parts h2.1
+  have h4 := and_true_parts h3.1
+  exact ⟨h4.2, h3.2, h2.2, h1.2⟩
+
+theorem free_snapshot_typed_payload (a b : LedgerSnap)
+    (ha : canonicalLedgerSnap a) (hb : canonicalLedgerSnap b) (h : freeSnapOK a b = true) :
+    a.phaseSupport = b.phaseSupport ∧ a.constraints = b.constraints := by
+  have htext := free_snapshot_payload a b h
+  have hfa := canonical_ledger_snap_fields a ha
+  have hfb := canonical_ledger_snap_fields b hb
+  have hp := hfa.2.1
+  have hr := hfa.2.2
+  rw [htext.1] at hp
+  rw [htext.2] at hr
+  exact ⟨Option.some.inj (hp.symm.trans hfb.2.1),
+    Option.some.inj (hr.symm.trans hfb.2.2)⟩
+
+theorem canonical_ledger_support_known (s : LedgerSnap) (h : canonicalLedgerSnap s) :
+    (∀ m, m ∈ s.phaseSupport → ∀ x, x ∈ m → x ∈ s.live) ∧
+    (∀ row, row ∈ s.constraints → ∀ m, m ∈ row → ∀ x, x ∈ m → x ∈ s.live) := by
+  have hp := canonical_ledger_live_admission s h
+  constructor
+  · intro m hm
+    have hk := and_true_parts (List.all_eq_true.mp hp.2.2.1 m hm)
+    exact inputs_known_sound _ _ hk.2
+  · intro row hr m hm
+    have hrow := List.all_eq_true.mp hp.2.2.2 row hr
+    have hk := and_true_parts (List.all_eq_true.mp hrow m hm)
+    exact inputs_known_sound _ _ hk.2
+
+-- Equal parsed supports and canonical trial admission imply that all
+-- original support is retained. This does not yet interpret phase
+-- coefficients or prove the live enumeration permutation.
+theorem free_snapshot_retained_support (a b : LedgerSnap)
+    (ha : canonicalLedgerSnap a) (hb : canonicalLedgerSnap b) (h : freeSnapOK a b = true) :
+    (∀ m, m ∈ a.phaseSupport → ∀ x, x ∈ m → x ∈ b.live) ∧
+    (∀ row, row ∈ a.constraints → ∀ m, m ∈ row → ∀ x, x ∈ m → x ∈ b.live) := by
+  have he := free_snapshot_typed_payload a b ha hb h
+  rw [he.1, he.2]
+  exact canonical_ledger_support_known b hb
+
 -- Localize any unexpected dependency to a definition vs theorem.
 #print axioms splitBytes
 #print axioms digits
@@ -4167,6 +4373,14 @@ theorem sum_bits_free_prefix {A : Type} [Add A] (d n : Nat)
 #print axioms ledger_advance_free_support
 #print axioms freeDouble
 #print axioms sum_bits_free_prefix
+#print axioms LedgerSnapFields
+#print axioms ledger_snap_fields_of_admission
+#print axioms parse_ledger_snap_fields
+#print axioms canonical_ledger_snap_fields
+#print axioms canonical_ledger_live_admission
+#print axioms free_snapshot_typed_payload
+#print axioms canonical_ledger_support_known
+#print axioms free_snapshot_retained_support
 end QuPRS.CnfReplay
 
 def main (args : List String) : IO Unit := do

@@ -223,15 +223,73 @@ def xorRows (z a b : Nat) : List (List Int) :=
 def eqRows (a b : Nat) : List (List Int) :=
   [[-pos a, pos b], [pos a, -pos b]].map clauseSort
 
+-- Generate exactly the same rows as the former replay accumulator,
+-- in reverse record order. This pure function is shared by runtime
+-- replay and the semantic composition theorem.
+def recordRows : Record → List (List Int)
+  | .zero z => [[-pos z]]
+  | .andGate z inputs => andRows z inputs
+  | .xorGate z a b => xorRows z a b
+  | .eqGate a b => eqRows a b
+  | .live _ _ => []
+  | .phase _ _ => []
+
+def recordsRows : List Record → List (List Int)
+  | [] => []
+  | r :: rs => recordsRows rs ++ recordRows r
+
+def natMem (x : Nat) : List Nat → Bool
+  | [] => false
+  | y :: ys => (@decide (x = y) (Nat.decEq x y)) || natMem x ys
+
+def inputsKnown (seen : List Nat) : List Nat → Bool
+  | [] => true
+  | x :: xs => natMem x seen && inputsKnown seen xs
+
+def liveIds : List Record → List Nat
+  | [] => []
+  | .live _ id :: rs => id :: liveIds rs
+  | _ :: rs => liveIds rs
+
+def gateOutput : Record → Option Nat
+  | .zero z => some z
+  | .andGate z _ => some z
+  | .xorGate z _ _ => some z
+  | _ => none
+
+def gateInputs : Record → List Nat
+  | .andGate _ inputs => inputs
+  | .xorGate _ a b => [a,b]
+  | _ => []
+
+def nextSeen (seen : List Nat) (r : Record) : List Nat :=
+  match gateOutput r with
+  | some z => z :: seen
+  | none => seen
+
+-- Redundant independently checkable topological premise. The
+-- original replay still checks stage, ID bounds, freshness, full
+-- domain, phase binding and equality dependencies.
+def topo (seen : List Nat) : List Record → Bool
+  | [] => true
+  | r :: rs => inputsKnown seen (gateInputs r) &&
+      (match gateOutput r with
+       | some z => !natMem z seen
+       | none => true) &&
+      topo (nextSeen seen r) rs
+
+def finalSeen (seen : List Nat) : List Record → List Nat
+  | [] => seen
+  | r :: rs => finalSeen (nextSeen seen r) rs
+
 -- Replay all records in order. Live entries first; all later outputs
 -- fresh, dependencies already available; equalities and phase
 -- declarations can only refer to the completed graph.
-def replayRows (n : Nat) (records : List Record) : Option (List (List Int) × List Nat) := Id.run do
+def replayWeights (n : Nat) (records : List Record) : Option (List Nat) := Id.run do
   let mut seen : List Nat := []
   let mut live : List (Nat × Nat) := []
   let mut products : List (Nat × List Nat) := []
   let mut weighted : List Nat := []
-  let mut clauses : List (List Int) := []
   let mut stage : Nat := 0
   for r in records do
     match r with
@@ -243,24 +301,20 @@ def replayRows (n : Nat) (records : List Record) : Option (List (List Int) × Li
       if stage > 1 || !validId n z || seen.contains z then return none
       stage := 1
       seen := z :: seen
-      clauses := [-pos z] :: clauses
     | .andGate z inputs =>
       if stage > 1 || !validId n z || seen.contains z ||
           !distinctNat inputs || !inputs.all (fun v => seen.contains v) then return none
       stage := 1
       seen := z :: seen
       products := (z,inputs) :: products
-      clauses := andRows z inputs ++ clauses
     | .xorGate z a b =>
       if stage > 1 || !validId n z || seen.contains z ||
           !seen.contains a || !seen.contains b then return none
       stage := 1
       seen := z :: seen
-      clauses := xorRows z a b ++ clauses
     | .eqGate a b =>
       if stage > 2 || !seen.contains a || !seen.contains b then return none
       stage := 2
-      clauses := eqRows a b ++ clauses
     | .phase z source =>
       stage := 3
       if weighted.contains z || !distinctNat source then return none
@@ -269,7 +323,12 @@ def replayRows (n : Nat) (records : List Record) : Option (List (List Int) × Li
       let some p := products.find? (fun p => p.1 == z) | return none
       if p.2 != ids then return none
       weighted := z :: weighted
-  if seen.length == n then return some (clauses, weighted) else return none
+  if seen.length == n then return some weighted else return none
+
+def replayRows (n : Nat) (records : List Record) : Option (List (List Int) × List Nat) :=
+  if topo (liveIds records) records then
+    (replayWeights n records).map (fun ws => (recordsRows records, ws))
+  else none
 
 -- Explicit constructive equality/membership. Avoid inferred
 -- Decidable (x ∈ ys), which picked up a classical instance.
@@ -541,6 +600,210 @@ theorem actual_zero_row_sound (value : Int → Bool) (z : Nat)
   simp only [cnfTruth, rowTruth, Bool.or_false, Bool.and_true, hz]
   cases value (pos z) <;> decide
 
+
+-- Global semantic relation of the actual record sequence.
+def recordSem (value : Int → Bool) : Record → Prop
+  | .zero z => value (pos z) = false
+  | .andGate z xs => value (pos z) = andValue (xs.map (fun v => value (pos v)))
+  | .xorGate z a b => value (pos z) = (value (pos a)).xor (value (pos b))
+  | .eqGate a b => value (pos a) = value (pos b)
+  | .live _ _ => True
+  | .phase _ _ => True
+
+def recordCoherent (value : Int → Bool) : Record → Prop
+  | .zero z => value (-pos z) = !(value (pos z))
+  | .andGate z xs => (value (-pos z) = !(value (pos z))) ∧
+      (∀ v, v ∈ xs → value (-pos v) = !(value (pos v)))
+  | .xorGate z a b => (value (-pos z) = !(value (pos z))) ∧
+      (value (-pos a) = !(value (pos a))) ∧ (value (-pos b) = !(value (pos b)))
+  | .eqGate a b => (value (-pos a) = !(value (pos a))) ∧
+      (value (-pos b) = !(value (pos b)))
+  | .live _ _ => True
+  | .phase _ _ => True
+
+def recordsSem (value : Int → Bool) (rs : List Record) : Prop :=
+  ∀ r, r ∈ rs → recordSem value r
+
+theorem actual_record_rows_sound (value : Int → Bool) (r : Record)
+    (h : recordCoherent value r) :
+    satisfies (recordRows r) value ↔ recordSem value r := by
+  cases r with
+  | live v id => simp [recordRows, recordSem, satisfies]
+  | phase z xs => simp [recordRows, recordSem, satisfies]
+  | zero z => exact actual_zero_row_sound value z h
+  | andGate z xs => exact actual_and_rows_sound value z xs h.1 h.2
+  | xorGate z a b => exact actual_xor_rows_sound value z a b h.1 h.2.1 h.2.2
+  | eqGate a b => exact actual_eq_rows_sound value a b h.1 h.2
+
+theorem satisfies_append (value : Int → Bool) (a b : List (List Int)) :
+    satisfies (a ++ b) value ↔ satisfies a value ∧ satisfies b value := by
+  constructor
+  · intro h
+    exact ⟨fun row hm => h row (List.mem_append.mpr (Or.inl hm)),
+      fun row hm => h row (List.mem_append.mpr (Or.inr hm))⟩
+  · intro h row hm
+    rcases List.mem_append.mp hm with ha | hb
+    · exact h.1 row ha
+    · exact h.2 row hb
+
+theorem actual_records_rows_sound (value : Int → Bool) (rs : List Record)
+    (h : ∀ r, r ∈ rs → recordCoherent value r) :
+    satisfies (recordsRows rs) value ↔ recordsSem value rs := by
+  induction rs with
+  | nil => simp [recordsRows, recordsSem, satisfies]
+  | cons r rs ih =>
+    have hc := h r (List.mem_cons.mpr (Or.inl rfl))
+    have ht := ih (fun q hm => h q (List.mem_cons.mpr (Or.inr hm)))
+    have hr := actual_record_rows_sound value r hc
+    change satisfies (recordsRows rs ++ recordRows r) value ↔ recordsSem value (r :: rs)
+    rw [satisfies_append, ht, hr]
+    constructor
+    · intro hs q hm
+      rcases List.mem_cons.mp hm with he | hm
+      · subst q
+        exact hs.2
+      · exact hs.1 q hm
+    · intro hs
+      exact ⟨fun q hm => hs q (List.mem_cons.mpr (Or.inr hm)),
+        hs r (List.mem_cons.mpr (Or.inl rfl))⟩
+
+theorem replay_rows_binding (n : Nat) (rs : List Record)
+    (cs : List (List Int)) (ws : List Nat)
+    (h : replayRows n rs = some (cs, ws)) :
+    cs = recordsRows rs ∧ topo (liveIds rs) rs = true := by
+  unfold replayRows at h
+  cases ht : topo (liveIds rs) rs with
+  | false => simp [ht] at h
+  | true =>
+    cases hw : replayWeights n rs with
+    | none => simp [ht, hw] at h
+    | some w =>
+      have he : some (recordsRows rs, w) = some (cs, ws) := by
+        simpa [ht, hw] using h
+      exact ⟨(congrArg Prod.fst (Option.some.inj he)).symm, rfl⟩
+
+theorem accepted_records_sound (gate cnf : List Nat) (n : Nat)
+    (rs : List Record) (p : ParsedCnf)
+    (cs : List (List Int)) (ws : List Nat)
+    (hg : parseGate gate = some (n, rs))
+    (hp : parseCnf cnf = some p)
+    (hr : replayRows n rs = some (cs, ws))
+    (h : check gate cnf = true) (value : Int → Bool)
+    (hc : ∀ r, r ∈ rs → recordCoherent value r) :
+    satisfies p.clauses value ↔ recordsSem value rs := by
+  have hb := (replay_rows_binding n rs cs ws hr).1
+  have hs := byte_check_sound gate cnf n rs p cs ws hg hp hr h value
+  rw [hb] at hs
+  exact hs.symm.trans (actual_records_rows_sound value rs hc)
+
+theorem nat_mem_iff (x : Nat) (xs : List Nat) :
+    natMem x xs = true ↔ x ∈ xs := by
+  induction xs with
+  | nil => simp [natMem]
+  | cons y ys ih =>
+    simp only [natMem, Bool.or_eq_true, decide_eq_true_eq, ih, List.mem_cons]
+
+theorem inputs_known_sound (seen xs : List Nat) (h : inputsKnown seen xs = true) :
+    ∀ x, x ∈ xs → x ∈ seen := by
+  induction xs with
+  | nil => simp
+  | cons x xs ih =>
+    have h' : (natMem x seen && inputsKnown seen xs) = true := h
+    have hh := and_true_parts h'
+    intro v hm
+    rcases List.mem_cons.mp hm with he | hm
+    · subst v
+      exact (nat_mem_iff x seen).mp hh.1
+    · exact ih hh.2 v hm
+
+def agreeOn (a b : Int → Bool) (ids : List Nat) : Prop :=
+  ∀ x, x ∈ ids → a (pos x) = b (pos x)
+
+theorem and_value_agree (a b : Int → Bool) (xs : List Nat)
+    (h : agreeOn a b xs) :
+    andValue (xs.map (fun v => a (pos v))) =
+      andValue (xs.map (fun v => b (pos v))) := by
+  induction xs with
+  | nil => rfl
+  | cons x xs ih =>
+    have hx := h x (List.mem_cons.mpr (Or.inl rfl))
+    have ht := ih (fun v hm => h v (List.mem_cons.mpr (Or.inr hm)))
+    simp only [List.map_cons, andValue, hx, ht]
+
+theorem agree_cons (a b : Int → Bool) (z : Nat) (seen : List Nat)
+    (hz : a (pos z) = b (pos z)) (h : agreeOn a b seen) :
+    agreeOn a b (z :: seen) := by
+  intro v hm
+  rcases List.mem_cons.mp hm with he | hm
+  · subst v
+    exact hz
+  · exact h v hm
+
+theorem gate_agreement_step (a b : Int → Bool) (seen : List Nat) (r : Record)
+    (h : agreeOn a b seen) (hk : inputsKnown seen (gateInputs r) = true)
+    (ha : recordSem a r) (hb : recordSem b r) :
+    agreeOn a b (nextSeen seen r) := by
+  cases r with
+  | live v id => exact h
+  | phase z xs => exact h
+  | eqGate x y => exact h
+  | zero z =>
+    change a (pos z) = false at ha
+    change b (pos z) = false at hb
+    exact agree_cons a b z seen (ha.trans hb.symm) h
+  | andGate z xs =>
+    change a (pos z) = andValue (xs.map (fun v => a (pos v))) at ha
+    change b (pos z) = andValue (xs.map (fun v => b (pos v))) at hb
+    have hs : agreeOn a b xs := fun x hm => h x (inputs_known_sound seen xs hk x hm)
+    exact agree_cons a b z seen (ha.trans ((and_value_agree a b xs hs).trans hb.symm)) h
+  | xorGate z x y =>
+    have hxy := inputs_known_sound seen [x,y] hk
+    have hx := h x (hxy x (List.mem_cons.mpr (Or.inl rfl)))
+    have hy := h y (hxy y (List.mem_cons.mpr (Or.inr (List.mem_cons.mpr (Or.inl rfl)))))
+    have hz : a (pos z) = b (pos z) := by
+      change a (pos z) = (a (pos x)).xor (a (pos y)) at ha
+      change b (pos z) = (b (pos x)).xor (b (pos y)) at hb
+      rw [ha, hb, hx, hy]
+    exact agree_cons a b z seen hz h
+
+theorem topological_agreement (a b : Int → Bool) (seen : List Nat) (rs : List Record)
+    (ht : topo seen rs = true) (h : agreeOn a b seen)
+    (ha : recordsSem a rs) (hb : recordsSem b rs) :
+    agreeOn a b (finalSeen seen rs) := by
+  induction rs generalizing seen with
+  | nil => exact h
+  | cons r rs ih =>
+    have ht' : ((inputsKnown seen (gateInputs r) &&
+        (match gateOutput r with | some z => !natMem z seen | none => true)) &&
+        topo (nextSeen seen r) rs) = true := ht
+    have hh := and_true_parts ht'
+    have hs := gate_agreement_step a b seen r h (and_true_parts hh.1).1
+      (ha r (List.mem_cons.mpr (Or.inl rfl))) (hb r (List.mem_cons.mpr (Or.inl rfl)))
+    exact ih (nextSeen seen r) hh.2 hs
+      (fun q hm => ha q (List.mem_cons.mpr (Or.inr hm)))
+      (fun q hm => hb q (List.mem_cons.mpr (Or.inr hm)))
+
+-- At most one positive-literal assignment on the checked live/gate
+-- IDs, for a fixed live assignment and satisfying CNF. Existence,
+-- coverage of finalSeen versus all DIMACS IDs, and weighted sums
+-- are separate obligations.
+theorem accepted_assignment_unique (gate cnf : List Nat) (n : Nat)
+    (rs : List Record) (p : ParsedCnf)
+    (cs : List (List Int)) (ws : List Nat)
+    (hg : parseGate gate = some (n, rs))
+    (hp : parseCnf cnf = some p)
+    (hr : replayRows n rs = some (cs, ws))
+    (h : check gate cnf = true) (a b : Int → Bool)
+    (hca : ∀ r, r ∈ rs → recordCoherent a r)
+    (hcb : ∀ r, r ∈ rs → recordCoherent b r)
+    (ha : satisfies p.clauses a) (hb : satisfies p.clauses b)
+    (hl : agreeOn a b (liveIds rs)) :
+    agreeOn a b (finalSeen (liveIds rs) rs) :=
+  topological_agreement a b (liveIds rs) rs
+    (replay_rows_binding n rs cs ws hr).2 hl
+    ((accepted_records_sound gate cnf n rs p cs ws hg hp hr h a hca).mp ha)
+    ((accepted_records_sound gate cnf n rs p cs ws hg hp hr h b hcb).mp hb)
+
 -- Localize any unexpected dependency to a definition vs theorem.
 #print axioms splitBytes
 #print axioms digits
@@ -586,6 +849,33 @@ theorem actual_zero_row_sound (value : Int → Bool) (z : Nat)
 #print axioms actual_xor_rows_sound
 #print axioms actual_eq_rows_sound
 #print axioms actual_zero_row_sound
+#print axioms recordRows
+#print axioms recordsRows
+#print axioms natMem
+#print axioms inputsKnown
+#print axioms liveIds
+#print axioms gateOutput
+#print axioms gateInputs
+#print axioms nextSeen
+#print axioms topo
+#print axioms finalSeen
+#print axioms replayWeights
+#print axioms recordSem
+#print axioms recordCoherent
+#print axioms recordsSem
+#print axioms agreeOn
+#print axioms actual_record_rows_sound
+#print axioms satisfies_append
+#print axioms actual_records_rows_sound
+#print axioms replay_rows_binding
+#print axioms accepted_records_sound
+#print axioms nat_mem_iff
+#print axioms inputs_known_sound
+#print axioms and_value_agree
+#print axioms agree_cons
+#print axioms gate_agreement_step
+#print axioms topological_agreement
+#print axioms accepted_assignment_unique
 end QuPRS.CnfReplay
 
 def main (args : List String) : IO Unit := do

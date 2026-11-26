@@ -2763,13 +2763,27 @@ fn native_affine_incidence_reference(){
         let mut rows=vec![Poly::default();16];
         for (i,row) in rows.iter_mut().enumerate(){
             for (j,m) in keys.iter().enumerate(){
-                let v=seed.wrapping_mul(0x9e3779b9).rotate_left(i as u32)
-                    ^ (j as u32).wrapping_mul(0x85ebca6b).rotate_left((i+j) as u32);
-                if seed!=0 && v.count_ones()%2!=0{row.insert(m.clone());}
+                let v=seed.wrapping_mul(0x9e3779b9)
+                    ^ (i as u32).wrapping_mul(0x85ebca6b)
+                    ^ (j as u32).wrapping_mul(0xc2b2ae35);
+                let present=match seed{
+                    0=>false,
+                    1=>i==j,
+                    2=>j==0 && i%2==0,
+                    _=>v.rotate_left(((i+j)%32) as u32)&1!=0,
+                };
+                if present{row.insert(m.clone());}
             }
         }
         let (constants,columns)=build_affine_incidence(&rows,deadline).unwrap();
         assert!(!columns.contains_key(&Vec::new()));
+        if seed==1{
+            assert_eq!(constants,1);
+            assert_eq!(columns.len(),15);
+            for j in 1..16{assert_eq!(columns.get(&keys[j]),Some(&(1u64<<j)));}
+            for i in 0..16{assert_eq!(rows[i].len(),1);assert!(rows[i].contains(&keys[i]));}
+        }
+        if seed==2{assert_eq!(constants,0x5555);assert!(columns.is_empty());}
         for (j,m) in keys.iter().enumerate(){
             let expected=rows.iter().enumerate().fold(0u64,|w,(i,row)|
                 w|(u64::from(row.contains(m))<<i));
@@ -2794,7 +2808,7 @@ fn native_affine_incidence_reference(){
     let empty=build_affine_incidence(&[],deadline).unwrap();
     assert_eq!(empty,(0,BTreeMap::new()));
     assert_eq!(build_affine_incidence(&[],std::time::Instant::now()),Err("DEADLINE"));
-    println!("HOARE_NATIVE_AFFINE_INCIDENCE cases=256 checks=65536 sparse_ids=true constants=true empty=true deadline=true");
+    println!("HOARE_NATIVE_AFFINE_INCIDENCE cases=256 checks=65536 sparse_ids=true constants=true empty=true deadline=true row_diversity=true one_hot=true");
 }
 
 #[test]

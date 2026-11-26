@@ -42,7 +42,7 @@ theorem signed_select {P Q R S : Prop}
     · have hh : ¬ P := fun hq => hs (he.mp hq)
       simp [hh, hr, hs]
 
-theorem wrap_positive (d k p : Nat) (hk : k < d) (h : p < d) :
+theorem wrap_positive (d k p : Nat) (_hk : k < d) (h : p < d) :
     (p % d = k ↔ p = k) ∧ p ≠ k+d := by
   constructor
   · rw [Nat.mod_eq_of_lt h]
@@ -51,12 +51,15 @@ theorem wrap_positive (d k p : Nat) (hk : k < d) (h : p < d) :
 theorem wrap_negative (d k p : Nat) (hk : k < d)
     (h2 : p < 2*d) (h : ¬ p < d) :
     (p % d = k ↔ p = k+d) ∧ p ≠ k := by
-  have hd : d ≤ p := by omega
+  have hd : d ≤ p := Nat.le_of_not_lt h
   have hs : p-d < d := by omega
+  have hp : 0 < d := Nat.lt_of_le_of_lt (Nat.zero_le k) hk
+  have hm : p % d = (p-d) % d :=
+    (Nat.mod_eq_ite p d).trans (ite_eq_left ⟨hp, hd⟩)
   constructor
-  · rw [Nat.mod_eq_sub_mod hd, Nat.mod_eq_of_lt hs]
-    omega
-  · omega
+  · rw [hm, Nat.mod_eq_of_lt hs]
+    exact Nat.sub_eq_iff_eq_add hd
+  · exact Nat.ne_of_gt (Nat.lt_of_lt_of_le hk hd)
 
 /-- Single-wrap native coefficient contribution. -/
 theorem native_term_correct (d k i j : Nat) (a b : Int)

@@ -143,7 +143,7 @@ jobs:
           grep -F 'HOARE_NATIVE_AFFINE_UNITARY rank=4 free=3 exact=8 simple_width_rejected=true ' evidence/hoare-paper-source.log
           grep -Fx 'HOARE_NATIVE_AFFINE_CERTIFICATE_REPLAY mutations=10 bad_query=true deadline=true unfixed=true rank_zero=true' evidence/hoare-paper-source.log
           grep -Fx 'HOARE_NATIVE_AFFINE_WORD_PARITY checks=262144 width=16 storage=64 high_bits=true' evidence/hoare-paper-source.log
-          grep -Fx 'HOARE_NATIVE_AFFINE_INCIDENCE cases=256 checks=65536 sparse_ids=true constants=true empty=true deadline=true' evidence/hoare-paper-source.log
+          grep -Fx 'HOARE_NATIVE_AFFINE_INCIDENCE cases=256 checks=65536 sparse_ids=true constants=true empty=true deadline=true row_diversity=true one_hot=true' evidence/hoare-paper-source.log
           grep -Fx 'HOARE_NATIVE_CYCLO_CHECKED cases=6561 boundary_cases=6 min_subtract=true overflow_reject=true' evidence/hoare-paper-source.log
           grep -Fx 'HOARE_NATIVE_TILING8_FAILURE recovered=4 partial_positive=3 partial_zero=3 unresolved=1' evidence/hoare-paper-source.log
           grep -Fx 'HOARE_NATIVE_TILING8_PARTIAL_RECOVERY retained=2048 recovered=2048 duplicate=0' evidence/hoare-paper-source.log
@@ -997,12 +997,12 @@ jobs:
           if grep -E 'sorryAx|Lean[.]trustCompiler|Classical[.]choice' /tmp/qasm-lean-affine-checked.log; then
             checked_status=1
           fi
-          test "$(grep -Ec 'does not depend on any axioms|depends on axioms' /tmp/qasm-lean-affine-checked.log)" -eq 11 || checked_status=1
-          for theorem in exact_trace_sum checked_trace_sum step_accumulator_overflow checked_some_iff checked_none_iff mul_some_exact add_some_exact sub_some_exact step_some_exact trace_some_exact step_product_overflow; do
+          test "$(grep -Ec 'does not depend on any axioms|depends on axioms' /tmp/qasm-lean-affine-checked.log)" -eq 15 || checked_status=1
+          for theorem in vector_some_exact exact_vector_coordinate checked_vector_coordinate_sum vector_head_overflow exact_trace_sum checked_trace_sum step_accumulator_overflow checked_some_iff checked_none_iff mul_some_exact add_some_exact sub_some_exact step_some_exact trace_some_exact step_product_overflow; do
             test "$(grep -Ec "^'QuPRS[.]AffineCheckedArithmetic[.]$theorem' (does not depend on any axioms|depends on axioms)" /tmp/qasm-lean-affine-checked.log)" -eq 1 || checked_status=1
           done
           if test "$checked_status" -eq 0; then
-            echo 'LEAN4_AFFINE_CHECKED_ARITHMETIC_PASS theorem_axiom_reports=11 bounded_integer_model=true successful_trace_exact=true signed_sum=true overflow_reject=true rust_intrinsic_refinement=false'
+            echo 'LEAN4_AFFINE_CHECKED_ARITHMETIC_PASS theorem_axiom_reports=15 bounded_integer_model=true successful_trace_exact=true signed_sum=true ordered_vector_model=true overflow_reject=true rust_intrinsic_refinement=false'
           else
             echo 'LEAN4_AFFINE_CHECKED_ARITHMETIC_FAIL' >&2
           fi

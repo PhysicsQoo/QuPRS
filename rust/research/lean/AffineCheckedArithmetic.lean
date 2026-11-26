@@ -131,9 +131,9 @@ theorem exact_trace_sum (acc : Int) (us : List Update) :
       change exactTrace (exactStep acc u.a u.b u.negative) us =
         acc + ((if u.negative then -(u.a*u.b) else u.a*u.b) + signedSum us)
       rw [ih]
-      cases h : u.negative with
-      | false => simp [exactStep, h, Int.add_assoc]
-      | true => simp [exactStep, h, Int.sub_eq_add_neg, Int.add_assoc]
+      cases u.negative with
+      | false => simp [exactStep, Int.add_assoc]
+      | true => simp [exactStep, Int.sub_eq_add_neg, Int.add_assoc]
 
 theorem checked_trace_sum (lo hi acc r : Int) (us : List Update)
     (h : checkedTrace lo hi acc us = some r) :
@@ -153,6 +153,85 @@ theorem step_accumulator_overflow (lo hi acc a b : Int) (negative : Bool)
       | false => exact (checked_none_iff lo hi (acc+a*b)).mpr h
       | true => exact (checked_none_iff lo hi (acc-a*b)).mpr h
 
+
+/-- Ordered vector update model, using an arbitrary decidable coordinate
+    type. Every step checks the product and the targeted accumulator.
+    No partial vector is returned on failure. -/
+structure VectorUpdate (I : Type) where
+  index : I
+  update : Update
+
+def put {I : Type} [DecidableEq I] (acc : I → Int) (i : I) (v : Int) : I → Int :=
+  fun k => if k = i then v else acc k
+
+def checkedVector {I : Type} [DecidableEq I] (lo hi : Int)
+    (acc : I → Int) : List (VectorUpdate I) → Option (I → Int)
+  | [] => some acc
+  | u :: us =>
+      match checkedStep lo hi (acc u.index) u.update.a u.update.b u.update.negative with
+      | none => none
+      | some mid => checkedVector lo hi (put acc u.index mid) us
+
+def exactVector {I : Type} [DecidableEq I] (acc : I → Int) :
+    List (VectorUpdate I) → (I → Int)
+  | [] => acc
+  | u :: us =>
+      exactVector (put acc u.index
+        (exactStep (acc u.index) u.update.a u.update.b u.update.negative)) us
+
+theorem vector_some_exact {I : Type} [DecidableEq I] (lo hi : Int)
+    (acc result : I → Int) (us : List (VectorUpdate I))
+    (h : checkedVector lo hi acc us = some result) :
+    result = exactVector acc us := by
+  induction us generalizing acc with
+  | nil => exact (Option.some.inj h).symm
+  | cons u us ih =>
+      unfold checkedVector at h
+      cases hs : checkedStep lo hi (acc u.index) u.update.a u.update.b u.update.negative with
+      | none => simp [hs] at h
+      | some mid =>
+          rw [hs] at h
+          have hm := step_some_exact lo hi (acc u.index) u.update.a u.update.b
+            mid u.update.negative hs
+          exact (ih (put acc u.index mid) h).trans
+            (congrArg (fun v => exactVector (put acc u.index v) us) hm)
+
+def coordinateTrace {I : Type} [DecidableEq I] (k : I) :
+    List (VectorUpdate I) → List Update
+  | [] => []
+  | u :: us => if k = u.index then u.update :: coordinateTrace k us else coordinateTrace k us
+
+theorem exact_vector_coordinate {I : Type} [DecidableEq I] (acc : I → Int)
+    (k : I) (us : List (VectorUpdate I)) :
+    exactVector acc us k = exactTrace (acc k) (coordinateTrace k us) := by
+  induction us generalizing acc with
+  | nil => rfl
+  | cons u us ih =>
+      change exactVector (put acc u.index
+        (exactStep (acc u.index) u.update.a u.update.b u.update.negative)) us k =
+          exactTrace (acc k) (coordinateTrace k (u :: us))
+      rw [ih]
+      by_cases hk : k = u.index
+      · subst k
+        simp [put, coordinateTrace, exactTrace]
+      · simp [put, coordinateTrace, hk]
+
+theorem checked_vector_coordinate_sum {I : Type} [DecidableEq I] (lo hi : Int)
+    (acc result : I → Int) (us : List (VectorUpdate I)) (k : I)
+    (h : checkedVector lo hi acc us = some result) :
+    result k = acc k + signedSum (coordinateTrace k us) := by
+  rw [vector_some_exact lo hi acc result us h, exact_vector_coordinate, exact_trace_sum]
+
+theorem vector_head_overflow {I : Type} [DecidableEq I] (lo hi : Int)
+    (acc : I → Int) (u : VectorUpdate I) (us : List (VectorUpdate I))
+    (h : checkedStep lo hi (acc u.index) u.update.a u.update.b u.update.negative = none) :
+    checkedVector lo hi acc (u :: us) = none := by
+  simp only [checkedVector, h]
+
+#print axioms vector_some_exact
+#print axioms exact_vector_coordinate
+#print axioms checked_vector_coordinate_sum
+#print axioms vector_head_overflow
 #print axioms exact_trace_sum
 #print axioms checked_trace_sum
 #print axioms step_accumulator_overflow

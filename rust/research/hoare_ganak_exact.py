@@ -999,7 +999,7 @@ def cubic_bitset(n,edges):
     return bins,weighted
 
 
-def run_weighted_cubic(exe,ganak,tmp):
+def run_weighted_cubic(exe,ganak,tmp,sizes=(14,18,24,32)):
     """Research-only condensed scalar fallback comparison.
 
     Separate exact solver status from independent admission. No quantum
@@ -1028,7 +1028,7 @@ def run_weighted_cubic(exe,ganak,tmp):
     if ganak_ok:print("HOARE_CUBIC_GANAK_QUALIFICATION "+json.dumps(dict(status="PASS",metrics=qmetrics)),flush=True)
     deadline=time.monotonic()+100
     admitted=0;gexact=0;aexact=0;matches=0
-    for n in (14,18,24,32):
+    for n in sizes:
         edges=cubic_edges(n);oracle=None
         if n<=24:
             t=time.monotonic_ns();oracle=cubic_bitset(n,edges)
@@ -1092,7 +1092,7 @@ def run_weighted_cubic(exe,ganak,tmp):
             admitted+=int(accepted)
             print("HOARE_CUBIC_ADMISSION "+json.dumps(dict(n=n,mode="magnitude" if mode else "phase",
                   status="VERIFIED" if accepted else "UNKNOWN",independent_oracle=oracle is not None,paired=paired)),flush=True)
-    print("HOARE_CUBIC_SUMMARY "+json.dumps(dict(expected=8,gpmc_exact=gexact,ganak_exact=aexact,paired=matches,admitted=admitted)),flush=True)
+    print("HOARE_CUBIC_SUMMARY "+json.dumps(dict(expected=2*len(sizes),gpmc_exact=gexact,ganak_exact=aexact,paired=matches,admitted=admitted)),flush=True)
 
 
 def run_rus_composite(directory,exe,tmp):
@@ -1740,7 +1740,11 @@ def run_gpmc_pure(directory, exe, tmp, deadline):
             run_rus_gram(directory,exe,tmp,direct,dr)
         if (directory/"native-rus-composite.tsv").is_file():
             run_rus_composite(directory,exe,tmp)
-            run_weighted_cubic(exe,pathlib.Path(sys.argv[1]).resolve(),tmp)
+            replay=os.environ.get("HOARE_CUBIC_REPLAY","0")
+            assert replay in ("0","1")
+            run_weighted_cubic(exe,pathlib.Path(sys.argv[1]).resolve(),tmp,sizes=(14,18,24,32) if replay=="1" else (14,))
+            from hoare_cubic_rr import run_cubic_rr
+            run_cubic_rr(cubic_edges)
     if (directory/"native-affine-wmc.tsv").is_file():
         query_cap=30
         deadline=time.monotonic()+720

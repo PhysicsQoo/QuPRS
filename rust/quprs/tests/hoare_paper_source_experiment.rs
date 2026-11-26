@@ -2544,6 +2544,153 @@ fn native_output_quotient_parity(){
     println!("HOARE_NATIVE_OUTPUT_QUOTIENT queries={queries} vectors={checks} contradictions={contradictions} compressed={compressed} exact=true");
 }
 
+
+// Row-space basis chosen with fixed output rows first. This ensures
+// every fixed constraint is either an original basis coordinate or
+// a dependent equation involving only fixed basis coordinates.
+// Nonconstant ANF monomials are independent formal GF(2) coordinates.
+struct AffineOutputBasis{keep:u64,fixed:u64,value:u64,rows:Vec<(u64,bool)>,impossible:bool}
+fn affine_output_basis(ps:&PathSum,mask:u64,z:u64,deadline:std::time::Instant)
+    ->Result<AffineOutputBasis,&'static str>{
+    let n=ps.v.num_qubits;
+    if n==0||n>16||!admitted(ps)||mask>>n!=0||z&!mask!=0{return Err("UNSUPPORTED");}
+    if ps.f.functions.iter().flatten().chain(ps.p.terms.keys()).flatten().any(|&v|(v as usize)<n){
+        return Err("UNFIXED_INPUT");
+    }
+    let mut q=AffineOutputBasis{keep:0,fixed:0,value:0,rows:vec![(0,false);n],impossible:false};
+    let mut pivots=BTreeMap::<Vec<u32>,(std::collections::BTreeSet<Vec<u32>>,u64)>::new();
+    let mut constants=0u64;
+    for i in 0..n{if ps.f.functions[i].contains(&vec![]){constants|=1u64<<i;}}
+    for i in (0..n).filter(|&i|mask>>i&1!=0).chain((0..n).filter(|&i|mask>>i&1==0)){
+        if std::time::Instant::now()>=deadline{return Err("DEADLINE");}
+        let mut row:std::collections::BTreeSet<_>=ps.f.functions[i].iter().filter(|m|!m.is_empty()).cloned().collect();
+        let mut relation=0u64;
+        while let Some(p)=row.last().cloned(){
+            if std::time::Instant::now()>=deadline{return Err("DEADLINE");}
+            if let Some((other,coeff))=pivots.get(&p){
+                for m in other{if !row.insert(m.clone()){row.remove(m);}}
+                relation^=*coeff;
+            }else{
+                let bit=1u64<<i;
+                pivots.insert(p,(row,relation^bit));
+                q.keep|=bit;relation=bit;
+                if mask&bit!=0{q.fixed|=bit;q.value|=z&bit;}
+                break;
+            }
+        }
+        let offset=((constants>>i&1)^(u64::from((constants&relation).count_ones()%2!=0)))!=0;
+        q.rows[i]=(relation,offset);
+        if mask>>i&1!=0{
+            assert_eq!(relation&!q.fixed,0);
+            let actual=((relation&q.value).count_ones()%2!=0)^offset;
+            if actual!=(z>>i&1!=0){q.impossible=true;}
+        }
+    }
+    // Explicit reconstruction certificate over canonical ANFs.
+    for (i,&(relation,offset)) in q.rows.iter().enumerate(){
+        if std::time::Instant::now()>=deadline{return Err("DEADLINE");}
+        let mut reconstructed=Poly::default();
+        if offset{toggle(&mut reconstructed,vec![]);}
+        for j in 0..n{if relation>>j&1!=0{
+            for m in &ps.f.functions[j]{toggle(&mut reconstructed,m.clone());}
+        }}
+        assert_eq!(reconstructed,ps.f.functions[i]);
+        if q.keep>>i&1!=0{assert_eq!((relation,offset),(1u64<<i,false));}
+    }
+    Ok(q)
+}
+fn affine_label(q:&AffineOutputBasis,u:u64)->u64{
+    q.rows.iter().enumerate().fold(0u64,|z,(i,(relation,offset))|{
+        z|(u64::from(((relation&u).count_ones()%2!=0)^*offset)<<i)
+    })
+}
+fn affine_quotient_sector(ps:&PathSum,mask:u64,z:u64,deadline:std::time::Instant)
+    ->Result<QuotientReceipt,&'static str>{
+    let degree=minimum_cyclo_degree(ps)?;
+    let q=affine_output_basis(ps,mask,z,deadline)?;
+    let free=q.keep&!q.fixed;
+    if q.impossible{return Ok(QuotientReceipt{values:BTreeMap::new(),free:free.count_ones() as usize,width:0,work:0,impossible:true});}
+    let p=prepare_cyclo_selected(ps,q.keep,q.fixed,degree,deadline)?;
+    let (v,width,work)=execute_minimum_boundary(&p,q.value,deadline)?;
+    assert_eq!(v.len(),1usize<<free.count_ones());
+    let mut values=BTreeMap::new();
+    for (i,a) in v.into_iter().enumerate(){
+        let label=affine_label(&q,q.value|deposit8(i,free));
+        assert_eq!(label&mask,z);
+        assert!(values.insert(label,a).is_none());
+    }
+    Ok(QuotientReceipt{values,free:free.count_ones() as usize,width,work,impossible:false})
+}
+#[test]
+fn native_affine_output_quotient_parity(){
+    use quprs::{Rational,PhaseCoeff};
+    let deadline=std::time::Instant::now()+std::time::Duration::from_secs(30);
+    let mut checks=0;let mut queries=0;let mut strict=0;let mut contradictions=0;
+    for trial in 0..96{
+        let mut ps=PathSum::new(4);ps.set_auto_reduce(false);
+        let ids:Vec<_>=(0..3).map(|_|ps.v.get_fresh_var()).collect();
+        let a=Poly::from_iter([vec![ids[0]],vec![ids[1],ids[2]]]);
+        let b=Poly::from_iter([vec![ids[1]],vec![ids[0],ids[2]]]);
+        let mut c=a.clone();for m in &b{toggle(&mut c,m.clone());}
+        let mut d=c.clone();toggle(&mut d,vec![]);
+        ps.f.functions=match trial%3{
+            0=>vec![a,b,c,d],
+            1=>vec![c,a,b,Poly::default()],
+            _=>vec![d,b,a,c],
+        };
+        let order=[2,4,8,16,32,64][trial%6];
+        for (i,&y) in ids.iter().enumerate(){
+            ps.p.add_term(vec![y],PhaseCoeff::new_constant(Rational::new((i+1) as _,order)));
+        }
+        let fixed=fixed_input(ps,0);
+        for mask in 0..16u64{for z in 0..16u64{
+            if z&!mask!=0{continue;}
+            let ordinary=early_sector_minimum(&fixed,mask,z,deadline).unwrap();
+            let simple=quotient_sector(&fixed,mask,z,deadline).unwrap();
+            let q=affine_quotient_sector(&fixed,mask,z,deadline).unwrap();
+            strict+=usize::from(q.free<simple.free);contradictions+=usize::from(q.impossible);
+            for (i,a) in ordinary.iter().enumerate(){
+                let label=z|deposit8(i,15&!mask);
+                assert_eq!(*a,q.values.get(&label).copied().unwrap_or([0;32]));
+                assert_eq!(*a,simple.values.get(&label).copied().unwrap_or([0;32]));checks+=1;
+            }
+            queries+=1;
+        }}
+    }
+    assert_eq!((queries,checks),(7776,24576));assert!(strict>0&&contradictions>0);
+    assert!(matches!(affine_output_basis(&PathSum::new(2),0,0,deadline),Err("UNFIXED_INPUT")));
+    println!("HOARE_NATIVE_AFFINE_QUOTIENT queries={queries} vectors={checks} strict={strict} contradictions={contradictions} exact=true");
+}
+#[test]
+fn native_affine_unitary_control(){
+    use QuantumOp as G;
+    // All 15 nonzero linear combinations of four independent path bits
+    // appear as distinct output functions, no equal/complement reduction.
+    let mut ps=PathSum::new(15);ps.set_auto_reduce(false);
+    for q in 0..4{G::H(q).apply(&mut ps,false);}
+    let mut target=4;
+    for m in 1u32..16{
+        if m.count_ones()==1{continue;}
+        for i in 0..4{if m>>i&1!=0{G::CX(i,target).apply(&mut ps,false);}}
+        target+=1;
+    }
+    assert_eq!(target,15);
+    let p=fixed_input(ps,0);let deadline=std::time::Instant::now()+std::time::Duration::from_secs(5);
+    let mask=1u64<<14;
+    assert!(matches!(quotient_sector(&p,mask,mask,deadline),Err("WIDTH_LIMIT")));
+    let a=affine_quotient_sector(&p,mask,mask,deadline).unwrap();
+    assert_eq!(a.free,3);assert_eq!(a.values.len(),8);
+    let mut expected=BTreeMap::new();
+    for x in 0..16u64{
+        if x.count_ones()%2==0{continue;}
+        let mut z=x;let mut i=4;
+        for m in 1u64..16{if m.count_ones()==1{continue;}z|=u64::from((x&m).count_ones()%2!=0)<<i;i+=1;}
+        let mut v=[0;32];v[0]=1;expected.insert(z,v);
+    }
+    assert_eq!(a.values,expected);
+    println!("HOARE_NATIVE_AFFINE_UNITARY rank=4 free=3 exact=8 simple_width_rejected=true width={} work={}",a.width,a.work);
+}
+
 #[test]
 fn native_online_hybrid_sector(){
     let Some(solver)=std::env::var_os("HOARE_ONLINE_GPMC") else{return;};
@@ -2556,8 +2703,8 @@ fn native_online_hybrid_sector(){
         let mask=1u64<<(n-1);
         // QFT WMC-only timeout cohort is already frozen; do not rerun
         // it in this small integration pilot.
-        let routes:&[&str]=if name=="qft4"{&["factor-gpmc","tiling-gpmc","quotient-gpmc"]}
-            else{&["factor-gpmc","tiling-gpmc","wmc-only","quotient-gpmc"]};
+        let routes:&[&str]=if name=="qft4"{&["factor-gpmc","tiling-gpmc","quotient-gpmc","affine-gpmc"]}
+            else{&["factor-gpmc","tiling-gpmc","wmc-only","quotient-gpmc","affine-gpmc"]};
         for &route in routes{
             let start=std::time::Instant::now();
             let deadline=start+std::time::Duration::from_secs(30);
@@ -2576,8 +2723,9 @@ fn native_online_hybrid_sector(){
                 let (p,r,_,_,expired,_)=reduce_indexed(fixed_input(general.clone(),x),deadline,true);
                 if expired||r.limit{*failures.entry(if expired{"DEADLINE"}else{"RR_LIMIT"}).or_default()+=1;continue;}
                 let mut result=None;
-                if route=="quotient-gpmc"{
-                    match quotient_sector(&p,mask,mask,deadline){
+                if route=="quotient-gpmc"||route=="affine-gpmc"{
+                    let qr=if route=="affine-gpmc"{affine_quotient_sector(&p,mask,mask,deadline)}else{quotient_sector(&p,mask,mask,deadline)};
+                    match qr{
                         Ok(q)=>{
                             let v=q.values.values().flatten().try_fold(0i128,|s,&v|s.checked_add(v.checked_mul(v)?));
                             if let Some(v)=v{
@@ -2639,15 +2787,15 @@ fn native_online_hybrid_sector(){
             assert_eq!(factor+tiles+quotient+wmc,coverage.len());
             if route=="factor-gpmc"&&name=="mixed13"{assert_eq!((factor,tiles,wmc),(1,0,1));}
             if route=="tiling-gpmc"&&name=="mixed13"{assert_eq!((factor,tiles,wmc),(1,1,0));}
-            if name=="wide14-zero"&&route!="quotient-gpmc"{assert_eq!((factor,tiles,wmc),(0,0,2));}
-            if name=="wide14-positive"&&route!="quotient-gpmc"{assert_eq!((factor,tiles,wmc),(0,0,1));assert_eq!(visited,1);}
-            if route=="quotient-gpmc"&&["wide14-zero","wide14-positive","mixed13"].contains(&name){assert_eq!(quotient,coverage.len());assert_eq!(wmc,0);}
+            if name=="wide14-zero"&&route!="quotient-gpmc"&&route!="affine-gpmc"{assert_eq!((factor,tiles,wmc),(0,0,2));}
+            if name=="wide14-positive"&&route!="quotient-gpmc"&&route!="affine-gpmc"{assert_eq!((factor,tiles,wmc),(0,0,1));assert_eq!(visited,1);}
+            if (route=="quotient-gpmc"||route=="affine-gpmc")&&["wide14-zero","wide14-positive","mixed13"].contains(&name){assert_eq!(quotient,coverage.len());assert_eq!(wmc,0);}
             println!("HOARE_ONLINE_HYBRID name={name} route={route} verdict={verdict} exact={} planned={} visited={visited} factor={factor} tiles={tiles} wmc={wmc} wmc_attempts={wmc_attempts} quotient={quotient} qwidth={qwidth} qfree={qfree} qwork={qwork} qlabels={qlabels} qempty={qempty} common_ns={common} elapsed_ns={} first={first:?} rejects={rejects:?} failures={failures:?}",coverage.len(),inputs.len(),start.elapsed().as_nanos());
             arms+=1;
         }
         cases+=1;
     }
-    assert_eq!((cases,arms),(7,27));
+    assert_eq!((cases,arms),(7,34));
     println!("HOARE_ONLINE_HYBRID_COHORT cases={cases} arms={arms} duplicate=0");
 }
 

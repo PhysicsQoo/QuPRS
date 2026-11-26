@@ -8908,6 +8908,17 @@ mod constrained_predicate_overlap {
             let truth=gram(a,b,*ad,*bd);assert_eq!(flat_include(af,bf),Some(truth));
             if truth{
                 let (f,k)=separator(af,bf).unwrap();rounds+=k;
+                // Independently replay the adaptive solver on the identical
+                // restricted phase; compare subgroups, not basis order.
+                let mut d=af.q.clone();plus(&mut d,&bf.q,7);
+                let p=restrict_phase(&d,af.off,&af.support,af.n);
+                let h:Vec<u64>=af.kernel.iter().map(|&v|coordinates(&af.support,v).unwrap()).collect();
+                let (hh,_)=adaptive_periods(&p,af.support.len(),h,2_000_000,100_000,false).unwrap();
+                let mut candidate=f.clone();
+                candidate.kernel=hh.iter().map(|&v|combine(&af.support,v)).collect();
+                assert!(period_same_span(&candidate.kernel,&f.kernel));
+                let (cs,cd)=frame_snapshot(&candidate);
+                assert!(gram(a,&cs,*ad,cd)&&gram(&cs,b,cd,*bd));
                 let (c,cd)=frame_snapshot(&f);
                 assert!(gram(a,&c,*ad,cd)&&gram(&c,b,cd,*bd));
                 if f.support.len()-f.kernel.len()<bf.support.len()-bf.kernel.len(){smaller+=1;}
@@ -8917,6 +8928,204 @@ mod constrained_predicate_overlap {
         }}
         assert!(proved>0&&refuted>0&&smaller>0);
         println!("HOARE_AFFINE_FRAME_INCLUSION frames={} cases={cases} proved={proved} refuted={refuted} separators_smaller={smaller} period_rounds={rounds}",frames.len());
+    }
+
+    // Research-only budget: cumulative sparse polynomial updates and
+    // per-polynomial term cap. Not a wall-time or whole-process RSS cap.
+    struct PeriodBudget { left: usize, cap: usize, peak: usize }
+    impl PeriodBudget {
+        fn charge(&mut self, n: usize) -> Option<()> {
+            self.left=self.left.checked_sub(n)?; Some(())
+        }
+        fn put(&mut self, p:&mut Poly, m:u64, c:u8)->Option<()> {
+            self.charge(1)?;
+            let k=(p.get(&m).copied().unwrap_or(0)+c)%8;
+            if k==0{p.remove(&m);}else{p.insert(m,k);}
+            self.peak=self.peak.max(p.len());
+            if p.len()>self.cap{return None;}
+            Some(())
+        }
+    }
+    fn period_input(p:&Poly,n:usize,h:&[u64])->bool{
+        if n>=64{return false;}
+        let mask=(1u64<<n)-1;
+        p.iter().all(|(&m,&c)|m&!mask==0&&(1..8).contains(&c)) &&
+            h.iter().all(|&v|v&!mask==0) && coordinates(h,0).is_some()
+    }
+    fn period_kernel(h:&[u64],rows:&[u64])->Vec<u64>{
+        let mut ker:Vec<u64>=(0..h.len()).map(|j|1u64<<j).collect();
+        for &row in rows{
+            if let Some(p)=ker.iter().position(|v|(v&row).count_ones()%2!=0){
+                let v=ker.remove(p);
+                for k in &mut ker{if (*k&row).count_ones()%2!=0{*k^=v;}}
+            }
+        }
+        ker.iter().map(|&v|combine(h,v)).collect()
+    }
+    fn period_same_span(a:&[u64],b:&[u64])->bool{
+        a.len()==b.len()&&a.iter().all(|&v|coordinates(b,v).is_some())&&
+            b.iter().all(|&v|coordinates(a,v).is_some())
+    }
+    fn period_row(h:&[u64],v:u64)->u64{
+        h.iter().enumerate().fold(0,|m,(j,&b)|m|((u64::from((b&v).count_ones()%2!=0))<<j))
+    }
+    // Exact linear phase shortcut, valid only after canonical restriction
+    // to the whole affine support coordinate domain.
+    fn linear_periods(p:&Poly,n:usize,h:&[u64])->Option<Vec<u64>>{
+        if !period_input(p,n,h)||p.keys().any(|m|m.count_ones()>1){return None;}
+        let mut rows=Vec::new();let mut parity=0;
+        for (&m,&a) in p{
+            if m==0{continue;}
+            if a%4!=0{rows.push(period_row(h,m));}
+            else if a==4{parity^=m;}
+        }
+        rows.push(period_row(h,parity));
+        Some(period_kernel(h,&rows))
+    }
+    // Boolean XOR lift modulo 8: all degree >=4 terms vanish.
+    // Unlike carry-expanded bit planes, coefficients remain in Z8.
+    fn period_lift(mask:u64,b:&mut PeriodBudget)->Option<Poly>{
+        let v:Vec<u64>=(0..64).filter(|&j|mask>>j&1!=0).map(|j|1u64<<j).collect();
+        let mut p=Poly::new();
+        for i in 0..v.len(){
+            b.put(&mut p,v[i],1)?;
+            for j in i+1..v.len(){
+                b.put(&mut p,v[i]|v[j],6)?;
+                for k in j+1..v.len(){b.put(&mut p,v[i]|v[j]|v[k],4)?;}
+            }
+        }
+        Some(p)
+    }
+    fn period_mul(a:&Poly,b:&Poly,budget:&mut PeriodBudget)->Option<Poly>{
+        let mut r=Poly::new();
+        for (&m,&c) in a{for (&n,&d) in b{
+            // Charge even zero products; avoid unbounded scans.
+            budget.put(&mut r,m|n,(c*d)%8)?;
+        }}
+        Some(r)
+    }
+    fn period_change(p:&Poly,basis:&[u64],n:usize,budget:&mut PeriodBudget)->Option<Poly>{
+        let forms:Vec<Poly>=(0..n).map(|i|{
+            let m=basis.iter().enumerate().fold(0,|v,(j,&w)|v|(((w>>i)&1)<<j));
+            period_lift(m,budget)
+        }).collect::<Option<_>>()?;
+        let mut out=Poly::new();
+        for (&m,&c) in p{
+            let mut t=Poly::new();budget.put(&mut t,0,c)?;
+            let mut k=m;
+            while k!=0{
+                let i=k.trailing_zeros() as usize;k&=k-1;
+                t=period_mul(&t,&forms[i],budget)?;
+            }
+            for (m,c) in t{budget.put(&mut out,m,c)?;}
+        }
+        Some(out)
+    }
+    // Exact valuation descent. Lowest active coefficient valuation is
+    // recomputed after each basis change; inactive coefficients are not divided.
+    fn valuation_periods(p:&Poly,n:usize,mut h:Vec<u64>,work:usize,cap:usize)
+        ->Option<(Vec<u64>,usize,usize,usize)>{
+        if !period_input(p,n,&h)||p.len()>cap{return None;}
+        let mut b=PeriodBudget{left:work,cap,peak:p.len()};
+        let mut rounds=0;let mut row_count=0;
+        loop{
+            if h.is_empty(){return Some((h,rounds,b.peak,row_count));}
+            let basis=complete_basis(&h,n);
+            let active=(1u64<<h.len())-1;
+            let q=period_change(p,&basis,n,&mut b)?;
+            b.charge(q.len())?;
+            let Some(t)=q.iter().filter_map(|(&m,&c)|
+                (m&active!=0).then_some(c.trailing_zeros())).min()
+                else{return Some((h,rounds,b.peak,row_count));};
+            let d=q.iter().filter_map(|(&m,&c)|
+                (m&active!=0&&c.trailing_zeros()==t).then_some((m&active).count_ones()))
+                .max()?;
+            let mut eq=BTreeMap::<u64,u64>::new();
+            for (&m,&c) in &q{
+                let mut k=m&active;
+                if k.count_ones()!=d||c.trailing_zeros()!=t{continue;}
+                while k!=0{
+                    b.charge(1)?;
+                    let bit=k&k.wrapping_neg();k^=bit;
+                    *eq.entry(m^bit).or_default()^=bit;
+                }
+            }
+            let rows:Vec<_>=eq.into_values().filter(|&v|v!=0).collect();
+            let next=period_kernel(&h,&rows);
+            if next.len()>=h.len(){return None;}
+            row_count+=rows.len();h=next;rounds+=1;
+        }
+    }
+    // A failed resource/admission check is not a negative verdict.
+    // The legacy fallback has its original local caps, not the same cumulative
+    // work budget. It is explicitly opt-in in this research harness.
+    fn adaptive_periods(p:&Poly,n:usize,h:Vec<u64>,work:usize,cap:usize,legacy:bool)
+        ->Option<(Vec<u64>,&'static str)>{
+        if !period_input(p,n,&h){return None;}
+        if p.keys().all(|&m|m==0){return Some((h,"constant"));}
+        if let Some(k)=linear_periods(p,n,&h){return Some((k,"linear"));}
+        if let Some((k,_,_,_))=valuation_periods(p,n,h.clone(),work,cap){
+            return Some((k,"valuation"));
+        }
+        if legacy{let (k,_,_)=phase_periods(p,n,h)?;return Some((k,"bitplane"));}
+        None
+    }
+    #[test]
+    fn hoare_adaptive_phase_period_discovery(){
+        let mut models=0;let mut directions=0;let mut linear=0;let mut constant=0;
+        let mut val_rounds=0;let mut val_rows=0;let mut val_peak=0;
+        let mut val_ns=0u128;let mut bit_ns=0u128;let mut adapt_ns=0u128;
+        let mut rng=20261126u64;
+        let mut random=||{rng^=rng<<13;rng^=rng>>7;rng^=rng<<17;rng};
+        for n in 1..=8usize{for seed in 0..100usize{
+            let mask=(1u64<<n)-1;let mut p=Poly::new();
+            for _ in 0..n+3{
+                let m=if seed%2==0{if random()%5==0{0}else{1u64<<(random()%n as u64)}}else{random()&mask};
+                plus(&mut p,&Poly::from([(m,(random()%8) as u8)]),1);
+            }
+            let h:Vec<u64>=(0..n).filter(|&j|random()&1!=0)
+                .map(|j|if j+1<n{(1u64<<j)|(1u64<<(j+1))}else{1u64<<j}).collect();
+            let run_v=||{let t=std::time::Instant::now();let v=valuation_periods(&p,n,h.clone(),2_000_000,100_000).unwrap();(v,t.elapsed().as_nanos())};
+            let run_b=||{let t=std::time::Instant::now();let v=phase_periods(&p,n,h.clone()).unwrap();(v,t.elapsed().as_nanos())};
+            let ((v,k,peak,rows),vt,(b,_,_),bt)=if seed%2==0{
+                let (v,vt)=run_v();let (b,bt)=run_b();(v,vt,b,bt)
+            }else{
+                let (b,bt)=run_b();let (v,vt)=run_v();(v,vt,b,bt)
+            };
+            val_ns+=vt;bit_ns+=bt;val_rounds+=k;val_rows+=rows;val_peak=val_peak.max(peak);
+            let t=std::time::Instant::now();
+            let (a,route)=adaptive_periods(&p,n,h.clone(),2_000_000,100_000,false).unwrap();
+            adapt_ns+=t.elapsed().as_nanos();
+            assert!(period_same_span(&v,&b)&&period_same_span(&v,&a));
+            if route=="linear"{linear+=1;}else if route=="constant"{constant+=1;}
+            for i in 0..1u64<<h.len(){
+                let w=combine(&h,i);
+                let expected=(0..1u64<<n).all(|x|eval(&p,x)==eval(&p,x^w));
+                assert_eq!(coordinates(&a,w).is_some(),expected);directions+=1;
+            }
+            models+=1;
+        }}
+        let parity=Poly::from([(1,4),(2,4)]);
+        assert!(period_same_span(&linear_periods(&parity,2,&[1,2]).unwrap(),&[3]));
+        let nonlinear=Poly::from([(3,1)]);
+        assert!(linear_periods(&nonlinear,2,&[1,2]).is_none());
+        assert!(adaptive_periods(&nonlinear,2,vec![1,2],0,100,false).is_none());
+        assert!(adaptive_periods(&nonlinear,2,vec![1,2],2_000,0,false).is_none());
+        let (fallback,route)=adaptive_periods(&nonlinear,2,vec![1,2],0,100,true).unwrap();
+        assert_eq!(route,"bitplane");assert!(fallback.is_empty());
+        assert!(adaptive_periods(&nonlinear,2,vec![1,1],2_000,100,true).is_none());
+        assert!(adaptive_periods(&nonlinear,64,vec![1,2],2_000,100,true).is_none());
+        let p:Poly=(0..24).map(|i|(1u64<<i,1)).collect();
+        let t=std::time::Instant::now();
+        let (h,route)=adaptive_periods(&p,48,(0..48).map(|i|1u64<<i).collect(),0,0,false).unwrap();
+        let large_ns=t.elapsed().as_nanos();
+        assert_eq!(route,"linear");assert_eq!(h,(24..48).map(|i|1u64<<i).collect::<Vec<_>>());
+        // A separate direct-valuation control, deliberately bypassing linear.
+        let p:Poly=(0..12).map(|i|(1u64<<i,1)).collect();
+        let (h,_,_,_)=valuation_periods(&p,24,(0..24).map(|i|1u64<<i).collect(),2_000_000,100_000).unwrap();
+        assert_eq!(h,(12..24).map(|i|1u64<<i).collect::<Vec<_>>());
+        assert_eq!(models,800);
+        println!("HOARE_ADAPTIVE_PHASE_PERIOD models={models} directions={directions} linear={linear} constant={constant} valuation_rounds={val_rounds} valuation_rows={val_rows} valuation_peak={val_peak} valuation_ns={val_ns} bitplane_ns={bit_ns} adaptive_ns={adapt_ns} large_n=48 large_rank=24 large_ns={large_ns} budget_rejects=2 invalid_rejects=2 fallback=1");
     }
 }
 

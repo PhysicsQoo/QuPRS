@@ -10,7 +10,7 @@ on:
       suite:
         description: Experimental evidence suite
         type: choice
-        options: [legacy, cross-family, source-admission, root-profile, factor-classes, sparse-anchor, prefix-memo, axis-profile, direct-binary, operand-profile, pool-profile, last-use-donor, masked-donor, descendant-units, inplace-scan, inplace-branch, move-components, borrowed-cache, general-cumulative, general-simulation-repair, general-native-gpmc, scope-scratch, streaming-large-general, large-root-closure, large-descendant-closure, fixed-work-descendant, large-general-candidate, long-native-candidate, default-parser-isolation, scope-scratch-fair, scope-scratch-candidate, large-root-ownership, root-ownership-port, packed-index-scratch, owned-entry-isolation, root-long-regression, reversible-index-state, reversible-canonical-boundary, historical-gap-baseline, reversible-frontier-transitions, reversible-ordered-frontier, historical-grover5, grover5-precision-audit, grover5-seven-pairs, reversible-rank-generation, reversible-single-unit-queue, component-scoped-trail-wmc, scoped-complete-ablation, scoped-adaptive-ablation, scoped-local-allocation, scoped-canonical-reuse, scoped-preindex-cache]
+        options: [legacy, cross-family, source-admission, root-profile, factor-classes, sparse-anchor, prefix-memo, axis-profile, direct-binary, operand-profile, pool-profile, last-use-donor, masked-donor, descendant-units, inplace-scan, inplace-branch, move-components, borrowed-cache, general-cumulative, general-simulation-repair, general-native-gpmc, scope-scratch, streaming-large-general, large-root-closure, large-descendant-closure, fixed-work-descendant, large-general-candidate, long-native-candidate, default-parser-isolation, scope-scratch-fair, scope-scratch-candidate, large-root-ownership, root-ownership-port, packed-index-scratch, owned-entry-isolation, root-long-regression, reversible-index-state, reversible-canonical-boundary, historical-gap-baseline, reversible-frontier-transitions, reversible-ordered-frontier, historical-grover5, grover5-precision-audit, grover5-seven-pairs, reversible-rank-generation, reversible-single-unit-queue, component-scoped-trail-wmc, scoped-complete-ablation, scoped-adaptive-ablation, scoped-local-allocation, scoped-canonical-reuse, scoped-preindex-cache, general-pivot-scout]
         default: legacy
 permissions:
   contents: read
@@ -4870,7 +4870,7 @@ jobs:
           if-no-files-found: warn
 
   scoped-preindex-cache:
-    if: github.event_name == 'push' || inputs.suite == 'scoped-preindex-cache'
+    if: github.event_name == 'workflow_dispatch' && inputs.suite == 'scoped-preindex-cache'
     name: Exact pre-index cache / ${{ matrix.digits }} digits
     runs-on: ubuntu-24.04
     timeout-minutes: 8
@@ -4985,5 +4985,151 @@ jobs:
         with:
           name: rawmocs-scoped-preindex-cache-${{ matrix.digits }}
           path: .scoped-preindex-evidence/
+          include-hidden-files: true
+          if-no-files-found: warn
+
+  general-pivot-scout:
+    if: github.event_name == 'push' || inputs.suite == 'general-pivot-scout'
+    name: General pivot scout / ${{ matrix.case }} / ${{ matrix.digits }} digits
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - case: vqe8
+            digits: 30
+          - case: vqe8
+            digits: 130
+          - case: historical-grover5
+            digits: 130
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: PhysicsQoo/RaWMoCS
+          ref: 6a793e52d41d8ecf37aaacdad6ca3789fc68abbc
+          path: .classes-candidate
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        if: matrix.case == 'vqe8'
+        with:
+          pattern: rawmocs-quprs-planner-gen-vqe8
+          run-id: 45734596083
+          github-token: ${{ github.token }}
+          path: .pivot-original
+      - name: Recover source-locked historic Grover5
+        if: matrix.case == 'historical-grover5'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          zip="$RUNNER_TEMP/historical-trail.zip"
+          gh api repos/PhysicsQoo/RaWMoCS/actions/artifacts/14234415131/zip > "$zip"
+          echo '5f91528c376448c537e4ff08e26e9bb38b81bb7574c3596c8b0f8f3a50a632f4  '"$zip" | sha256sum -c -
+          unzip -q "$zip" -d .pivot-original
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: .classes-candidate/crates/rawmocs-cli -> target
+          shared-key: rawmocs-general-dependencies
+          cache-workspace-crates: 'false'
+      - name: Compile and verify exact candidate
+        run: |
+          set -euo pipefail
+          test "$(git -C .classes-candidate rev-parse HEAD)" = 6a793e52d41d8ecf37aaacdad6ca3789fc68abbc
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libgmp-dev libmpfr-dev m4 make gcc time pkg-config
+          mkdir -p .pivot-evidence
+          cargo test --locked --release --manifest-path .classes-candidate/crates/rawmocs-cli/Cargo.toml 2>&1 | tee .pivot-evidence/science.log
+      - name: Validate source and establish independent witness
+        env:
+          CASE: ${{ matrix.case }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib,json,os,subprocess,sys
+          from fractions import Fraction
+          from pathlib import Path
+          root=Path(".pivot-evidence").resolve()
+          case=os.environ["CASE"]
+          expected={"vqe8":"55938d577be87d91dd520b7002de7ec886c6035405e5400f6f80392a385562ee","historical-grover5":"eeb8e82273b1e9dc105e004d73b3e59f1d48bb893fe768bb4034262224a780b0"}[case]
+          name="gpmc-capture.cnf" if case=="vqe8" else "feynman_grover_5-gpmc.cnf"
+          cnf,=Path(".pivot-original").rglob(name)
+          cnf=cnf.resolve()
+          assert hashlib.sha256(cnf.read_bytes()).hexdigest()==expected
+          if case=="vqe8":
+              witness,=Path(".pivot-original").rglob("witness.json")
+              ref=json.loads(witness.read_text())
+          else:
+              script=Path(".classes-candidate/crates/rawmocs-cli/tools/repro/original_fixed_interval.py")
+              p=subprocess.run(["timeout","-k","2s","45s","prlimit","--as=3221225472","--",sys.executable,str(script),str(cnf),expected],capture_output=True,text=True,timeout=50)
+              (root/"oracle.stdout").write_text(p.stdout)
+              (root/"oracle.stderr").write_text(p.stderr)
+              assert p.returncode==0 and "FIXED_INTERVAL_SELF_TEST PASS" in p.stderr
+              ref=json.loads(p.stdout)
+              assert ref["variables"]==607 and ref["clauses"]==1121
+              ref["status"]="INDEPENDENT_FIXED_INTERVAL_COMPLETE"
+          assert ref["source_sha256"]==expected and ref["bits"]==550 and type(ref["sat"]) is bool
+          assert ref["status"] in ("INDEPENDENT_INTERVAL_COMPLETE","INDEPENDENT_FIXED_INTERVAL_COMPLETE") and ref["width"]<=19 and ref["work"]<=40000000 and ref["peak"]<=2000000
+          if ref["status"]=="INDEPENDENT_FIXED_INTERVAL_COMPLETE": assert ref["order_policy"] in ("fill-reverse","degree-reverse")
+          for k in ("real","imag"):
+              a,b=map(Fraction,ref[k])
+              assert a<=b
+          (root/"independent-reference.json").write_text(json.dumps(ref,indent=2)+"\n")
+          (root/"source-path.txt").write_text(str(cnf)+"\n")
+          PY
+      - name: Bounded General search-work scout
+        env:
+          RAWMOCS_TEST_DIGITS: ${{ matrix.digits }}
+        run: |
+          set -euo pipefail
+          export RAWMOCS_TEST_ORIGINAL="$(cat .pivot-evidence/source-path.txt)"
+          timeout -k 2s 110s prlimit --as=3221225472 -- cargo test --locked --release --manifest-path .classes-candidate/crates/rawmocs-cli/Cargo.toml original_pivot_work_diagnostic -- --ignored --nocapture 2>&1 | tee .pivot-evidence/scout.log
+      - name: Independently verify completed counts and classify censored arms
+        env:
+          CASE: ${{ matrix.case }}
+          DIGITS: ${{ matrix.digits }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib,json,os,sys
+          from pathlib import Path
+          root=Path(".pivot-evidence")
+          sys.path.insert(0,str(Path(".classes-candidate/crates/rawmocs-cli/tools").resolve()))
+          from release_transfer import check_count
+          digits=int(os.environ["DIGITS"])
+          target={30:30,130:100}[digits]
+          witness=root/"independent-reference.json"
+          ref=json.loads(witness.read_text())
+          cnf=Path((root/"source-path.txt").read_text().strip())
+          assert hashlib.sha256(cnf.read_bytes()).hexdigest()==ref["source_sha256"]
+          rows={}
+          for line in (root/"scout.log").read_text().splitlines():
+              if not line.startswith("PIVOT_SCOUT "): continue
+              row=dict(x.split("=",1) for x in line.split()[1:])
+              policy=int(row["policy"])
+              assert policy in (0,1,2) and policy not in rows and int(row["digits"])==digits
+              for k in ("nodes","hits","splits","branches","wall_ns"): row[k]=int(row[k])
+              assert row["nodes"]>0 and row["wall_ns"]>0 and all(0<=row[k]<=row["nodes"] for k in ("hits","splits","branches"))
+              if row["status"]=="COMPLETE":
+                  assert row["sat"] in ("SATISFIABLE","UNSATISFIABLE")
+                  row["sat"]=row["sat"]=="SATISFIABLE"
+                  row["witness_upper"]=check_count(row,ref,target)
+                  row["status"]="WITNESSED_PASS"
+              else:
+                  assert row["status"]=="CENSORED" and not any(k in row for k in ("sat","real","imag"))
+              rows[policy]=row
+          assert set(rows)=={0,1,2}
+          complete=[k for k,v in rows.items() if v["status"]=="WITNESSED_PASS"]
+          report={"case":os.environ["CASE"],"candidate_sha":"6a793e52d41d8ecf37aaacdad6ca3789fc68abbc","source_sha256":ref["source_sha256"],"witness_sha256":hashlib.sha256(witness.read_bytes()).hexdigest(),"digits":digits,"bits":{30:100,130:432}[digits],"target":target,"scope":"forced General test-only single scout, not auto route or speedup admission","rows":rows,"status":"SCOUT_COMPLETE" if len(complete)==3 else "SCOUT_WITH_CENSOR"}
+          if 0 in complete: report["node_reduction"]={str(k):1-rows[k]["nodes"]/rows[0]["nodes"] for k in complete}
+          (root/"report.json").write_text(json.dumps(report,indent=2)+"\n")
+          print("PIVOT_SCOUT_REPORT",json.dumps(report),flush=True)
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: rawmocs-general-pivot-scout-${{ matrix.case }}-${{ matrix.digits }}
+          path: .pivot-evidence/
           include-hidden-files: true
           if-no-files-found: warn

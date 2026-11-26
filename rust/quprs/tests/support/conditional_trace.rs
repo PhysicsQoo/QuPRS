@@ -637,25 +637,76 @@ fn route_encode(ps:&PathSum)->(quprs::wmc::WmcManager,usize,usize){
 // inputs. This is a projection of supports, NOT a rewrite or proof.
 // Duplicate projected monomials may cancel in exact phase arithmetic;
 // this proxy counts each distinct support once, without coefficients.
-fn alias_screen(t:&Trace)->(usize,usize,usize){
-    use rustc_hash::FxHashMap;
-    fn root(parent:&FxHashMap<u32,u32>,mut v:u32)->u32{
-        while let Some(&p)=parent.get(&v){v=p;}v
-    }
+type AliasMap=rustc_hash::FxHashMap<u32,u32>;
+fn alias_root(parent:&AliasMap,mut v:u32)->u32{
+    while let Some(&p)=parent.get(&v){v=p;}v
+}
+fn alias_map(t:&Trace)->AliasMap{
     let mut pairs:Vec<_>=t.constraints.iter().filter(|q|q.len()==2&&q.iter().all(|m|m.len()==1))
         .map(|q|{let mut v:Vec<_>=q.iter().map(|m|m[0]).collect();v.sort_unstable();(v[0],v[1])}).collect();
     pairs.sort_unstable();
-    let mut parent=FxHashMap::default();
+    let mut parent=AliasMap::default();
     for (a,b) in pairs{
-        let a=root(&parent,a);let b=root(&parent,b);
+        let a=alias_root(&parent,a);let b=alias_root(&parent,b);
         let lo=a.min(b);let hi=a.max(b);
         if lo!=hi&&hi as usize>=t.n{parent.insert(hi,lo);}
     }
-    let projected:Poly=t.p.terms.keys().map(|m|{
-        let mut v:Vec<_>=m.iter().map(|&x|root(&parent,x)).collect();
-        v.sort_unstable();v.dedup();v
-    }).collect();
+    parent
+}
+fn alias_mono(parent:&AliasMap,m:&[u32])->Vec<u32>{
+    let mut v:Vec<_>=m.iter().map(|&x|alias_root(parent,x)).collect();
+    v.sort_unstable();v.dedup();v
+}
+fn alias_screen(t:&Trace)->(usize,usize,usize){
+    let parent=alias_map(t);
+    let projected:Poly=t.p.terms.keys().map(|m|alias_mono(&parent,m)).collect();
     (parent.len(),t.cost().0,projected.iter().map(|m|1+m.len()).sum())
+}
+// Every forest edge is an equality of two currently distinct roots,
+// with an internal child. Eliminating the forest has unique extension.
+// All original equations are mapped (including nonforest edges,
+// cycles, and constraints relating two inputs); only zero rows vanish.
+// Coefficients merge in the native exact phase domain, constraints in F2.
+fn batch_alias(t:&mut Trace,fuel:usize)->usize{
+    if t.empty()||t.size()>TERM_CAP{return 0;}
+    let parent=alias_map(t);
+    if parent.is_empty()||parent.len()>fuel{return 0;}
+    let mut q=t.clone();
+    let mut phase=PhasePolynomial::new();
+    // Deterministic insertion order for reproducible coefficient merging.
+    let mut terms:Vec<_>=t.p.terms.iter().collect();
+    terms.sort_unstable_by(|(a,_),(b,_)|a.cmp(b));
+    for (m,c) in terms{phase.add_term(alias_mono(&parent,m),c.clone());}
+    q.p=phase;
+    q.constraints=t.constraints.iter().map(|p|{
+        let mut r=Poly::default();
+        for m in p{toggle(&mut r,alias_mono(&parent,m));}
+        r
+    }).filter(|p|!p.is_empty()).collect();
+    for &v in parent.keys(){assert!(v as usize>=q.n&&q.live.remove(&v));}
+    assert!(q.p.terms.keys().all(|m|m.iter().all(|v|q.live.contains(v))));
+    assert!(q.constraints.iter().flatten().all(|m|m.iter().all(|v|q.live.contains(v))));
+    if q.size()>TERM_CAP||!t.accepts(&q){return 0;}
+    let n=parent.len();*t=q;n
+}
+// Free hidden variables contribute exactly 2 per variable, regardless
+// of the remaining constraints. Preserve original input representatives.
+fn batch_free(t:&mut Trace,fuel:usize)->usize{
+    if t.empty()||fuel==0{return 0;}
+    let mut used=PolyIds::default();
+    for m in t.p.terms.keys().chain(t.constraints.iter().flatten()){
+        used.extend(m.iter().copied());
+    }
+    let mut free:Vec<_>=t.live.iter().copied().filter(|&v|v as usize>=t.n&&!used.contains(&v)).collect();
+    free.sort_unstable();free.truncate(fuel);
+    for &v in &free{assert!(t.live.remove(&v));}
+    free.len()
+}
+fn batch_then_iterate(t:&mut Trace)->(usize,usize,usize,usize,usize,usize,usize){
+    let a=batch_alias(t,64);
+    let f=batch_free(t,64-a);
+    let (s,e,h,o,r)=iterate_policy(t,64-a-f,true);
+    (a+s,f+e,h,o,r,a,f)
 }
 fn screen_accept(t:&Trace)->(bool,usize,usize,usize){
     let (aliases,before,after)=alias_screen(t);
@@ -683,26 +734,35 @@ fn route_profile(ps:&PathSum,case:&str){
     println!("CRR_TRACE case={case} status=profiled mode=routed");
     let run=|arm:&str|{
         let routed=arm!="baseline";
-        let screened=arm=="screened";
+        let screened=arm=="screened"||arm=="batched";
+        let batched=arm=="batched";
         let start=Instant::now();
         let (mut mgr,av,ac)=route_encode(ps);
         let mut vars=av;let mut clauses=ac;let mut mult=0;let mut omega=0;
         let mut selected="baseline";let mut reason="baseline_control";
         let mut rejected=0;let mut subs=0;let mut elim=0;let mut hh=0;let mut o=0;
         let mut initial_cp=0;let mut final_cp=0;
+        let mut batch_aliases=0;let mut batch_frees=0;
         if routed{
             let mut t=Trace::from_native(ps).expect("admitted");
             initial_cp=t.cost().0;
-            if screened{let (admit,aliases,before,after)=screen_accept(&t);
-                println!("CRR_SCREEN case={case} admit={admit} aliases={aliases} phase_before={before} projected_phase={after}");}
+            let admitted=if screened{
+                let (admit,aliases,before,after)=screen_accept(&t);
+                println!("CRR_SCREEN case={case} arm={arm} admit={admit} aliases={aliases} phase_before={before} projected_phase={after}");
+                admit
+            }else{true};
             // Skip reduction when there is no internal pivot or
             // integrator. Otherwise all actual trial cost is timed.
             if t.live.len()==t.n{
                 reason="no_hidden";final_cp=initial_cp;
-            }else if screened&&!screen_accept(&t).0{
+            }else if !admitted{
                 reason="early_screen_reject";final_cp=initial_cp;
             }else{
-                (subs,elim,hh,o,rejected)=iterate_policy(&mut t,64,true);
+                if batched{
+                    (subs,elim,hh,o,rejected,batch_aliases,batch_frees)=batch_then_iterate(&mut t);
+                }else{
+                    (subs,elim,hh,o,rejected)=iterate_policy(&mut t,64,true);
+                }
                 final_cp=t.cost().0;
                 // A fixed, preregistered heuristic: require >=5%
                 // phase incidence improvement before second encoding.
@@ -720,7 +780,7 @@ fn route_profile(ps:&PathSum,case:&str){
             }
         }
         let prepare=start.elapsed().as_secs_f64();
-        println!("CRR_DISPATCH case={case} arm={arm} selected={selected} reason={reason} vars={vars} clauses={clauses} baseline_vars={av} baseline_clauses={ac} subs={subs} elim={elim} hh={hh} omega={o} rejected={rejected} phase_before={initial_cp} phase_after={final_cp} prepare_s={prepare}");
+        println!("CRR_DISPATCH case={case} arm={arm} selected={selected} reason={reason} vars={vars} clauses={clauses} baseline_vars={av} baseline_clauses={ac} subs={subs} elim={elim} hh={hh} omega={o} rejected={rejected} phase_before={initial_cp} phase_after={final_cp} batch_aliases={batch_aliases} batch_frees={batch_frees} prepare_s={prepare}");
         let begin=Instant::now();
         let r=mgr.solve_with_deadline_distance_printed_precision("gpmc",Some(begin+Duration::from_secs(secs)),90);
         let call=begin.elapsed().as_secs_f64();
@@ -736,7 +796,7 @@ fn route_profile(ps:&PathSum,case:&str){
             }
         }
     };
-    let arms=["baseline","routed","screened"];
+    let arms=["baseline","screened","batched"];
     let mut counts:[Option<(Count,quprs::precision_count::PrintedVerdict)>;3]=[None,None,None];
     // Cyclic positions; for short cases 3 repeats cover each position.
     for k in 0..3{
@@ -753,7 +813,7 @@ fn route_profile(ps:&PathSum,case:&str){
         delta.to_f64().unwrap_or(f64::INFINITY)
     };
     if let (Some(b),Some(c))=(&b,&c){
-        println!("CRR_SCREEN_PAIR case={case} status=matched normalized_l1_delta={:.5e}",compare(b,c));
+        println!("CRR_BATCH_PAIR case={case} status=matched normalized_l1_delta={:.5e}",compare(b,c));
     }else{println!("CRR_SCREEN_PAIR case={case} status=incomplete");}
     let (Some(a),Some(b),Some(c))=(a,b,c)else{
         println!("CRR_COMPARE case={case} status=incomplete");return;
@@ -835,4 +895,64 @@ fn exact_trace_alias_screen_controls(){
     let t=Trace::from_native(&ps).unwrap();
     assert_eq!(alias_screen(&t).0,0);
     println!("CRR_SCREEN_ORACLE coalescence=1 nonalias_reject=1 input_input_reject=1");
+}
+
+
+#[test]
+fn exact_trace_batched_alias_forest(){
+    use quprs::rational::{PhaseCoeff,Rational};
+    let mut seed=123u64;
+    let mut next=||{seed=seed.wrapping_mul(6364136223846793005).wrapping_add(1);seed>>32};
+    let mut aliases=0;let mut checks=0;let mut free_count=0;
+    for k in 0..512{
+        let mut ps=PathSum::new(3);ps.rr_tolerance=0.0;
+        for _ in 0..5{ps.v.get_fresh_var();}
+        // y3=x0; y4=y3; and either y4=x1 (retained input
+        // equality) or y5=y4. y6 may appear in nonalias phase;
+        // y7 is initially free. Constraints are built as trace
+        // rows and then round-tripped through the encoder view.
+        let mut orig=Trace::from_native(&ps).unwrap();
+        orig.constraints=vec![
+            [vec![0],vec![3]].into_iter().collect(),
+            [vec![3],vec![4]].into_iter().collect(),
+            if k%2==0{[vec![4],vec![1]].into_iter().collect()}
+            else{[vec![4],vec![5]].into_iter().collect()}
+        ];
+        for mask in 0u32..128{
+            let m:Vec<_>=(0..7).filter(|i|mask>>i&1!=0).collect();
+            if next()%9==0{orig.p.add_term(m,PhaseCoeff::new_constant(Rational::new((next()%8) as i64,8)));}
+        }
+        let mut q=orig.clone();
+        let n=batch_alias(&mut q,64);assert_eq!(n,if k%2==0{2}else{3});
+        aliases+=n;
+        assert!((0..3).all(|x|q.live.contains(&x)));
+        let f=batch_free(&mut q,64-n);assert!(f>=1);free_count+=f;
+        let round=Trace::from_native(&q.encoding_view(&ps)).unwrap();
+        for x in 0..8{
+            let h=hist(&q,x).map(|v|v*(1u32<<f));
+            assert_eq!(hist(&orig,x),h);
+            assert_eq!(hist(&q,x),hist(&round,x));
+            checks+=1;
+        }
+        let mut capped=orig.clone();
+        assert_eq!(batch_alias(&mut capped,1),0);
+        assert_eq!(capped.cost(),orig.cost());
+    }
+    // Cycle + nonlinear equation: no removal of a second input,
+    // and every residual row is mapped with F2 cancellation.
+    let mut ps=PathSum::new(4);ps.rr_tolerance=0.0;
+    for _ in 0..3{ps.v.get_fresh_var();}
+    let mut orig=Trace::from_native(&ps).unwrap();
+    orig.constraints=vec![
+        [vec![4],vec![5]].into_iter().collect(),
+        [vec![5],vec![6]].into_iter().collect(),
+        [vec![4],vec![6]].into_iter().collect(),
+        [vec![0,4],vec![0,5],vec![1]].into_iter().collect()
+    ];
+    orig.p.add_term(vec![4,6],PhaseCoeff::HALF);
+    let mut q=orig.clone();assert_eq!(batch_alias(&mut q,64),2);
+    assert_eq!(q.constraints.len(),1);
+    assert!(q.constraints[0].contains(&vec![1]));
+    for x in 0..16{assert_eq!(hist(&orig,x),hist(&q,x));checks+=1;}
+    println!("CRR_BATCH_ORACLE models=513 histogram_checks={checks} alias_eliminations={aliases} free_eliminations={free_count} cycle_control=1");
 }

@@ -10,7 +10,7 @@ on:
       suite:
         description: Experimental evidence suite
         type: choice
-        options: [legacy, cross-family, source-admission, root-profile, factor-classes, sparse-anchor, prefix-memo, axis-profile, direct-binary, operand-profile, pool-profile, last-use-donor, masked-donor, descendant-units, inplace-scan, inplace-branch, move-components, borrowed-cache, general-cumulative, general-simulation-repair, general-native-gpmc, scope-scratch, streaming-large-general, large-root-closure, large-descendant-closure, fixed-work-descendant]
+        options: [legacy, cross-family, source-admission, root-profile, factor-classes, sparse-anchor, prefix-memo, axis-profile, direct-binary, operand-profile, pool-profile, last-use-donor, masked-donor, descendant-units, inplace-scan, inplace-branch, move-components, borrowed-cache, general-cumulative, general-simulation-repair, general-native-gpmc, scope-scratch, streaming-large-general, large-root-closure, large-descendant-closure, fixed-work-descendant, large-general-candidate, long-native-candidate]
         default: legacy
 permissions:
   contents: read
@@ -1907,7 +1907,7 @@ jobs:
           if-no-files-found: warn
 
   fixed-work-descendant:
-    if: github.event_name == 'push' || inputs.suite == 'fixed-work-descendant'
+    if: github.event_name == 'workflow_dispatch' && inputs.suite == 'fixed-work-descendant'
     name: Fixed-work ordered descendant closure / same-node prefix
     runs-on: ubuntu-24.04
     timeout-minutes: 8
@@ -2015,5 +2015,274 @@ jobs:
         with:
           name: rawmocs-fixed-work-descendant
           path: .fixed-evidence/
+          include-hidden-files: true
+          if-no-files-found: warn
+
+  large-general-candidate:
+    if: github.event_name == 'push' || inputs.suite == 'large-general-candidate'
+    name: Clean large General candidate / original source admission
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: PhysicsQoo/RaWMoCS
+          ref: 146a5fabd94a79324f27c3a99eff332cb76ee4d0
+          path: .classes-candidate
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: rawmocs-quprs-planner-gen-wstate16
+          run-id: 45734596083
+          github-token: ${{ github.token }}
+          path: .large-input
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: .classes-candidate/crates/rawmocs-cli -> target
+          shared-key: rawmocs-general-dependencies
+          cache-workspace-crates: 'false'
+      - name: Build and test exact streaming candidate
+        run: |
+          set -euo pipefail
+          test "$(git -C .classes-candidate rev-parse HEAD)" = 146a5fabd94a79324f27c3a99eff332cb76ee4d0
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libgmp-dev libmpfr-dev m4 make gcc time pkg-config
+          cargo test --locked --release --manifest-path .classes-candidate/crates/rawmocs-cli/Cargo.toml
+          cargo build --locked --release --manifest-path .classes-candidate/crates/rawmocs-cli/Cargo.toml
+      - name: Analytic large control and original Wstate16 admission
+        run: |
+          set -euo pipefail
+          mkdir -p .large-evidence
+          python3 - <<'PY'
+          import hashlib, json, os, re, subprocess, time
+          from fractions import Fraction
+          from pathlib import Path
+          root=Path(".large-evidence").resolve()
+          solver=Path(".classes-candidate/crates/rawmocs-cli/target/release/rawmocs").resolve()
+          cnf,=Path(".large-input").rglob("gpmc-capture.cnf")
+          cnf=cnf.resolve()
+          sha=hashlib.sha256(cnf.read_bytes()).hexdigest()
+          assert sha=="d7b8732b06552354e7e08e516fd858d2f9419b33ccb185e6d8c31ce96d5ba78c"
+          with cnf.open() as stream:
+              head=next(stream).split()
+              assert head==["p","cnf","63399","536464"]
+              assert next(stream).strip()=="c t wmc"
+              clauses=weights=literals=0
+              for line in stream:
+                  f=line.split()
+                  if not f: continue
+                  if f[0]=="c": weights+=1
+                  else:
+                      assert f[-1]=="0"
+                      clauses+=1
+                      literals+=len(f)-1
+          assert clauses==536464
+          report={"candidate_sha":"146a5fabd94a79324f27c3a99eff332cb76ee4d0","source_sha256":sha,"source_bytes":cnf.stat().st_size,"variables":63399,"clauses":clauses,"literals":literals,"weights":weights,"binary_sha256":hashlib.sha256(solver.read_bytes()).hexdigest(),"rows":[],"scope":"Admission and bounded safety; no Wstate16 independent witness or GPMC speedup"}
+          def save(): (root/"report.json").write_text(json.dumps(report,indent=2)+"\n")
+          save()
+          env={k:v for k,v in os.environ.items() if not k.startswith("RAWMOCS_RESEARCH_")}
+          def trial(label,source,args,limit):
+              rss=root/(label+".rss")
+              start=time.monotonic()
+              p=subprocess.run(["timeout","-k","2s",str(limit+5)+"s","prlimit","--as=3221225472","--","/usr/bin/time","-f","%M","-o",str(rss),str(solver),"--digits","30",*args,str(source)],env=env,capture_output=True,text=True,timeout=limit+10)
+              row={"label":label,"exit":p.returncode,"wall_s":time.monotonic()-start,"stdout_empty":not p.stdout.strip(),"stderr":p.stderr[-2000:]}
+              if rss.exists():
+                  vals=[l for l in rss.read_text().splitlines() if l.strip().isdigit()]
+                  if len(vals)==1: row["rss_kib"]=int(vals[0])
+              (root/(label+".stdout")).write_text(p.stdout)
+              (root/(label+".stderr")).write_text(p.stderr)
+              report["rows"].append(row)
+              save()
+              return p,row
+          # All free variables except the first have weights (1,0).
+          # The first has weights (-1/2+i/4,1), so the exact sum is 1/2+i/4.
+          control=root/"large-analytic.cnf"
+          control.write_text("p cnf 63399 0\nc t wmc\nc p weight 1 -0.5 0.25 0\n"+"".join(f"c p weight -{v} 0 0 0\n" for v in range(2,63400)))
+          p,row=trial("analytic-default",control,["--solver","general"],5)
+          assert p.returncode==5 and not p.stdout.strip(),row
+          p,row=trial("analytic-large",control,["--solver","general","--large-general","--timeout-ms","10000"],10)
+          assert p.returncode==0 and "RAWMOCS_SOURCE_ADMITTED variables=63399 clauses=0 literals=0" in p.stderr,row
+          lines=p.stdout.splitlines()
+          assert len(lines)==2 and lines[0]=="s SATISFIABLE"
+          fields=lines[1].split()
+          assert fields[:3]==["c","r","mpfr"] and len(fields)==5
+          assert Fraction(fields[3])==Fraction(1,2) and Fraction(fields[4])==Fraction(1,4)
+          row["status"]="ANALYTIC_PASS";save()
+          chain=root/"branch-chain8192.cnf"
+          chain.write_text("p cnf 8192 8206\nc t wmc\nc p weight 1 -0.5 0.25 0\nc p weight 8192 0.25 -0.125 0\n"+"".join(f"1 {v} 0\n-1 {v} 0\n" for v in range(2,10))+"".join(f"-{v} {v+1} 0\n" for v in range(2,8192)))
+          p,row=trial("branch-chain-large",chain,["--solver","general","--large-general","--timeout-ms","10000"],10)
+          assert p.returncode==0 and "RAWMOCS_SOURCE_ADMITTED variables=8192 clauses=8206 " in p.stderr,row
+          lines=p.stdout.splitlines()
+          assert len(lines)==2 and lines[0]=="s SATISFIABLE"
+          fields=lines[1].split()
+          assert fields[:3]==["c","r","mpfr"] and len(fields)==5
+          assert Fraction(fields[3])==Fraction(5,32) and Fraction(fields[4])==0
+          row["status"]="ANALYTIC_PASS";save()
+          p,row=trial("wstate-default",cnf,[],5)
+          assert p.returncode==5 and not p.stdout.strip() and "source bytes cap" in p.stderr,row
+          p,row=trial("wstate-invalid-route",cnf,["--large-general"],5)
+          assert p.returncode==2 and not p.stdout.strip(),row
+          p,row=trial("wstate-zero-deadline",cnf,["--solver","general","--large-general","--timeout-ms","0"],5)
+          assert p.returncode==4 and not p.stdout.strip() and "source deadline" in p.stderr,row
+          p,row=trial("wstate-bounded",cnf,["--solver","general","--large-general","--timeout-ms","20000"],20)
+          marker=f"RAWMOCS_SOURCE_ADMITTED variables=63399 clauses=536464 literals={literals} "
+          assert marker in p.stderr,row
+          if p.returncode==0:
+              assert len(p.stdout.splitlines())==2 and "RAWMOCS_COMPLETE route=general digits=30 bits=100 " in p.stderr,row
+              row["status"]="COMPLETED_UNWITNESSED"
+          else:
+              assert p.returncode==4 and not p.stdout.strip() and "RAWMOCS_FAILURE kind=TIMEOUT" in p.stderr,row
+              row["status"]="ADMITTED_CENSORED_TIMEOUT"
+          report["status"]="SOURCE_ADMISSION_CONTROL_PASS"
+          save()
+          print("LARGE_CANDIDATE_FINAL",json.dumps(report),flush=True)
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: rawmocs-large-general-candidate
+          path: .large-evidence/
+          include-hidden-files: true
+          if-no-files-found: warn
+
+  long-native-candidate:
+    if: github.event_name == 'push' || inputs.suite == 'long-native-candidate'
+    name: Candidate native auto / GPMC / ${{ matrix.case }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        case: [grover6-432, qpeinexact22-432]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: PhysicsQoo/RaWMoCS
+          ref: 146a5fabd94a79324f27c3a99eff332cb76ee4d0
+          path: .classes-candidate
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: PhysicsQoo/RaWMoCS
+          ref: 92a28a2c621cdd98a9593664e5a1cc83c8519b25
+          path: .long-baseline
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: PhysicsQoo/GPMC
+          ref: 89bbc89d0de918e7a5385740355df55765039230
+          path: .gpmc
+          persist-credentials: false
+      - name: Retrieve exact original independently regenerated corpus
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          zip="$RUNNER_TEMP/rawmocs-corpus.zip"
+          gh api repos/PhysicsQoo/RaWMoCS/actions/artifacts/15084476883/zip > "$zip"
+          echo '6ad6683a489057deffb6537c60600e13e38e0586f1dc4e40aa87a4e1da1c8e72  '"$zip" | sha256sum -c -
+          unzip -q "$zip" -d .release-rebuild
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            .classes-candidate/crates/rawmocs-cli -> target
+            .long-baseline/crates/rawmocs-cli -> target
+          shared-key: rawmocs-general-dependencies
+          cache-workspace-crates: 'false'
+      - name: Build source-pinned native binaries
+        run: |
+          set -euo pipefail
+          test "$(git -C .classes-candidate rev-parse HEAD)" = 146a5fabd94a79324f27c3a99eff332cb76ee4d0
+          test "$(git -C .long-baseline rev-parse HEAD)" = 92a28a2c621cdd98a9593664e5a1cc83c8519b25
+          test "$(git -C .gpmc rev-parse HEAD)" = 89bbc89d0de918e7a5385740355df55765039230
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends cmake ninja-build libgmp-dev libmpfr-dev zlib1g-dev m4 make gcc time pkg-config
+          cargo build --locked --release --manifest-path .classes-candidate/crates/rawmocs-cli/Cargo.toml
+          cargo build --locked --release --manifest-path .long-baseline/crates/rawmocs-cli/Cargo.toml
+          cmake -S .gpmc -B .gpmc/build -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake --build .gpmc/build --target gpmc-bin --parallel 2
+      - name: Two reversed native triples at matched working precision
+        env:
+          CASE: ${{ matrix.case }}
+        run: |
+          set -euo pipefail
+          mkdir -p .candidate-native
+          python3 - <<'PY'
+          import hashlib,json,os,re,statistics,subprocess,sys,time
+          from pathlib import Path
+          root=Path(".candidate-native").resolve()
+          sys.path.insert(0,str(Path(".classes-candidate/crates/rawmocs-cli/tools").resolve()))
+          from release_transfer import CASES,check_count
+          from release_native_paired import parse
+          from regenerate_release import PIN,DIGITS
+          def digest(p): return hashlib.sha256(p.read_bytes()).hexdigest()
+          label=os.environ["CASE"]
+          _,_,_,expected,bits=next(c for c in CASES if c[0]==label)
+          digits,target=DIGITS[bits]
+          assert bits==432 and digits==130 and target==100
+          corpus=Path(".release-rebuild")
+          src=corpus/label.rsplit("-",1)[0]
+          cnf,=src.glob("*-gpmc.cnf")
+          refpath=src/"independent-reference.json"
+          ref=json.loads(refpath.read_text())
+          regen=json.loads((corpus/"regeneration.json").read_text())
+          assert regen["status"]=="REGENERATION_COMPLETE" and regen["quprs_revision"]==PIN
+          certified,=[x for x in regen["cohorts"] if x["label"]==label]
+          assert certified["status"]=="PASS" and certified["bits"]==bits and certified["target"]==target
+          assert certified["reference_sha256"]==digest(refpath) and digest(cnf)==expected==ref["source_sha256"]
+          assert ref["status"] in ("INDEPENDENT_INTERVAL_COMPLETE","INDEPENDENT_FIXED_INTERVAL_COMPLETE") and ref["bits"]==550
+          assert ref["width"]<=19 and ref["work"]<=40000000 and ref["peak"]<=2000000
+          if ref["status"]=="INDEPENDENT_FIXED_INTERVAL_COMPLETE": assert ref["order_policy"] in ("fill-reverse","degree-reverse")
+          binaries={"candidate":Path(".classes-candidate/crates/rawmocs-cli/target/release/rawmocs").resolve(),"baseline":Path(".long-baseline/crates/rawmocs-cli/target/release/rawmocs").resolve(),"gpmc":Path(".gpmc/build/gpmc").resolve()}
+          report={"case":label,"candidate_sha":"146a5fabd94a79324f27c3a99eff332cb76ee4d0","baseline_sha":"92a28a2c621cdd98a9593664e5a1cc83c8519b25","gpmc_sha":"89bbc89d0de918e7a5385740355df55765039230","scope":"Auto route regression, not large-general attribution or release qualification","digits":digits,"bits":bits,"target":target,"source_sha256":expected,"witness_sha256":digest(refpath),"binaries":{a:digest(p) for a,p in binaries.items()},"rows":[]}
+          def save(): (root/"report.json").write_text(json.dumps(report,indent=2)+"\n")
+          save()
+          for i,arm in enumerate(("gpmc","baseline","candidate","candidate","baseline","gpmc")):
+              if i>=3 and any(r["status"]!="WITNESSED_PASS" for r in report["rows"]): break
+              assert digest(cnf)==expected and digest(refpath)==report["witness_sha256"]
+              cmd=[str(binaries[arm]),"-mode=1","-prec=130",str(cnf.resolve())] if arm=="gpmc" else [str(binaries[arm]),"--digits","130","--timeout-ms","120000",str(cnf.resolve())]
+              prefix=root/f"{i}-{arm}"
+              start=time.monotonic()
+              p=subprocess.run(["timeout","-k","2s","120s","prlimit","--as=3221225472","--","/usr/bin/time","-f","%M","-o",str(prefix.with_suffix(".rss")),*cmd],env={k:v for k,v in os.environ.items() if not k.startswith("RAWMOCS_RESEARCH_")},capture_output=True,text=True,timeout=127)
+              row={"arm":arm,"exit":p.returncode,"wall_s":time.monotonic()-start}
+              report["rows"].append(row)
+              prefix.with_suffix(".stdout").write_text(p.stdout)
+              prefix.with_suffix(".stderr").write_text(p.stderr)
+              rss=prefix.with_suffix(".rss")
+              if rss.exists():
+                  vals=[v for v in rss.read_text().splitlines() if v.strip().isdigit()]
+                  if len(vals)==1: row["rss_kib"]=int(vals[0])
+              if p.returncode:
+                  row["status"]="CENSORED_TIMEOUT" if p.returncode==124 or (arm!="gpmc" and p.returncode==4 and "RAWMOCS_FAILURE kind=TIMEOUT" in p.stderr) else "EXECUTION_ERROR"
+                  save()
+                  assert row["status"]=="CENSORED_TIMEOUT",(arm,p.returncode,p.stderr[-1000:])
+              else:
+                  row.update(parse(p.stdout,"gpmc" if arm=="gpmc" else "rawmocs"))
+                  if arm=="gpmc": assert re.findall(r"^c o precision (\d+)\s*$",p.stdout,re.M)==["130"]
+                  else:
+                      route,=re.findall(r"^RAWMOCS_COMPLETE route=(\w+) digits=130 bits=432 ",p.stderr,re.M)
+                      row["route"]=route
+                  row["witness_upper"]=check_count(row,ref,target)
+                  row["stdout_sha256"]=hashlib.sha256(p.stdout.encode()).hexdigest()
+                  row["status"]="WITNESSED_PASS"
+                  save()
+              print("LONG_CANDIDATE_ROW",label,arm,row["status"],row["wall_s"],flush=True)
+          rows=report["rows"]
+          if len(rows)==6 and all(r["status"]=="WITNESSED_PASS" for r in rows):
+              assert len({r["stdout_sha256"] for r in rows if r["arm"]!="gpmc"})==1
+              assert len({r["route"] for r in rows if r["arm"]!="gpmc"})==1
+              report["median_s"]={a:statistics.median(r["wall_s"] for r in rows if r["arm"]==a) for a in binaries}
+              report["status"]="TWO_MATCHED_TRIPLES_PASS"
+          else: report["status"]="CENSORED_NO_RATIO"
+          save()
+          print("LONG_CANDIDATE_FINAL",json.dumps(report),flush=True)
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: rawmocs-long-native-candidate-${{ matrix.case }}
+          path: .candidate-native/
           include-hidden-files: true
           if-no-files-found: warn

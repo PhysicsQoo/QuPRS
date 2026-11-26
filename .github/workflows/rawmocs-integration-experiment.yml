@@ -10,7 +10,7 @@ on:
       suite:
         description: Experimental evidence suite
         type: choice
-        options: [legacy, cross-family, source-admission, root-profile, factor-classes, sparse-anchor, prefix-memo, axis-profile, direct-binary, operand-profile, pool-profile, last-use-donor, masked-donor, descendant-units, inplace-scan, inplace-branch, move-components, borrowed-cache, general-cumulative, general-simulation-repair, general-native-gpmc, scope-scratch, streaming-large-general, large-root-closure, large-descendant-closure, fixed-work-descendant, large-general-candidate, long-native-candidate, default-parser-isolation, scope-scratch-fair, scope-scratch-candidate, large-root-ownership, root-ownership-port, packed-index-scratch, owned-entry-isolation, root-long-regression, reversible-index-state, reversible-canonical-boundary, historical-gap-baseline]
+        options: [legacy, cross-family, source-admission, root-profile, factor-classes, sparse-anchor, prefix-memo, axis-profile, direct-binary, operand-profile, pool-profile, last-use-donor, masked-donor, descendant-units, inplace-scan, inplace-branch, move-components, borrowed-cache, general-cumulative, general-simulation-repair, general-native-gpmc, scope-scratch, streaming-large-general, large-root-closure, large-descendant-closure, fixed-work-descendant, large-general-candidate, long-native-candidate, default-parser-isolation, scope-scratch-fair, scope-scratch-candidate, large-root-ownership, root-ownership-port, packed-index-scratch, owned-entry-isolation, root-long-regression, reversible-index-state, reversible-canonical-boundary, historical-gap-baseline, reversible-frontier-transitions]
         default: legacy
 permissions:
   contents: read
@@ -3535,7 +3535,7 @@ jobs:
           if-no-files-found: warn
 
   reversible-canonical-boundary:
-    if: github.event_name == 'push' || inputs.suite == 'reversible-canonical-boundary'
+    if: github.event_name == 'workflow_dispatch' && inputs.suite == 'reversible-canonical-boundary'
     name: Reversible canonical boundary / exact rank and fixed work
     runs-on: ubuntu-24.04
     timeout-minutes: 8
@@ -3574,7 +3574,7 @@ jobs:
           if-no-files-found: warn
 
   historical-gap-baseline:
-    if: github.event_name == 'push' || inputs.suite == 'historical-gap-baseline'
+    if: github.event_name == 'workflow_dispatch' && inputs.suite == 'historical-gap-baseline'
     name: Historical weak case / v0.1.1 vs GPMC / ${{ matrix.case }}
     runs-on: ubuntu-24.04
     timeout-minutes: 8
@@ -3727,5 +3727,44 @@ jobs:
         with:
           name: rawmocs-historical-gap-${{ matrix.case }}
           path: .gap-evidence/
+          include-hidden-files: true
+          if-no-files-found: warn
+
+  reversible-frontier-transitions:
+    if: github.event_name == 'push' || inputs.suite == 'reversible-frontier-transitions'
+    name: Reversible frontier / five-arm balanced fixed work
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: PhysicsQoo/RaWMoCS
+          ref: ee7cfff69f5970ef1a3d3a77e96b4bc30f8f1a64
+          path: .classes-candidate
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: .classes-candidate/crates/rawmocs-cli -> target
+          shared-key: rawmocs-general-dependencies
+          cache-workspace-crates: 'false'
+      - name: Compile and test primitive on exact source
+        run: |
+          set -euo pipefail
+          test "$(git -C .classes-candidate rev-parse HEAD)" = ee7cfff69f5970ef1a3d3a77e96b4bc30f8f1a64
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libgmp-dev libmpfr-dev m4 make gcc time pkg-config
+          mkdir -p .trail-evidence
+          cargo test --locked --release --manifest-path .classes-candidate/crates/rawmocs-cli/Cargo.toml 2>&1 | tee .trail-evidence/science.log
+      - name: Fixed work native diagnostic with reversible branch pairs
+        run: |
+          set -euo pipefail
+          timeout -k 2s 90s prlimit --as=3221225472 -- cargo test --locked --release --manifest-path .classes-candidate/crates/rawmocs-cli/Cargo.toml frontier_transition_fixed_work -- --ignored --nocapture 2>&1 | tee .trail-evidence/fixed-work.log
+          test "$(grep -c '^FRONTIER_FIXED_WORK ' .trail-evidence/fixed-work.log)" -eq 50
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: rawmocs-reversible-frontier-transitions
+          path: .trail-evidence/
           include-hidden-files: true
           if-no-files-found: warn

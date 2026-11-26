@@ -26,6 +26,9 @@ struct Trace{
     p:PhasePolynomial, constraints:Vec<Poly>, live:PolyIds, n:usize
 }
 type PolyIds=FxHashSet<u32>;
+// Research observer: no-op callback on ordinary experimental path.
+#[derive(Clone,Copy,Debug)]
+enum IterWitness{Sub{y:u32,row:usize},Free{y:u32},Hh{y:u32},Omega{y:u32}}
 impl Trace{
     fn from_native(ps:&PathSum)->Option<Self>{
         let n=ps.v.num_qubits;
@@ -70,6 +73,10 @@ impl Trace{
         self.step_policy(false,&mut 0usize)
     }
     fn step_policy(&mut self,guarded:bool,rejected:&mut usize)->Option<(u32,usize)>{
+        self.step_policy_observe(guarded,rejected,|_,_,_,_|{})
+    }
+    fn step_policy_observe(&mut self,guarded:bool,rejected:&mut usize,
+        mut emit:impl FnMut(IterWitness,&Trace,&Trace,bool))->Option<(u32,usize)>{
         if self.empty()||self.size()>TERM_CAP{return None;}
         // Each equation is q=0. y XOR r=0 admits exactly one y for
         // every remaining assignment; no factor of two is introduced.
@@ -99,7 +106,9 @@ impl Trace{
             assert!(trial.live.remove(&y));
             assert!(trial.p.terms.keys().all(|m|m.iter().all(|v|trial.live.contains(v))));
             assert!(trial.constraints.iter().flatten().all(|m|m.iter().all(|v|trial.live.contains(v))));
-            if guarded&&!self.accepts(&trial){*rejected+=1;continue;}
+            let witness=IterWitness::Sub{y,row:i};
+            if guarded&&!self.accepts(&trial){*rejected+=1;emit(witness,self,&trial,false);continue;}
+            emit(witness,self,&trial,true);
             *self=trial;
             return Some((y,len));
         }
@@ -204,22 +213,28 @@ fn iterate_all(t:&mut Trace)->(usize,usize,usize,usize){
 // only the first native-eligible candidate per rule family; a rejected
 // integration is not evidence that all alternatives are unprofitable.
 fn iterate_policy(t:&mut Trace,fuel:usize,guarded:bool)->(usize,usize,usize,usize,usize){
+    iterate_policy_observe(t,fuel,guarded,|_,_,_,_|{})
+}
+fn iterate_policy_observe(t:&mut Trace,fuel:usize,guarded:bool,
+    mut emit:impl FnMut(IterWitness,&Trace,&Trace,bool))->(usize,usize,usize,usize,usize){
     assert!(fuel<=64);
     let (mut subs,mut elim,mut hh,mut omega,mut rejected)=(0,0,0,0,0);
     for _ in 0..fuel{
-        if t.step_policy(guarded,&mut rejected).is_some(){subs+=1;continue;}
+        if t.step_policy_observe(guarded,&mut rejected,&mut emit).is_some(){subs+=1;continue;}
         let mut q=t.clone();
-        if let Some((rule,_))=q.integrate(){
+        if let Some((rule,y))=q.integrate(){
+            let witness=match rule{"elim"=>IterWitness::Free{y},"hh"=>IterWitness::Hh{y},_=>unreachable!()};
             if !guarded||t.accepts(&q){
                 match rule{"elim"=>elim+=1,"hh"=>hh+=1,_=>unreachable!()}
-                *t=q;continue;
+                emit(witness,t,&q,true);*t=q;continue;
             }
-            rejected+=1;
+            emit(witness,t,&q,false);rejected+=1;
         }
         let mut q=t.clone();
-        if q.omega().is_some(){
-            if !guarded||t.accepts(&q){omega+=1;*t=q;continue;}
-            rejected+=1;
+        if let Some(y)=q.omega(){
+            let witness=IterWitness::Omega{y};
+            if !guarded||t.accepts(&q){omega+=1;emit(witness,t,&q,true);*t=q;continue;}
+            emit(witness,t,&q,false);rejected+=1;
         }
         break;
     }
@@ -567,6 +582,14 @@ fn exact_trace_iterated_omega(){
         let (_,ge,gh,go,_)=iterate_policy(&mut guarded,64,true);
         assert!(guarded.cost().0<=orig.cost().0&&guarded.cost().1<=orig.cost().1);
         for x in 0..4{assert_eq!(coeff(&orig,x,0,0),coeff(&guarded,x,ge+gh,go));}
+        let (ledger_end,ledger,counts)=record_guarded_ledger(&orig);
+        let twice=(ps.v.num_qubits+ps.v.path_vars.len()) as i32;
+        let k=2*(counts.1+counts.2)+counts.3;
+        check_ordered_ledger(&ps,&orig,&ledger_end,&ledger,twice,counts,k).unwrap();
+        let mut native=orig.clone();
+        assert_eq!(batch_then_iterate(&mut native),counts);
+        assert!(same_trace(&native,&ledger_end));
+        for x in 0..4{assert_eq!(coeff(&orig,x,0,0),coeff(&ledger_end,x,counts.1+counts.2,counts.3));}
         total_omega+=o;if o%2==1{odd+=1;}else{even+=1;}
         let round=Trace::from_native(&t.encoding_view(&ps)).unwrap();
         for x in 0..4{
@@ -588,7 +611,7 @@ fn exact_trace_iterated_omega(){
     assert_eq!(t.omega(),Some(y));
     assert_ne!(coeff(&orig,0,0,0),coeff(&t,0,0,0));
     assert_eq!(coeff(&orig,0,0,0),coeff(&t,0,0,1));
-    println!("CRR_OMEGA_ORACLE models=512 checks={checks} omega={total_omega} odd_models={odd} even_models={even} independent_omega_checks={total_omega} policy_parity_models=512");
+    println!("CRR_OMEGA_ORACLE models=512 checks={checks} omega={total_omega} odd_models={odd} even_models={even} independent_omega_checks={total_omega} policy_parity_models=512 guarded_batch_ledger_models=512");
 }
 
 
@@ -954,8 +977,7 @@ fn exact_trace_union_phase_certificate(){
 // diagonal conditioning removes a uniquely determined variable, not a
 // Hadamard normalization factor. No Elim/HH/omega or source-QASM claim.
 #[cfg(test)]
-fn check_alias_normalization(original:&PathSum,before:&Trace,after:&Trace,
-    steps:&[UnionWitness],claimed:&AliasMap,twice:i32,m:usize,o:usize)
+fn check_residual_normalization(original:&PathSum,before:&Trace,twice:i32)
     ->Result<(), &'static str>{
     use std::collections::BTreeSet;
     let n=original.v.num_qubits;
@@ -975,11 +997,18 @@ fn check_alias_normalization(original:&PathSum,before:&Trace,after:&Trace,
         }
     }
     if before.constraints.len()!=n{return Err("residual diagonal binding");}
-    check_union_certificate(before,after,steps,claimed)?;
     let hidden=before.live.len().checked_sub(n).ok_or("hidden underflow")?;
     let expected=n.checked_mul(2).and_then(|v|v.checked_add(hidden))
         .and_then(|v|i32::try_from(v).ok()).ok_or("normalization overflow")?;
     if twice!=expected{return Err("original normalization mismatch");}
+    Ok(())
+}
+#[cfg(test)]
+fn check_alias_normalization(original:&PathSum,before:&Trace,after:&Trace,
+    steps:&[UnionWitness],claimed:&AliasMap,twice:i32,m:usize,o:usize)
+    ->Result<(), &'static str>{
+    check_residual_normalization(original,before,twice)?;
+    check_union_certificate(before,after,steps,claimed)?;
     if m!=0||o!=0{return Err("alias multiplier must be one");}
     // Independent cardinality check: every committed link removes exactly
     // one hidden variable, with unique extension supplied by union replay.
@@ -1456,6 +1485,156 @@ fn exact_trace_free_elim_certificate(){
     let mut bad=before.clone();bad.live.remove(&0);
     assert_eq!(check_free_elim(&bad,&after,2,0),Err("missing input"));
     println!("CRR_FREE_ELIM_CERTIFICATE batch=1 partial=1 single=1 noop=2 rejected=11 multiplier_power=2 source_qasm_certified=false hh_omega_certified=false");
+}
+
+// In-memory research ledger for the actual experimental guarded path.
+// A full state snapshot is intentional: proof/debug evidence, not a
+// production or compact serialized certificate.
+#[cfg(test)]
+#[derive(Clone)]
+enum LedgerRule{Alias(Vec<UnionWitness>,AliasMap),BatchFree,Iter(IterWitness)}
+#[cfg(test)]
+#[derive(Clone)]
+struct LedgerEntry{rule:LedgerRule,before:Trace,trial:Trace,accepted:bool}
+#[cfg(test)]
+fn same_trace(a:&Trace,b:&Trace)->bool{
+    a.n==b.n&&a.live==b.live&&a.p.terms==b.p.terms&&a.constraints==b.constraints
+}
+#[cfg(test)]
+fn independent_cost(t:&Trace)->(usize,usize){
+    let p=t.p.terms.keys().fold(0,|a,m|a+1+m.len());
+    let c=t.constraints.iter().fold(0,|a,r|a+r.iter().fold(0,|b,m|b+1+m.len()));
+    (p,p+c+t.live.len())
+}
+#[cfg(test)]
+type LedgerCounts=(usize,usize,usize,usize,usize,usize,usize);
+#[cfg(test)]
+fn record_guarded_ledger(original:&Trace)->(Trace,Vec<LedgerEntry>,LedgerCounts){
+    let mut t=original.clone();
+    let mut log=Vec::new();
+    let b=t.clone();
+    let (a,links,parent)=recorded_batch_alias(&mut t,64);
+    if a>0{
+        log.push(LedgerEntry{rule:LedgerRule::Alias(links,parent.unwrap()),before:b,trial:t.clone(),accepted:true});
+    }else{assert!(parent.is_none()&&same_trace(&b,&t));}
+    let b=t.clone();let f=batch_free(&mut t,64-a);
+    if f>0{log.push(LedgerEntry{rule:LedgerRule::BatchFree,before:b,trial:t.clone(),accepted:true});}
+    else{assert!(same_trace(&b,&t));}
+    let (s,e,h,o,r)=iterate_policy_observe(&mut t,64-a-f,true,|w,b,q,accepted|{
+        log.push(LedgerEntry{rule:LedgerRule::Iter(w),before:b.clone(),trial:q.clone(),accepted});
+    });
+    (t,log,(a+s,f+e,h,o,r,a,f))
+}
+
+#[cfg(test)]
+fn check_ordered_ledger(original:&PathSum,start:&Trace,final_state:&Trace,
+    entries:&[LedgerEntry],twice:i32,counts:LedgerCounts,claimed_k:usize)
+    ->Result<(), &'static str>{
+    check_residual_normalization(original,start,twice)?;
+    let mut current=start;
+    let (mut s,mut e,mut h,mut o,mut r,mut a,mut f)=(0usize,0usize,0usize,0usize,0usize,0usize,0usize);
+    let mut used=0usize;
+    let mut prefix=0;
+    for entry in entries{
+        if !same_trace(current,&entry.before){return Err("ledger chain mismatch");}
+        if used>=64{return Err("ledger fuel exceeded");}
+        let x=independent_cost(current);let y=independent_cost(&entry.trial);
+        let improves=y.0<=x.0&&y.1<x.1;
+        if !entry.accepted{
+            if !matches!(&entry.rule,LedgerRule::Iter(_))||improves{return Err("invalid rejected trial");}
+            prefix=2;r+=1;continue;
+        }
+        if !improves{return Err("invalid committed cost");}
+        let cost=match &entry.rule{
+            LedgerRule::Alias(links,parent)=>{
+                if prefix!=0||links.is_empty(){return Err("alias prefix order");}
+                check_union_certificate(current,&entry.trial,links,parent)?;
+                a=parent.len();s+=a;prefix=1;a
+            },
+            LedgerRule::BatchFree=>{
+                if prefix==2{return Err("free prefix order");}
+                let count=current.live.len().checked_sub(entry.trial.live.len()).ok_or("free domain growth")?;
+                if count==0{return Err("empty batch free");}
+                check_free_elim(current,&entry.trial,count,0)?;
+                f=count;e+=count;prefix=2;count
+            },
+            LedgerRule::Iter(w)=>{
+                prefix=2;
+                match *w{
+                    IterWitness::Sub{y,row}=>{check_general_substitution(current,&entry.trial,y,row,0,0)?;s+=1;},
+                    IterWitness::Free{y}=>{
+                        let removed=check_free_elim(current,&entry.trial,1,0)?;
+                        if !removed.contains(&y){return Err("free witness mismatch");}e+=1;
+                    },
+                    IterWitness::Hh{y}=>{check_hh(current,&entry.trial,y,1,0)?;h+=1;},
+                    IterWitness::Omega{y}=>{check_omega(current,&entry.trial,y,0,1)?;o+=1;},
+                }
+                1
+            }
+        };
+        used=used.checked_add(cost).ok_or("ledger fuel overflow")?;
+        if used>64{return Err("ledger fuel exceeded");}
+        current=&entry.trial;
+    }
+    if !same_trace(current,final_state){return Err("ledger final mismatch");}
+    if (s,e,h,o,r,a,f)!=counts{return Err("ledger counts mismatch");}
+    let k=e.checked_add(h).and_then(|v|v.checked_mul(2)).and_then(|v|v.checked_add(o))
+        .ok_or("ledger multiplier overflow")?;
+    if k!=claimed_k{return Err("ledger multiplier mismatch");}
+    // Integer exponent splitting used by restore_count: a rational
+    // factor 2^(e+h+floor(o/2)), residual odd sqrt2 in N-(o mod 2).
+    let integer=e+h+o/2;
+    let adjusted=twice.checked_sub((o%2) as i32).ok_or("ledger normalization overflow")?;
+    if i64::from(adjusted)-2*(integer as i64)!=i64::from(twice)-(k as i64){
+        return Err("ledger normalization split");
+    }
+    Ok(())
+}
+
+#[test]
+fn exact_trace_ordered_ledger(){
+    use quprs::rational::{PhaseCoeff,Rational};
+    // Alias plus a free variable and an omega integration with no
+    // interaction: constant phase correction can reduce incidence.
+    let mut ps=PathSum::new(1);ps.rr_tolerance=0.0;
+    let y=ps.v.get_fresh_var();let z=ps.v.get_fresh_var();ps.v.get_fresh_var();
+    ps.f.functions[0].clear();ps.f.functions[0].insert(vec![y]);
+    ps.p.add_term(vec![y],PhaseCoeff::HALF);
+    ps.p.add_term(vec![0],PhaseCoeff::HALF);
+    ps.p.add_term(vec![z],PhaseCoeff::QUARTER);
+    let start=Trace::from_native(&ps).unwrap();
+    let (end,log,counts)=record_guarded_ledger(&start);
+    let twice=(ps.v.num_qubits+ps.v.path_vars.len()) as i32;
+    let k=2*(counts.1+counts.2)+counts.3;
+    assert_eq!((counts.5,counts.6,counts.3),(1,1,1));
+    assert_eq!(check_ordered_ledger(&ps,&start,&end,&log,twice,counts,k),Ok(()));
+    let mut native=start.clone();assert_eq!(batch_then_iterate(&mut native),counts);assert!(same_trace(&native,&end));
+    let mut bad=log.clone();bad.swap(0,1);
+    assert_eq!(check_ordered_ledger(&ps,&start,&end,&bad,twice,counts,k),Err("ledger chain mismatch"));
+    let mut bad=log.clone();bad.pop();
+    assert_eq!(check_ordered_ledger(&ps,&start,&end,&bad,twice,counts,k),Err("ledger final mismatch"));
+    let mut bad=log.clone();bad[0].accepted=false;
+    assert_eq!(check_ordered_ledger(&ps,&start,&end,&bad,twice,counts,k),Err("invalid rejected trial"));
+    let mut bad=counts;bad.3+=1;
+    assert_eq!(check_ordered_ledger(&ps,&start,&end,&log,twice,bad,k),Err("ledger counts mismatch"));
+    assert_eq!(check_ordered_ledger(&ps,&start,&end,&log,twice,counts,k+1),Err("ledger multiplier mismatch"));
+    assert_eq!(check_ordered_ledger(&ps,&start,&end,&log,twice-1,counts,k),Err("original normalization mismatch"));
+    // Real cost-policy rejection from the existing growth fixture.
+    let mut ps=PathSum::new(1);ps.rr_tolerance=0.0;
+    let y=ps.v.get_fresh_var();let z=ps.v.get_fresh_var();let w=ps.v.get_fresh_var();
+    ps.f.functions[0].insert(vec![y]);ps.f.functions[0].insert(vec![0,z]);ps.f.functions[0].insert(vec![0,w]);
+    ps.p.add_term(vec![y],PhaseCoeff::new_constant(Rational::new(1,8)));
+    let start=Trace::from_native(&ps).unwrap();
+    let (end,log,counts)=record_guarded_ledger(&start);
+    let twice=(ps.v.num_qubits+ps.v.path_vars.len()) as i32;
+    assert!(counts.4>0);
+    let k=2*(counts.1+counts.2)+counts.3;
+    assert_eq!(check_ordered_ledger(&ps,&start,&end,&log,twice,counts,k),Ok(()));
+    let mut bad=log.clone();let i=bad.iter().position(|e|!e.accepted).unwrap();bad[i].accepted=true;
+    assert_eq!(check_ordered_ledger(&ps,&start,&end,&bad,twice,counts,k),Err("invalid committed cost"));
+    let mut leaked=end.clone();leaked.live=log[i].trial.live.clone();
+    assert_eq!(check_ordered_ledger(&ps,&start,&leaked,&log,twice,counts,k),Err("ledger final mismatch"));
+    println!("CRR_ORDERED_LEDGER_CERTIFICATE positive=2 rejected_mutations=8 rejected_trials={} snapshot_scope=research_only",counts.4);
 }
 
 fn batch_then_iterate(t:&mut Trace)->(usize,usize,usize,usize,usize,usize,usize){

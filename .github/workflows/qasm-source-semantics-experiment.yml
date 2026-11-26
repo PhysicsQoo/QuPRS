@@ -8,6 +8,12 @@ on:
     paths:
       - rust/quprs/tests/qasm_source_semantics_experiment.rs
       - rust/quprs/tests/property_hoare_experiment.rs
+      - rust/quprs/tests/hoare_paper_source_experiment.rs
+      - rust/quprs/tests/support/native_dyadic_cnf.rs
+      - benchmarks/Feynman/qft_4.qasm
+      - benchmarks/Feynman/hwb6.qasm
+      - benchmarks/Feynman/mod5_4.qasm
+      - benchmarks/Feynman/barenco_tof_5.qasm
       - rust/research/hoare_ganak_exact.py
       - rust/research/hoare_projected_count.py
       - rust/research/hoare_sector_transport.py
@@ -109,10 +115,29 @@ jobs:
           test "$(git hash-object "$tmp/vchain.qasm")" = f0929d665b438229a566a9378d6f939c4f644f6f
           test "$(git hash-object "$tmp/noancilla.qasm")" = 447ec29073718da096b283ed6916b717a8362ad1
           sha256sum "$tmp/"*.qasm | tee evidence/hoare-paper-source-sha256.txt
+          # Bind the actual native experiment and its embedded source fixtures
+          # to the receipt, in addition to the downloaded paper-source blobs.
+          test "$(git hash-object benchmarks/Feynman/qft_4.qasm)" = 9edd43e62fd2b3e801bdc3666f6e63a19f161fb4
+          test "$(git hash-object benchmarks/Feynman/hwb6.qasm)" = f6bf6bcc182fb3419408b2e388f4d3d546ab8474
+          test "$(git hash-object benchmarks/Feynman/mod5_4.qasm)" = 9fb77371dc9ad77de6efefc9b23d36327a4d1ec1
+          test "$(git hash-object benchmarks/Feynman/barenco_tof_5.qasm)" = 51bc0d474ffb693f4f73e6fdc6627cd806341275
+          sha256sum rust/quprs/tests/hoare_paper_source_experiment.rs \
+            rust/quprs/tests/support/native_dyadic_cnf.rs \
+            benchmarks/Feynman/{qft_4,hwb6,mod5_4,barenco_tof_5}.qasm \
+            > evidence/hoare-native-input-sha256.txt
           mkdir -p evidence/hoare-exact-fixtures
           HOARE_PAPER_PROJECTED_DIR="$GITHUB_WORKSPACE/evidence/hoare-exact-fixtures" HOARE_PAPER_QWALK_DIR="$tmp" cargo test --locked --manifest-path rust/Cargo.toml -p quprs \
             --test hoare_paper_source_experiment -- --nocapture \
             2>&1 | tee evidence/hoare-paper-source.log
+          # A successful Cargo command alone must not hide a missing research test.
+          grep -F 'HOARE_NATIVE_FACTOR8_REFERENCE checks=192' evidence/hoare-paper-source.log
+          grep -Fx 'HOARE_NATIVE_BOUNDARY_CAPS width_work_free_deadline=true' evidence/hoare-paper-source.log
+          for source in qft4 hwb6 mod5 barenco5; do
+            for arm in false true; do
+              grep -F "HOARE_FEYNMAN_BOUNDARY8 name=$source boundary=$arm " evidence/hoare-paper-source.log
+            done
+            grep -F "HOARE_FEYNMAN_BOUNDARY8_PARITY name=$source " evidence/hoare-paper-source.log
+          done
 
       - name: Verify exact GPMC and Ganak property counts
         run: |

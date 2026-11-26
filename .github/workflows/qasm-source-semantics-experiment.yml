@@ -975,7 +975,7 @@ jobs:
 
           negacyclic_status=0
           if test "$lift_status" -eq 0; then
-            LEAN_PATH=. lean AffineNegacyclic.lean 2>&1 | tee /tmp/qasm-lean-affine-negacyclic.log || negacyclic_status=$?
+            LEAN_PATH=. lean -o AffineNegacyclic.olean AffineNegacyclic.lean 2>&1 | tee /tmp/qasm-lean-affine-negacyclic.log || negacyclic_status=$?
             if grep -E 'sorryAx|Lean[.]trustCompiler|Classical[.]choice' /tmp/qasm-lean-affine-negacyclic.log; then
               negacyclic_status=1
             fi
@@ -993,7 +993,7 @@ jobs:
           fi
 
           checked_status=0
-          lean AffineCheckedArithmetic.lean 2>&1 | tee /tmp/qasm-lean-affine-checked.log || checked_status=$?
+          lean -o AffineCheckedArithmetic.olean AffineCheckedArithmetic.lean 2>&1 | tee /tmp/qasm-lean-affine-checked.log || checked_status=$?
           if grep -E 'sorryAx|Lean[.]trustCompiler|Classical[.]choice' /tmp/qasm-lean-affine-checked.log; then
             checked_status=1
           fi
@@ -1005,6 +1005,25 @@ jobs:
             echo 'LEAN4_AFFINE_CHECKED_ARITHMETIC_PASS theorem_axiom_reports=15 bounded_integer_model=true successful_trace_exact=true signed_sum=true ordered_vector_model=true overflow_reject=true rust_intrinsic_refinement=false'
           else
             echo 'LEAN4_AFFINE_CHECKED_ARITHMETIC_FAIL' >&2
+          fi
+
+          schedule_status=0
+          if test "$negacyclic_status" -eq 0 && test "$checked_status" -eq 0; then
+            LEAN_PATH=. lean AffineCheckedCycloSchedule.lean 2>&1 | tee /tmp/qasm-lean-affine-schedule.log || schedule_status=$?
+            if grep -E 'sorryAx|Lean[.]trustCompiler|Classical[.]choice' /tmp/qasm-lean-affine-schedule.log; then
+              schedule_status=1
+            fi
+            test "$(grep -Ec 'does not depend on any axioms|depends on axioms' /tmp/qasm-lean-affine-schedule.log)" -eq 6 || schedule_status=1
+            for theorem in one_update_sum schedule_sum schedule_index_bound checked_cyclo_some checked_vector_append checked_vector_prefix_reject; do
+              test "$(grep -Ec "^'QuPRS[.]AffineCheckedCycloSchedule[.]$theorem' (does not depend on any axioms|depends on axioms)" /tmp/qasm-lean-affine-schedule.log)" -eq 1 || schedule_status=1
+            done
+          else
+            schedule_status=1
+          fi
+          if test "$schedule_status" -eq 0; then
+            echo 'LEAN4_AFFINE_CHECKED_CYCLO_SCHEDULE_PASS theorem_axiom_reports=6 cartesian_schedule_model=true zero_skip=true successful_vector_exact=true prefix_reject=true rust_loop_refinement=false'
+          else
+            echo 'LEAN4_AFFINE_CHECKED_CYCLO_SCHEDULE_FAIL' >&2
           fi
 
           incidence_status=0
@@ -1022,7 +1041,7 @@ jobs:
           else
             echo 'LEAN4_AFFINE_NATIVE_INCIDENCE_FAIL' >&2
           fi
-          test "$normalization_status" -eq 0 && test "$lift_status" -eq 0 && test "$incidence_status" -eq 0 && test "$negacyclic_status" -eq 0 && test "$checked_status" -eq 0
+          test "$normalization_status" -eq 0 && test "$lift_status" -eq 0 && test "$incidence_status" -eq 0 && test "$negacyclic_status" -eq 0 && test "$checked_status" -eq 0 && test "$schedule_status" -eq 0
 
       - name: Build and test std-only independent verifier
         run: |

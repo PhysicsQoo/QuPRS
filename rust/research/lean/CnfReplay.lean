@@ -181,16 +181,20 @@ def decimalExponent (s : Token) : Option Int := do
     some (if neg then -(Int.ofNat n) else Int.ofNat n)
   else none
 
+-- Give the intermediate token/exponent pair its own explicit type.
+-- Avoid nested do/return elaboration against DecimalValue.
+def decimalParts (s : Token) : Option (Token × Int) :=
+  match splitBytes 101 (s.map (fun b => if b == 69 then 101 else b)) with
+  | [m] => some (m, 0)
+  | [m,e] => (decimalExponent e).map (fun exp => (m, exp))
+  | _ => none
+
 def decimalValue (s : Token) : Option DecimalValue := do
   if !natLE s.length 512 then none else
-    let (mant, exp) ←
-      match splitBytes 101 (s.map (fun b => if b == 69 then 101 else b)) with
-      | [m] => some (m, (0 : Int))
-      | [m,e] => do return (m, ← decimalExponent e)
-      | _ => none
+    let (mant, exp) ← decimalParts s
     let (n, places) ← decimalMantissa mant
     let shift := exp - Int.ofNat places
-    let power := 10 ^ shift.natAbs
+    let power : Nat := 10 ^ shift.natAbs
     if negative shift then some (n, power)
     else some (n * Int.ofNat power, 1)
 
@@ -230,8 +234,7 @@ def parseCnf (s : List Nat) : Option ParsedCnf :=
       let n ← parseNatToken n
       let m ← parseNatToken m
       let (cs, ws) ← parseCnfRows n rest false [] []
-      if cs.length == m then some { vars := n, clauses := cs,
-        weights := ws.map Prod.fst, weightValues := ws } else none
+      if cs.length == m then some (ParsedCnf.mk n cs (ws.map Prod.fst) ws) else none
     else none
   | _ => none
 
@@ -2405,6 +2408,7 @@ theorem accepted_total_phase_sum {P A : Type} [Zero P] [Add P]
 #print axioms signedToken
 #print axioms decimalMantissa
 #print axioms decimalExponent
+#print axioms decimalParts
 #print axioms decimalValue
 #print axioms lookupWeight
 #print axioms serializedProduct
@@ -2466,6 +2470,26 @@ def main (args : List String) : IO Unit := do
       QuPRS.CnfReplay.decimalValue [110,97,110] != none then
     throw (IO.userError "exact decimal grammar regression")
   IO.println "CRR_LEAN_EXACT_DECIMAL_PASS controls=8"
+  -- End-to-end byte admission, actual exact values and implicit units.
+  -- A valid changed positive weight must remain distinguishable, not
+  -- be silently interpreted as the original ideal phase.
+  let sampleGate : List Nat := [99,114,114,45,103,97,116,101,45,118,49,32,50,10,108,105,118,101,32,48,32,49,10,97,110,100,32,50,32,49,10,112,104,97,115,101,32,50,32,48,10]
+  let sampleCnf : List Nat := [112,32,99,110,102,32,50,32,50,10,99,32,116,32,119,109,99,10,99,32,112,32,119,101,105,103,104,116,32,50,32,49,46,50,53,101,45,50,32,45,48,46,53,32,48,10,99,32,112,32,119,101,105,103,104,116,32,45,50,32,49,46,48,32,48,46,48,32,48,10,45,50,32,49,32,48,10,50,32,45,49,32,48,10]
+  let malformedCnf : List Nat := [112,32,99,110,102,32,50,32,50,10,99,32,116,32,119,109,99,10,99,32,112,32,119,101,105,103,104,116,32,50,32,110,97,110,32,45,48,46,53,32,48,10,99,32,112,32,119,101,105,103,104,116,32,45,50,32,49,46,48,32,48,46,48,32,48,10,45,50,32,49,32,48,10,50,32,45,49,32,48,10]
+  let changedCnf : List Nat := [112,32,99,110,102,32,50,32,50,10,99,32,116,32,119,109,99,10,99,32,112,32,119,101,105,103,104,116,32,50,32,50,46,53,101,45,50,32,45,48,46,53,32,48,10,99,32,112,32,119,101,105,103,104,116,32,45,50,32,49,46,48,32,48,46,48,32,48,10,45,50,32,49,32,48,10,50,32,45,49,32,48,10]
+  let some parsed := QuPRS.CnfReplay.parseCnf sampleCnf
+    | throw (IO.userError "exact weight fixture parse failed")
+  let some changed := QuPRS.CnfReplay.parseCnf changedCnf
+    | throw (IO.userError "changed weight fixture parse failed")
+  if !(QuPRS.CnfReplay.check sampleGate sampleCnf) ||
+      QuPRS.CnfReplay.check sampleGate malformedCnf ||
+      QuPRS.CnfReplay.lookupWeight 2 parsed.weightValues != ((125,10000),(-5,10)) ||
+      QuPRS.CnfReplay.lookupWeight (-2) parsed.weightValues != ((10,10),(0,10)) ||
+      QuPRS.CnfReplay.lookupWeight 1 parsed.weightValues != ((1,1),(0,1)) ||
+      !(QuPRS.CnfReplay.check sampleGate changedCnf) ||
+      QuPRS.CnfReplay.lookupWeight 2 changed.weightValues != ((25,1000),(-5,10)) then
+    throw (IO.userError "serialized weight admission regression")
+  IO.println "CRR_LEAN_SERIALIZED_WEIGHT_PASS controls=7"
   let mode :: paths := args | throw (IO.userError "usage: CnfReplay accept|reject files")
   if (mode != "accept" && mode != "reject") || paths.isEmpty then
     throw (IO.userError "bad replay mode or empty cohort")

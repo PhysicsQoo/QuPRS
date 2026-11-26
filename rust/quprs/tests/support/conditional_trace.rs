@@ -2266,6 +2266,8 @@ fn exact_trace_source_locked_receipts(){
         let (mgr,v,c)=route_encode(chosen);
         assert_eq!((v,c),if selected{(bv,bc)}else{(av,ac)});
         let dimacs=mgr.try_to_dimacs_string("gpmc").expect("receipt DIMACS");
+        let (_,_,weight_checks)=check_receipt_cnf(chosen,&dimacs).expect("selected CNF certificate");
+        println!("CRR_REAL_CNF_CERTIFICATE case={case} status=matched vars={v} clauses={c} weights={weight_checks} structural=true numerical_weight_check=true solver_count_certified=false");
         let (_,lv,lc,lm,lo,ls)=lazy_prepare(p);
         assert_eq!((v,c,selected),(lv,lc,ls));
         assert_eq!((lm,lo),if selected{(counts.1+counts.2,counts.3)}else{(0,0)});
@@ -2375,6 +2377,9 @@ fn gpmc_trace_witness_source_receipts(){
         let mut results=Vec::new();
         for (arm,mgr,m,o) in [("baseline",baseline,0,0),("certified",conditioned,counts.1+counts.2,counts.3)]{
             let cnf=mgr.try_to_dimacs_string("gpmc").expect("solver receipt CNF");
+            let encoded=if arm=="baseline"{p}else{&reduced};
+            let (_,_,w)=check_receipt_cnf(encoded,&cnf).expect("solver input CNF certificate");
+            println!("CRR_SOLVER_CNF_CERTIFICATE case={case} arm={arm} weights={w} cnf_sha256={} structural=true numerical_weight_check=true",receipt_sha(cnf.as_bytes()));
             if let Some((raw,cnf_sha,stdout_sha))=receipt_solve(&cnf,&exe,case,arm){
                 // Midpoint distance uses exact rational scaling and an
                 // adjusted integer exponent; no rounded sqrt2 needed.
@@ -2407,4 +2412,271 @@ fn gpmc_trace_witness_source_receipts(){
     }
     assert_eq!(controls,3);assert!(real_pairs>0,"no complete real solver receipt pair");
     println!("CRR_SOLVER_RECEIPT_SUMMARY analytic_controls={controls} real_matched_pairs={real_pairs} incomplete_calls={incomplete} source_semantics_certified=false solver_count_certified=false");
+}
+
+
+// Research-only independent DIMACS certificate. Recover the declared
+// allocation schedule from the exact PathSum instance passed to encode_trace;
+// do not read the manager's private maps or invoke its Boolean encoder.
+// Compare a multiset of clauses generated from truth tables (not its templates).
+#[cfg(test)]
+#[derive(Clone)]
+struct CnfReceipt{
+    vars:usize,clauses:Vec<Vec<i32>>,weights:std::collections::BTreeMap<i32,ExactPair>,
+}
+#[cfg(test)]
+fn receipt_decimal(v:&str)->Result<Rat,&'static str>{
+    use num_bigint::BigInt;
+    if v.len()>512{return Err("weight token cap");}
+    let (m,e)=if let Some(i)=v.find(['e','E']){
+        (&v[..i],v[i+1..].parse::<i32>().map_err(|_|"weight exponent")?)
+    }else{(v,0)};
+    if e.unsigned_abs()>4096{return Err("weight exponent cap");}
+    let unsigned=m.strip_prefix('-').or_else(||m.strip_prefix('+')).unwrap_or(m);
+    if unsigned.is_empty()||unsigned.matches('.').count()>1
+        ||!unsigned.chars().all(|c|c.is_ascii_digit()||c=='.'){return Err("weight mantissa");}
+    let digits=unsigned.replace('.',"");
+    let mut n=digits.parse::<BigInt>().map_err(|_|"weight digits")?;
+    if m.starts_with('-'){n=-n;}
+    let shift=e-unsigned.split_once('.').map_or(0,|(_,r)|r.len() as i32);
+    let power=BigInt::from(10u8).pow(shift.unsigned_abs());
+    Ok(if shift>=0{Rat::from_integer(n*power)}else{Rat::new(n,power)})
+}
+#[cfg(test)]
+fn parse_receipt_cnf(s:&str)->Result<CnfReceipt,&'static str>{
+    use std::collections::BTreeMap;
+    let mut lines=s.lines();
+    let header:Vec<_>=lines.next().ok_or("missing header")?.split_whitespace().collect();
+    if header.len()!=4||header[0]!="p"||header[1]!="cnf"{return Err("bad header");}
+    let vars=header[2].parse::<usize>().map_err(|_|"bad variable count")?;
+    let count=header[3].parse::<usize>().map_err(|_|"bad clause count")?;
+    if vars>100_000||count>1_000_000{return Err("CNF cap");}
+    if lines.next()!=Some("c t wmc"){return Err("bad weight mode");}
+    let mut clauses=Vec::new();let mut weights=BTreeMap::new();
+    for line in lines{
+        let t:Vec<_>=line.split_whitespace().collect();
+        if t.first()==Some(&"c"){
+            if !clauses.is_empty()||t.len()!=7||t[..3]!=["c","p","weight"]||t[6]!="0"{return Err("bad weight line");}
+            let id=t[3].parse::<i32>().map_err(|_|"weight id")?;
+            if id==0||id.unsigned_abs() as usize>vars{return Err("weight range");}
+            if weights.insert(id,(receipt_decimal(t[4])?,receipt_decimal(t[5])?)).is_some(){return Err("duplicate weight");}
+        }else{
+            if t.last()!=Some(&"0"){return Err("missing clause terminator");}
+            let mut row=Vec::new();
+            for v in &t[..t.len()-1]{
+                let lit=v.parse::<i32>().map_err(|_|"clause literal")?;
+                if lit==0||lit.unsigned_abs() as usize>vars{return Err("clause range");}
+                row.push(lit);
+            }
+            row.sort_unstable();clauses.push(row);
+        }
+    }
+    if clauses.len()!=count{return Err("clause count mismatch");}
+    clauses.sort();
+    Ok(CnfReceipt{vars,clauses,weights})
+}
+#[cfg(test)]
+struct ExpectedCnf{
+    next:i32,live:std::collections::BTreeMap<u32,i32>,clauses:Vec<Vec<i32>>,
+    phase:std::collections::BTreeMap<i32,(Vec<u32>,ExactPair)>,
+}
+#[cfg(test)]
+impl ExpectedCnf{
+    fn fresh(&mut self)->i32{let v=self.next;self.next+=1;v}
+    fn var(&mut self,v:u32)->i32{
+        if let Some(&id)=self.live.get(&v){return id;}
+        let id=self.fresh();self.live.insert(v,id);id
+    }
+    fn clause(&mut self,mut row:Vec<i32>){row.sort_unstable();self.clauses.push(row);}
+    fn and(&mut self,z:i32,inputs:&[i32]){
+        // Minimal implicates of z=AND(inputs): each forbidden pair
+        // (z=1,input=0) and the single all-ones input with z=0.
+        for &v in inputs{self.clause(vec![-z,v]);}
+        let mut row:Vec<_>=inputs.iter().map(|v|-v).collect();row.push(z);self.clause(row);
+    }
+    fn xor(&mut self,a:i32,b:i32,z:i32){
+        for bits in 0..8{
+            let x=bits&1!=0;let y=bits&2!=0;let out=bits&4!=0;
+            if out!=(x^y){self.clause(vec![if x{-a}else{a},if y{-b}else{b},if out{-z}else{z}]);}
+        }
+    }
+    fn equality(&mut self,a:i32,b:i32){
+        for (x,y) in [(true,false),(false,true)]{
+            self.clause(vec![if x{-a}else{a},if y{-b}else{b}]);
+        }
+    }
+}
+#[cfg(test)]
+fn expected_receipt_cnf(ps:&PathSum)->Result<ExpectedCnf,&'static str>{
+    use std::collections::BTreeMap;
+    let mut e=ExpectedCnf{next:1,live:BTreeMap::new(),clauses:Vec::new(),phase:BTreeMap::new()};
+    if Trace::from_native(ps).is_none(){return Err("CNF residual admission");}
+    for (mono,c) in &ps.p.terms{
+        let z=e.fresh();
+        let inputs:Vec<_>=mono.iter().map(|&v|e.var(v)).collect();
+        e.and(z,&inputs);e.phase.insert(z,(mono.clone(),exact_pair(c)?));
+    }
+    for (i,row) in ps.f.functions.iter().enumerate(){
+        let a=e.var(i as u32);
+        let mut values=Vec::new();
+        for mono in row{
+            let inputs:Vec<_>=mono.iter().map(|&v|e.var(v)).collect();
+            let id=if inputs.len()==1{inputs[0]}else{let z=e.fresh();e.and(z,&inputs);z};
+            values.push(id);
+        }
+        let b=if values.is_empty(){let z=e.fresh();e.clause(vec![-z]);z}else{
+            let mut v=values[0];
+            for &w in &values[1..]{let z=e.fresh();e.xor(v,w,z);v=z;}
+            v
+        };
+        e.equality(a,b);
+    }
+    let mut missing:Vec<_>=ps.v.path_vars.iter().filter(|v|!e.live.contains_key(v)).copied().collect();
+    missing.sort_unstable();for v in missing{e.var(v);}
+    if e.live.len()!=ps.v.path_vars.len()||e.live.keys().any(|v|!ps.v.path_vars.contains(v)){
+        return Err("CNF live domain mismatch");
+    }
+    e.clauses.sort();Ok(e)
+}
+
+// Independent fixed-point numerical oracle. Machin pi and Taylor
+// sin/cos use integer truncation, not native MPFR or binary64.
+// Bounded angle |theta|<=8; scale 10^90; 200 terms. Reference
+// error budget 10^-80 per component is deliberately conservative:
+// Machin truncations <4000 units, Taylor truncations propagated
+// by sum(8^j/j!)<3000, 200 terms, factorial tail <10^-180.
+// This bounds reference error, NOT external solver arithmetic.
+#[cfg(test)]
+fn reference_weight(c:&ExactPair)->Result<ExactPair,&'static str>{
+    use num_bigint::BigInt;
+    use num_traits::{Signed,Zero};
+    let scale=BigInt::from(10u8).pow(90);
+    fn atan_inv(q:u32,scale:&BigInt)->BigInt{
+        let q=BigInt::from(q);let mut power=q.clone();let square=&q*&q;
+        let mut sum=BigInt::from(0);
+        for j in 0..200u32{
+            let term=scale/(&power*BigInt::from(2*j+1));
+            if j%2==0{sum+=term;}else{sum-=term;}power*=&square;
+        }
+        sum
+    }
+    let pi=16i32*atan_inv(5,&scale)-4i32*atan_inv(239,&scale);
+    let angle=&c.0*Rat::from_integer(2i32*pi)+&c.1*Rat::from_integer(2i32*&scale);
+    let x=angle.to_integer();
+    if x.abs()>8i32*&scale{return Err("weight reference angle cap");}
+    let mut term=scale.clone();let mut re=scale.clone();let mut im=BigInt::zero();
+    for j in 1..=200u32{
+        term=term*&x/(&scale*BigInt::from(j));
+        match j%4{0=>re+=&term,1=>im+=&term,2=>re-=&term,_=>im-=&term}
+    }
+    Ok((Rat::new(re,scale.clone()),Rat::new(im,scale)))
+}
+#[cfg(test)]
+fn check_receipt_cnf(ps:&PathSum,s:&str)->Result<(CnfReceipt,ExpectedCnf,usize),&'static str>{
+    use num_bigint::BigInt;
+    use num_traits::{Signed,Zero};
+    let actual=parse_receipt_cnf(s)?;
+    let expected=expected_receipt_cnf(ps)?;
+    if actual.vars!=(expected.next-1) as usize{return Err("CNF variable count mismatch");}
+    if actual.clauses!=expected.clauses{return Err("CNF clause mismatch");}
+    if actual.weights.len()!=2*expected.phase.len(){return Err("CNF weight coverage");}
+    let one=Rat::from_integer(1.into());let zero=Rat::zero();
+    let tolerance=Rat::new(1.into(),BigInt::from(10u8).pow(65));
+    let mut checked=0;
+    for (&z,(_,phase)) in &expected.phase{
+        if actual.weights.get(&-z)!=Some(&(one.clone(),zero.clone())){return Err("negative weight mismatch");}
+        let w=actual.weights.get(&z).ok_or("missing positive weight")?;
+        let exact=if phase.1.is_zero(){
+            (0..4).find(|&k|phase.0==Rat::new(k.into(),4.into()))
+        }else{None};
+        if let Some(k)=exact{
+            let (a,b)=match k{0=>(1,0),1=>(0,1),2=>(-1,0),_=>(0,-1)};
+            if w!=&(Rat::from_integer(a.into()),Rat::from_integer(b.into())){return Err("exact Clifford weight mismatch");}
+        }else{
+            let reference=reference_weight(phase)?;
+            if (&w.0-&reference.0).abs()>tolerance||(&w.1-&reference.1).abs()>tolerance{
+                return Err("numerical phase weight mismatch");
+            }
+        }
+        checked+=1;
+    }
+    Ok((actual,expected,checked))
+}
+#[cfg(test)]
+fn check_cnf_fibers(ps:&PathSum,actual:&CnfReceipt,e:&ExpectedCnf)->usize{
+    use std::collections::BTreeMap;
+    assert!(actual.vars<=18);
+    let mut fibers:BTreeMap<Vec<bool>,usize>=BTreeMap::new();
+    for bits in 0usize..(1usize<<actual.vars){
+        let value=|id:i32|bits>>(id.unsigned_abs()-1)&1!=0;
+        if !actual.clauses.iter().all(|row|row.iter().any(|&v|value(v)==(v>0))){continue;}
+        let key:Vec<_>=e.live.values().map(|&v|value(v)).collect();
+        for (&z,(m,_)) in &e.phase{
+            assert_eq!(value(z),m.iter().all(|v|value(e.live[v])));
+        }
+        *fibers.entry(key).or_default()+=1;
+    }
+    for bits in 0usize..(1usize<<e.live.len()){
+        let key:Vec<_>=(0..e.live.len()).map(|i|bits>>i&1!=0).collect();
+        let value: BTreeMap<_,_>=e.live.keys().copied().zip(key.iter().copied()).collect();
+        let diagonal=ps.f.functions.iter().enumerate().all(|(i,row)|{
+            let parity=row.iter().filter(|m|m.iter().all(|v|value[v])).count()%2!=0;
+            parity==value[&(i as u32)]
+        });
+        assert_eq!(fibers.get(&key).copied().unwrap_or(0),usize::from(diagonal));
+    }
+    1usize<<e.live.len()
+}
+#[test]
+fn exact_trace_cnf_semantic_certificate(){
+    use quprs::rational::{PhaseCoeff,Rational};
+    let mut fibers=0;let mut weights=0;
+    // Vary constants, empty outputs, nonlinear products, XOR, free
+    // live variables, and mixed rational radian/turn coefficients.
+    for mask in 0..32{
+        let mut p=PathSum::new(2);p.rr_tolerance=0.0;
+        let y=p.v.get_fresh_var();p.v.get_fresh_var();
+        p.f.functions[0].clear();
+        if mask&1!=0{p.f.functions[0].insert(vec![]);}
+        if mask&2!=0{p.f.functions[0].insert(vec![0,y]);}
+        if mask&4!=0{p.f.functions[0].insert(vec![1]);}
+        p.p.add_term(vec![],PhaseCoeff::HALF);
+        p.p.add_term(vec![0,y],PhaseCoeff::new_constant(Rational::new(1,8)));
+        if mask&8!=0{let mut c=PhaseCoeff::QUARTER;c.radians=Some(Rat::new(7.into(),19.into()));p.p.add_term(vec![1],c);}
+        if mask&16!=0{p.p.add_term(vec![y],PhaseCoeff::QUARTER);}
+        let (mgr,_,_)=route_encode(&p);
+        let s=mgr.try_to_dimacs_string("gpmc").unwrap();
+        let (a,e,w)=check_receipt_cnf(&p,&s).unwrap();
+        fibers+=check_cnf_fibers(&p,&a,&e);weights+=w;
+    }
+    let mut p=PathSum::new(1);p.rr_tolerance=0.0;
+    let y=p.v.get_fresh_var();p.p.add_term(vec![y],PhaseCoeff::QUARTER);
+    let (mgr,_,_)=route_encode(&p);let s=mgr.try_to_dimacs_string("gpmc").unwrap();
+    let (a,e,_)=check_receipt_cnf(&p,&s).unwrap();
+    let z=*e.phase.keys().next().unwrap();
+    // These edit actual DIMACS, not a separately constructed formula.
+    let bad=s.replacen(&format!("p cnf {} ",a.vars),&format!("p cnf {} ",a.vars+1),1);
+    assert!(matches!(check_receipt_cnf(&p,&bad),Err("CNF variable count mismatch")));
+    let mut lines:Vec<_>=s.lines().map(str::to_string).collect();
+    let i=lines.iter().position(|l|!l.starts_with('p')&&!l.starts_with('c')).unwrap();
+    let mut row:Vec<i32>=lines[i].split_whitespace().map(|x|x.parse().unwrap()).collect();
+    row[0]=-row[0];lines[i]=row.iter().map(i32::to_string).collect::<Vec<_>>().join(" ");
+    assert!(matches!(check_receipt_cnf(&p,&lines.join("\n")),Err("CNF clause mismatch")));
+    let bad=s.replace(&format!("c p weight {z} 0.0 1.0 0"),&format!("c p weight {z} 1.0 0.0 0"));
+    assert_ne!(bad,s);assert!(matches!(check_receipt_cnf(&p,&bad),Err("exact Clifford weight mismatch")));
+    let bad=s.replace(&format!("c p weight -{z} 1.0 0.0 0"),&format!("c p weight -{z} 0.0 1.0 0"));
+    assert_ne!(bad,s);assert!(matches!(check_receipt_cnf(&p,&bad),Err("negative weight mismatch")));
+    let bad=s.replace(&format!("c p weight -{z} 1.0 0.0 0\n"),"");
+    assert!(matches!(check_receipt_cnf(&p,&bad),Err("CNF weight coverage")));
+    let bad=s.replace("c t wmc\n",&format!("c t wmc\nc p weight {z} 0.0 1.0 0\n"));
+    assert!(matches!(check_receipt_cnf(&p,&bad),Err("duplicate weight")));
+    let mut p=PathSum::new(1);p.rr_tolerance=0.0;
+    p.p.add_term(vec![0],PhaseCoeff::new_constant(Rational::new(1,8)));
+    let (mgr,_,_)=route_encode(&p);let s=mgr.try_to_dimacs_string("gpmc").unwrap();
+    let (_,e,_)=check_receipt_cnf(&p,&s).unwrap();let z=*e.phase.keys().next().unwrap();
+    let bad=s.lines().map(|l|if l.starts_with(&format!("c p weight {z} ")){
+        format!("c p weight {z} 1.0 0.0 0")
+    }else{l.to_string()}).collect::<Vec<_>>().join("\n");
+    assert!(matches!(check_receipt_cnf(&p,&bad),Err("numerical phase weight mismatch")));
+    println!("CRR_CNF_SEMANTIC_CERTIFICATE models=32 fibers={fibers} weights={weights} rejected=7 reference_component_error_budget=1e-80 observed_weight_tolerance=1e-65 solver_count_certified=false");
 }

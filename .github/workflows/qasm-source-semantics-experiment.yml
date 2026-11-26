@@ -887,7 +887,12 @@ jobs:
       - name: Profile source-locked original EQ pairs
         run: |
           set -euo pipefail
-          python3 rust/research/conditional_rr_incidence.py 2>&1 | tee evidence/conditional-incidence.jsonl
+          tmp="$(mktemp -d)"
+          trap 'rm -rf "$tmp"' EXIT
+          python3 scripts/install_gpmc_release.py --dest "$tmp/gpmc" | tee evidence/conditional-gpmc-release.json
+          sha256sum "$tmp/gpmc" | tee evidence/conditional-gpmc-sha256.txt
+          CRR_GPMC_COMPARE=1 QUPRS_GPMC_PATH="$tmp/gpmc" \
+            python3 rust/research/conditional_rr_incidence.py 2>&1 | tee evidence/conditional-incidence.jsonl
       - uses: actions/upload-artifact@v4
         if: always()
         with:

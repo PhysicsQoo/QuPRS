@@ -39,6 +39,21 @@ impl Trace{
         for (i,p) in constraints.iter_mut().enumerate(){toggle(p,vec![i as u32]);}
         Some(Self{p:ps.p.clone(),constraints,live:ps.v.path_vars.clone(),n})
     }
+    // Adapter for the existing production trace encoder ONLY. Its
+    // output rows encode the remaining equations, not an operator.
+    // Never send this view through RR, circuit comparison or normalization.
+    fn encoding_view(&self, original:&PathSum)->PathSum{
+        assert!(self.constraints.len()<=self.n);
+        let mut out=original.clone();
+        out.p=self.p.clone();
+        out.v.path_vars=self.live.clone();
+        for i in 0..self.n{
+            let mut q=self.constraints.get(i).cloned().unwrap_or_default();
+            toggle(&mut q,vec![i as u32]);
+            out.f.functions[i]=q;
+        }
+        out
+    }
     fn size(&self)->usize{self.p.terms.len()+self.constraints.iter().map(|p|p.len()).sum::<usize>()}
     fn empty(&self)->bool{self.constraints.iter().any(|p|p.len()==1&&p.contains(&Vec::new()))}
     fn step(&mut self)->Option<(u32,usize)>{
@@ -95,7 +110,72 @@ pub(super) fn profile(ps:&PathSum,case:&str){
     println!("CRR_TRACE case={case} status={} steps={steps} live_before={before} live_after={} phase_before={terms} phase_after={} constraints_before={constraints} constraints_after={} max_rhs={max_rhs} free_candidates={free} pivots={pivots:?} original_hidden={} trace_s={}",
         if t.empty(){"empty"}else{"profiled"},t.live.len(),t.p.terms.len(),
         t.constraints.iter().filter(|q|!q.is_empty()).count(),before-t.n,start.elapsed().as_secs_f64());
+    if std::env::var_os("CRR_GPMC_COMPARE").is_some(){
+        compare_gpmc(ps,&t,case);
+    }
 }
+
+// Same existing encoder and GPMC adapter on both arms. The count is
+// raw, not rescaled using the modified view's number of variables.
+fn compare_gpmc(original:&PathSum,t:&Trace,case:&str){
+    use quprs::wmc::WmcManager;
+    use quprs::precision_count::{PrintedCount,observed_distance_verdict};
+    use num_bigint::BigInt;
+    use num_rational::BigRational;
+    use num_traits::{Signed,ToPrimitive};
+    use std::time::{Instant,Duration};
+    let reduced=t.encoding_view(original);
+    let original_twice=(2*original.v.num_qubits+original.v.path_vars.len()-original.v.num_qubits) as i32;
+    let encode=|ps:&PathSum,arm:&str|->WmcManager{
+        let start=Instant::now();
+        let mut mgr=WmcManager::new(ps);
+        mgr.enable_precise_gpmc_weights(256);
+        mgr.encode_trace(ps).expect("trace encode");
+        let dimacs=mgr.try_to_dimacs_string("gpmc").expect("serialize");
+        let header=dimacs.lines().find(|l|l.starts_with("p cnf ")).expect("DIMACS header");
+        let sizes:Vec<_>=header.split_whitespace().collect();
+        println!("CRR_CNF case={case} arm={arm} vars={} clauses={} weights={} bytes={} encode_and_serialize_s={} normalization_twice={original_twice}",
+            sizes[2],sizes[3],mgr.numerical_weight_count(),dimacs.len(),start.elapsed().as_secs_f64());
+        mgr
+    };
+    let a=encode(original,"baseline");let b=encode(&reduced,"conditioned");
+    let solve=|mgr:&WmcManager,arm:&str|->Option<PrintedCount>{
+        let start=Instant::now();
+        let result=mgr.solve_with_deadline_distance_printed_precision("gpmc",Some(start+Duration::from_secs(8)),90);
+        let elapsed=start.elapsed().as_secs_f64();
+        match result{
+            Ok(c)=>{
+                println!("CRR_GPMC case={case} arm={arm} status=complete call_s={elapsed} real={} imag={} format={}",c.real,c.imag,c.format_name);
+                Some(c)
+            }
+            Err(e)=>{
+                // No fabricated count or verdict; preserve the actual error.
+                println!("CRR_GPMC case={case} arm={arm} status=incomplete call_s={elapsed} error={e:#}");
+                None
+            }
+        }
+    };
+    // Rotate order deterministically; this is a pilot, not repeated timing.
+    let (x,y)=if case.as_bytes().iter().map(|&b|b as usize).sum::<usize>()%2==0{
+        (solve(&a,"baseline"),solve(&b,"conditioned"))
+    }else{let y=solve(&b,"conditioned");(solve(&a,"baseline"),y)};
+    let (Some(x),Some(y))=(x,y)else{
+        println!("CRR_COMPARE case={case} status=incomplete");return;
+    };
+    // Normalize conservatively with floor(log2 normalization), using
+    // exact rational printed centers. A 1e-50 comparison guard is an
+    // empirical parity criterion, NOT a certified arithmetic error bound.
+    let scale=BigRational::from_integer(BigInt::from(1u8)<<(original_twice as usize/2));
+    let bound=&scale/BigRational::from_integer(BigInt::from(10u8).pow(50));
+    let delta=(&x.real-&y.real).abs()+(&x.imag-&y.imag).abs();
+    assert!(delta<=bound,"raw complex count disagreement for {case}");
+    let dx=observed_distance_verdict(&x,original_twice,"1e-8").expect("baseline distance");
+    let dy=observed_distance_verdict(&y,original_twice,"1e-8").expect("conditioned distance");
+    assert!(std::mem::discriminant(&dx)==std::mem::discriminant(&dy));
+    println!("CRR_COMPARE case={case} status=matched normalized_l1_delta={:.5e} distance_midpoint_match=true normalization_twice={original_twice}",
+        (delta/scale).to_f64().unwrap_or(f64::INFINITY));
+}
+
 
 // Independent finite exact oracle: per-input signed/cyclotomic exponent
 // histograms before/after substitution. Equality is stronger than the
@@ -143,7 +223,9 @@ fn exact_trace_constraint_substitution(){
         }
         let original=Trace::from_native(&ps).unwrap();let mut t=original.clone();
         for _ in 0..STEP_CAP{if t.step().is_none(){break;}steps+=1;}
-        for x in 0..4{assert_eq!(hist(&original,x),hist(&t,x));checks+=1;}
+        let view=t.encoding_view(&ps);
+        let roundtrip=Trace::from_native(&view).unwrap();
+        for x in 0..4{assert_eq!(hist(&original,x),hist(&t,x));assert_eq!(hist(&t,x),hist(&roundtrip,x));checks+=1;}
     }
     assert!(steps>0);
     println!("CRR_TRACE_ORACLE models=512 input_hist_checks={checks} substitutions={steps}");

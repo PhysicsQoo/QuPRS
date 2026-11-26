@@ -1929,13 +1929,15 @@ def run_gpmc_pure(directory, exe, tmp, deadline):
         run_native_gse_wmc(directory,solve,deadline,long_metrics)
         long_metrics=None
         query_cap=5
-    if (directory/"paper-conditioned-fibre.tsv").is_file():
+    if (directory/"paper-blind-fibre.tsv").is_file():
+        run_paper_blind_fibres(directory,exe,tmp)
+    elif (directory/"paper-conditioned-fibre.tsv").is_file():
         run_paper_single_fibre(directory,exe,tmp,conditioned=True)
     elif (directory/"paper-single-fibre.tsv").is_file():
         run_paper_single_fibre(directory,exe,tmp)
     # Freeze previously accepted timeout baselines instead of repeatedly
     # spending six additional 30s queries during conditioned-RR research.
-    if (directory/"paper-projected.tsv").is_file() and not (directory/"paper-conditioned-fibre.tsv").is_file():
+    if (directory/"paper-projected.tsv").is_file() and not any((directory/p).is_file() for p in ("paper-conditioned-fibre.tsv","paper-blind-fibre.tsv")):
         query_cap=30
         deadline=time.monotonic()+240
         long_metrics=[]
@@ -2275,6 +2277,86 @@ def run_paper_single_fibre(directory,exe,tmp,conditioned=False):
         blind_nonzero=sum(r["verdict"]=="REFUTED" and r["kind"]=="blind" for r in rows),
         oracle_control_nonzero=sum(r["verdict"]=="REFUTED" and r["kind"]=="oracle-control" for r in rows),
         spent_s=spent)),flush=True)
+
+
+def run_paper_blind_fibres(directory,exe,tmp):
+    fields="key case route x z status primary vars clauses phase denominator scale common_ns prep_ns encoding_ns pivots rr_steps prefix_h limited".split()
+    with (directory/"paper-blind-fibre.tsv").open() as f:
+        plans=list(csv.DictReader(f,fieldnames=fields,delimiter="\t"))
+    assert len(plans)==64
+    groups={}
+    for p in plans:
+        groups.setdefault((p["case"],p["route"]),[]).append(p)
+    assert set(groups)=={(c,r) for c in ("vchain","noancilla") for r in ("input-first","rr-first")}
+    all_rows={}
+    for (case,route),group in groups.items():
+        assert [(int(p["x"]),int(p["z"])) for p in group]==[(0,z) for z in range(16,32)]
+        common=int(group[0]["common_ns"])/1e9
+        assert all(int(p["common_ns"])==int(group[0]["common_ns"]) for p in group)
+        # Offline export: reconstruct incremental work; not measured
+        # online end-to-end latency. Charge common cost once, all visited
+        # preparation/packing/counting/decode work against 30 s budget.
+        spent=common
+        witness=None
+        records=[]
+        for p in group:
+            row=dict(p)
+            for k in ("x","z","primary","vars","clauses","denominator","scale","common_ns","prep_ns","encoding_ns","pivots","rr_steps","prefix_h"):
+                row[k]=int(p[k])
+            row.update(digits=None,coefficients=None,query_s=0.0,metrics=[])
+            spent+=(row["prep_ns"]+row["encoding_ns"])/1e9
+            if spent>=30:
+                row["status"]="BUDGET_NOT_RUN"
+            elif p["status"]=="READY":
+                start=time.monotonic()
+                base=(directory/(p["key"]+".cnf")).read_text()
+                assert base.splitlines()[0]==f'p cnf {row["vars"]} {row["clauses"]}'
+                data,radix,bound=single_fibre_pack(base,list(map(int,p["phase"].split(","))),row["primary"])
+                query=pathlib.Path(tmp)/"blind-fibre.cnf"
+                query.write_text(data)
+                row["query_sha256"]=hashlib.sha256(data.encode()).hexdigest()
+                row["pack_s"]=time.monotonic()-start
+                t=time.monotonic()
+                try:
+                    remaining=30-spent-row["pack_s"]
+                    if remaining<=0:raise TimeoutError("blind route budget")
+                    out=profile_gpmc([str(exe),"-mode=1","-natw",str(query)],min(30,remaining),
+                                     pathlib.Path(tmp)/"blind-fibre-time.tsv",row["metrics"])
+                    d=row["denominator"]
+                    value=parse_gpmc_integer(out,"wmc",bound*radix**(d-1))
+                    digits=single_fibre_decode(value,radix,bound,d)
+                    coeff=[digits[j]-digits[j+d//2] for j in range(d//2)]
+                    row.update(status="EXACT",digits=digits,coefficients=coeff)
+                except (TimeoutError,subprocess.TimeoutExpired):row["status"]="TIMEOUT"
+                except SolverSignalKilled:row["status"]="SIGNAL_KILL"
+                row["query_s"]=time.monotonic()-t
+                spent+=time.monotonic()-start
+            row["accounted_s"]=spent
+            if row["coefficients"] is not None and any(row["coefficients"]) and witness is None:
+                witness={"x":row["x"],"z":row["z"],"accounted_s":spent,"queries_visited":len(records)+1}
+            records.append(row)
+            print("HOARE_PAPER_BLIND_GPMC "+json.dumps(row),flush=True)
+        # No expected answers were used to select the probes or stop.
+        # Full x=0 coverage is distinct from universal input coverage.
+        exact=[r for r in records if r["coefficients"] is not None]
+        nz=[r["z"] for r in exact if any(r["coefficients"])]
+        expected=[] if case=="vchain" else [28,31] # frozen independent dense oracle
+        assert all((r["z"] in expected)==any(r["coefficients"]) for r in exact)
+        verdict="REFUTED" if witness else "UNKNOWN"
+        print("HOARE_PAPER_BLIND_SUMMARY "+json.dumps(dict(case=case,route=route,
+            probes=len(records),exact=len(exact),nonzero=nz,witness=witness,verdict=verdict,
+            fixed_input_zero=len(exact)==16 and not nz,accounted_s=spent,
+            common_s=common,max_h=max(r["primary"] for r in records))),flush=True)
+        all_rows[case,route]=records
+    paired=0
+    for case in ("vchain","noancilla"):
+        for a,b in zip(all_rows[case,"input-first"],all_rows[case,"rr-first"]):
+            if a["coefficients"] is not None and b["coefficients"] is not None:
+                na=sum(v*v for v in a["coefficients"])<<a["scale"]
+                nb=sum(v*v for v in b["coefficients"])<<b["scale"]
+                assert na==nb,(case,a["z"],na,nb)
+                paired+=1
+    print("HOARE_PAPER_BLIND_PARITY paired="+str(paired),flush=True)
 
 def run_paper_projected_optimized(directory,count,deadline,metrics):
     fields="case mode n h0 h scale vars clauses sign denominator status build_ns rr_ns encoding_ns expected_bad".split()

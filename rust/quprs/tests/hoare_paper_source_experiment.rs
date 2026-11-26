@@ -497,6 +497,72 @@ fn export_conditioned_fibres(dir:&std::path::Path,name:&str,raw:&PathSum,residua
     }
 }
 
+
+// Freeze x before looking at any amplitudes. Reuse this exact input
+// checkpoint for every forbidden output; no oracle-selected output list.
+fn export_blind_fibres(dir:&std::path::Path,name:&str,raw:&PathSum,residual:&PathSum,
+    raw_scale:u32,build_ns:u128,rr_ns:u128,rows:&mut String){
+    let x=0u64; // first lexicographic legal input, q4=0
+    for (route,base,base_scale,base_ns) in [
+        ("input-first",raw,0u32,0u128),
+        ("rr-first",residual,raw_scale,rr_ns)]{
+        let t=std::time::Instant::now();
+        let (prefix,r)=reduce(fixed_input(base.clone(),x));
+        let prefix_ns=t.elapsed().as_nanos();
+        let common_scale=base_scale+r.scale2;
+        let common_ns=build_ns+base_ns+prefix_ns;
+        println!("HOARE_PAPER_BLIND_PREFIX name={name} route={route} x={x} h_before={} h_after={} scale2={common_scale} common_ns={common_ns} prefix_ns={prefix_ns} limited={}",h(base),h(&prefix),r.limit);
+        for z in 16..32u64{
+            let t=std::time::Instant::now();
+            let (out,s,pivots,steps,limited)=condition_and_reduce(prefix.clone(),x,z,false);
+            let prep=t.elapsed().as_nanos();
+            let scale=common_scale+s;
+            let key=format!("blind-{name}-{route}-{x}-{z}");
+            let t=std::time::Instant::now();
+            let plan=native_dyadic_cnf::native_dyadic_fibre(&out,x,z,false,32768,262144);
+            let enc=t.elapsed().as_nanos();
+            let (status,vars,clauses,phase,d,primary)=if let Some((c,bits,d,primary))=plan{
+                let mut text=format!("p cnf {} {}\n",c.vars,c.clauses.len());
+                for row in &c.clauses{for l in row{text.push_str(&format!("{l} "));}text.push_str("0\n");}
+                std::fs::write(dir.join(format!("{key}.cnf")),text).unwrap();
+                ("READY",c.vars,c.clauses.len(),bits.iter().map(|l|l.to_string()).collect::<Vec<_>>().join(","),d,primary)
+            }else{("ENCODING_LIMIT_OR_UNSUPPORTED",0,0,String::new(),0,0)};
+            rows.push_str(&format!("{key}\t{name}\t{route}\t{x}\t{z}\t{status}\t{primary}\t{vars}\t{clauses}\t{phase}\t{d}\t{scale}\t{common_ns}\t{prep}\t{enc}\t{pivots}\t{steps}\t{}\t{limited}\n",h(&prefix)));
+        }
+    }
+}
+#[test]
+fn native_shared_input_checkpoint_exact(){
+    use quprs::{Rational,PhaseCoeff};
+    let mut checks=0usize;
+    for d in [2i64,8,64]{
+        for cancel in [false,true]{
+            let mut ps=PathSum::new(2);ps.set_auto_reduce(false);
+            let a=ps.v.get_fresh_var();let b=ps.v.get_fresh_var();let y=ps.v.get_fresh_var();
+            ps.f.functions[0]=Poly::from_iter([vec![0],vec![a],vec![0,b]]);
+            ps.f.functions[1]=Poly::from_iter([vec![1],vec![b]]);
+            for (m,w) in [(vec![a,b],1),(vec![a],-1),(vec![0,y],2)]{
+                ps.p.add_term(m,PhaseCoeff::new_constant(Rational::new(w,d)));
+            }
+            if cancel{ps.p.add_term(vec![y],PhaseCoeff::new_constant(Rational::new(1,2)));}
+            let raw=entries(&ps).unwrap();
+            let norm=|r:Root|r.into_iter().map(|v|i128::from(v)*i128::from(v)).sum::<i128>();
+            for x in 0..4u64{
+                let (prefix,r)=reduce(fixed_input(ps.clone(),x));
+                assert!(!r.limit);
+                for z in 0..4u64{
+                    let (out,s,_,_,limited)=condition_and_reduce(prefix.clone(),x,z,false);
+                    assert!(!limited);
+                    let got=entries(&out).unwrap()[(x*4+z) as usize];
+                    assert_eq!(norm(got).checked_shl(r.scale2+s).unwrap(),norm(raw[(x*4+z) as usize]));
+                    checks+=1;
+                }
+            }
+        }
+    }
+    println!("HOARE_NATIVE_SHARED_INPUT_CHECKPOINT checks={checks}");
+}
+
 #[test]
 fn paper_qwalk_native_source_admission(){
     let Some(dir)=std::env::var_os("HOARE_PAPER_QWALK_DIR") else{
@@ -505,7 +571,7 @@ fn paper_qwalk_native_source_admission(){
     let export=std::env::var_os("HOARE_PAPER_PROJECTED_DIR").map(std::path::PathBuf::from);
     let mut rows=String::new();
     let mut single_rows=String::new();
-    let mut conditioned_rows=String::new();
+    let mut blind_rows=String::new();
     for (name,gates,rx,expected_bad) in [("vchain",417,51,false),("noancilla",1305,183,true)]{
         let src=std::fs::read_to_string(std::path::Path::new(&dir).join(format!("{name}.qasm"))).unwrap();
         let (ops,n,rxc)=source_ops(&src);
@@ -547,7 +613,8 @@ fn paper_qwalk_native_source_admission(){
                 export_projected(dir,name,if specialize{"hybrid-pre"}else{"hybrid"},&out,initial_h,r.scale2,build_ns,rr_ns,expected_bad,&mut rows);
                 if specialize{export_projected(dir,name,"hybrid-pre-heap",&out,initial_h,r.scale2,build_ns,rr_ns,expected_bad,&mut rows);
                     export_single_fibres(dir,name,&out,r.scale2,build_ns,rr_ns,&mut single_rows);
-                    export_conditioned_fibres(dir,name,&ps,&out,r.scale2,build_ns,rr_ns,&mut conditioned_rows); }
+                    // Keep old exporter callable, but freeze its prior measured baseline.
+                    export_blind_fibres(dir,name,&ps,&out,r.scale2,build_ns,rr_ns,&mut blind_rows); }
             }
             let mut bad=0usize;let mut checks=0usize;
             let status=if let Some(a)=entries(&out){
@@ -565,5 +632,5 @@ fn paper_qwalk_native_source_admission(){
     }
     if let Some(dir)=&export{std::fs::write(dir.join("paper-projected.tsv"),rows).unwrap();
         std::fs::write(dir.join("paper-single-fibre.tsv"),single_rows).unwrap();
-        std::fs::write(dir.join("paper-conditioned-fibre.tsv"),conditioned_rows).unwrap();}
+        std::fs::write(dir.join("paper-blind-fibre.tsv"),blind_rows).unwrap();}
 }

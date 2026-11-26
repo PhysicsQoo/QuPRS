@@ -1545,3 +1545,87 @@ jobs:
           include-hidden-files: true
           if-no-files-found: warn
           retention-days: 14
+
+  rawmocs-planner-candidate-simulation:
+    name: Bounded planner candidate / QFT16 and VQE4 Simulation
+    if: github.ref == 'refs/heads/experiment/rawmocs-integration'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: PhysicsQoo/RaWMoCS
+          ref: ef8d1ee606bed672ee9be62d189a2b3fbcc905a0
+          path: .rawmocs
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: PhysicsQoo/RaWMoCS
+          ref: 853096c77165605c6660413691f732048be870f2
+          path: .rawmocs-candidate
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: PhysicsQoo/GPMC
+          ref: 89bbc89d0de918e7a5385740355df55765039230
+          path: .gpmc
+          submodules: recursive
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            .rawmocs/crates/rawmocs-cli -> target
+            .rawmocs-candidate/crates/rawmocs-cli -> target
+            rust -> target
+      - name: Build pinned executables and verifier
+        env:
+          QUPRS_SOLVER_PROVISION: external
+        run: |
+          set -euo pipefail
+          test "$(git -C .rawmocs rev-parse HEAD)" = ef8d1ee606bed672ee9be62d189a2b3fbcc905a0
+          test "$(git -C .rawmocs-candidate rev-parse HEAD)" = 853096c77165605c6660413691f732048be870f2
+          test "$(git -C .gpmc rev-parse HEAD)" = 89bbc89d0de918e7a5385740355df55765039230
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends cmake ninja-build libgmp-dev libmpfr-dev zlib1g-dev m4 make gcc pkg-config time
+          python -m pip install numpy sympy symengine 'qiskit==2.6.1' qiskit-qasm3-import psutil
+          cargo build --locked --release --manifest-path .rawmocs/crates/rawmocs-cli/Cargo.toml
+          cargo test --locked --release --manifest-path .rawmocs-candidate/crates/rawmocs-cli/Cargo.toml
+          cargo build --locked --release --manifest-path .rawmocs-candidate/crates/rawmocs-cli/Cargo.toml
+          cmake -S .gpmc -B .gpmc/build -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake --build .gpmc/build --target gpmc-bin --parallel 2
+          cargo build --locked --release --manifest-path rust/Cargo.toml -p quprs --example rawmocs_cohort
+      - name: Admit only short source-locked native CNFs
+        env:
+          PYTHONHASHSEED: '0'
+          PYTHONPATH: ${{ github.workspace }}:${{ github.workspace }}/src:${{ github.workspace }}/research/rawmocs_integration:${{ github.workspace }}/.rawmocs/crates/rawmocs-cli/tools
+        run: python benchmarks/codspeed/rawmocs_planner.py prepare
+      - name: Compare planner CPU and collect flamegraphs
+        timeout-minutes: 8
+        uses: CodSpeedHQ/action@v5
+        with:
+          mode: simulation
+          cycle-estimation: 'true'
+          exclude-allocations: 'false'
+          simulation-track-subprocess: 'true'
+          config: codspeed-rawmocs-planner.generated.yml
+      - name: Verify exact simulated output and plan replay
+        env:
+          PYTHONPATH: ${{ github.workspace }}:${{ github.workspace }}/src:${{ github.workspace }}/research/rawmocs_integration:${{ github.workspace }}/.rawmocs/crates/rawmocs-cli/tools
+        run: python benchmarks/codspeed/rawmocs_planner.py verify
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: rawmocs-planner-candidate-simulation
+          path: |
+            .rawmocs-planner-simulation/
+            codspeed-rawmocs-planner.generated.yml
+          include-hidden-files: true
+          if-no-files-found: warn
+          retention-days: 14

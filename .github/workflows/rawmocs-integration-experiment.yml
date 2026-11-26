@@ -6,20 +6,28 @@ on:
       - 'research/rawmocs_integration/**'
       - '.github/workflows/rawmocs-integration-experiment.yml'
   workflow_dispatch:
+    inputs:
+      suite:
+        description: Experimental evidence suite
+        type: choice
+        options: [legacy, cross-family, source-admission]
+        default: legacy
 permissions:
   contents: read
+  actions: read
 concurrency:
   group: rawmocs-integration-${{ github.ref }}
   cancel-in-progress: true
 jobs:
   comparison:
+    if: github.event_name == 'workflow_dispatch' && inputs.suite != 'source-admission'
     name: QuPRS / ${{ matrix.case }}
     runs-on: ubuntu-24.04
     timeout-minutes: 35
     strategy:
       fail-fast: false
       matrix:
-        case: ${{ fromJSON(github.event_name == 'workflow_dispatch' && '["e2e","qpeinexact22-432","grover6-432","gf2-7-333","fallback","qft16-memory","qft20","qft22","qpeinexact20","grover6","qaoa9","vqe8","qnn8","wstate8","qft20-negative","planner-qft16","planner-qft22","planner-qft20","planner-qnn8"]' || '["planner-gen-qaoa9","planner-gen-vqe8","planner-gen-wstate16","planner-gen-qpeexact16","planner-gen-qpeinexact20","planner-gen-grover5","planner-gen-qwalk4","planner-gen-graphstate16","planner-gen-ghz32","planner-gen-qnn12","planner-gen-fallback"]') }}
+        case: ${{ fromJSON(inputs.suite == 'legacy' && '["e2e","qpeinexact22-432","grover6-432","gf2-7-333","fallback","qft16-memory","qft20","qft22","qpeinexact20","grover6","qaoa9","vqe8","qnn8","wstate8","qft20-negative","planner-qft16","planner-qft22","planner-qft20","planner-qnn8"]' || '["planner-gen-qaoa9","planner-gen-vqe8","planner-gen-wstate16","planner-gen-qpeexact16","planner-gen-qpeinexact20","planner-gen-grover5","planner-gen-qwalk4","planner-gen-graphstate16","planner-gen-ghz32","planner-gen-qnn12","planner-gen-fallback"]') }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -166,5 +174,161 @@ jobs:
         with:
           name: rawmocs-quprs-${{ matrix.case }}
           path: .integration-evidence/
+          include-hidden-files: true
+          if-no-files-found: warn
+
+  source-admission:
+    if: github.event_name == 'push' || inputs.suite == 'source-admission'
+    name: Source-locked Wstate16 admission replay
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: PhysicsQoo/RaWMoCS
+          ref: ef8d1ee606bed672ee9be62d189a2b3fbcc905a0
+          path: .rawmocs-base
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: PhysicsQoo/RaWMoCS
+          ref: 40e3e3e26821d37820130492177743b9db08670b
+          path: .rawmocs-admission
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/download-artifact@v4
+        with:
+          name: rawmocs-quprs-planner-gen-wstate16
+          run-id: 45734596083
+          github-token: ${{ github.token }}
+          path: .source-admission-input
+      - name: Build exact baseline and admission candidate
+        run: |
+          set -euo pipefail
+          test "$(git -C .rawmocs-base rev-parse HEAD)" = ef8d1ee606bed672ee9be62d189a2b3fbcc905a0
+          test "$(git -C .rawmocs-admission rev-parse HEAD)" = 40e3e3e26821d37820130492177743b9db08670b
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libgmp-dev libmpfr-dev m4 make gcc time pkg-config
+          cargo build --locked --release --manifest-path .rawmocs-base/crates/rawmocs-cli/Cargo.toml
+          cargo test --locked --release --manifest-path .rawmocs-admission/crates/rawmocs-cli/Cargo.toml
+          cargo build --locked --release --manifest-path .rawmocs-admission/crates/rawmocs-cli/Cargo.toml
+      - name: Profile original residual and replay bounded source admission
+        run: |
+          set -euo pipefail
+          mkdir -p .source-admission-evidence
+          python - <<'PY'
+          import hashlib
+          import json
+          from pathlib import Path
+          import re
+          import subprocess
+          import sys
+          import time
+          root = Path(".source-admission-evidence").resolve()
+          cnf, = Path(".source-admission-input").rglob("gpmc-capture.cnf")
+          cnf = cnf.resolve()
+          raw = cnf.read_bytes()
+          sha = hashlib.sha256(raw).hexdigest()
+          assert sha == "d7b8732b06552354e7e08e516fd858d2f9419b33ccb185e6d8c31ce96d5ba78c"
+          lines = [line for line in raw.splitlines() if line.strip()]
+          header = lines[0].split()
+          assert header[:2] == [b"p", b"cnf"] and len(header) == 4
+          assert lines[1].strip() == b"c t wmc"
+          clauses = [line.split() for line in lines[2:] if not line.lstrip().startswith(b"c")]
+          weights = [line.split() for line in lines[2:] if line.lstrip().startswith(b"c")]
+          assert len(clauses) == int(header[3])
+          assert all(row[-1] == b"0" for row in clauses)
+          report = {
+              "status": "RUNNING", "source_run": 45734596083,
+              "source_artifact": 15078696784, "source_sha256": sha,
+              "baseline_sha": "ef8d1ee606bed672ee9be62d189a2b3fbcc905a0",
+              "candidate_sha": "40e3e3e26821d37820130492177743b9db08670b",
+              "source_bytes": len(raw), "variables": int(header[2]),
+              "clauses": len(clauses), "weight_records": len(weights),
+              "literal_items": sum(len(row)-1 for row in clauses),
+              "max_clause_width": max(map(lambda row: len(row)-1, clauses), default=0),
+              "max_nonempty_line_bytes": max(map(len, lines)),
+              "max_weight_token_bytes": max((len(t) for row in weights for t in row), default=0),
+              "limit_s": 90, "address_space_bytes": 3221225472, "bits": 100,
+              "prior_gpmc_status": "CENSORED_TIMEOUT",
+              "comparison_scope": "source admission only; no speedup claim",
+              "rows": [],
+          }
+          del raw, lines, clauses, weights
+          def persist():
+              (root / "report.json").write_text(json.dumps(report, indent=2) + "\n")
+          persist()
+          def trial(name, binary, extra):
+              rss = root / (name + ".rss")
+              cmd = ["timeout", "-k", "2s", "95s", "prlimit", "--as=3221225472", "--",
+                     "/usr/bin/time", "-f", "%M", "-o", str(rss), str(binary),
+                     "--digits", "30", "--timeout-ms", "90000", *extra, str(cnf)]
+              start = time.monotonic()
+              proc = subprocess.run(cmd, capture_output=True, text=True, timeout=100)
+              (root / (name + ".stdout")).write_text(proc.stdout)
+              (root / (name + ".stderr")).write_text(proc.stderr)
+              row = {"arm": name, "exit": proc.returncode, "wall_s": time.monotonic()-start,
+                     "binary_sha256": hashlib.sha256(binary.read_bytes()).hexdigest(),
+                     "stderr_tail": proc.stderr[-4000:], "empty_stdout": not proc.stdout.strip()}
+              if rss.exists():
+                  row["rss_raw"] = rss.read_text()
+              if proc.returncode == 0:
+                  out = proc.stdout.splitlines()
+                  assert len(out) == 2 and out[0] in ("s SATISFIABLE", "s UNSATISFIABLE")
+                  fields = out[1].split()
+                  assert fields[:3] == ["c", "r", "mpfr"] and len(fields) == 5
+                  row.update(status="COMPLETED_UNWITNESSED", sat=out[0]=="s SATISFIABLE",
+                             real=fields[3], imag=fields[4])
+              else:
+                  assert not proc.stdout.strip(), row
+                  reason = re.search(r"RAWMOCS_FAILURE kind=(\w+): (.*)", proc.stderr)
+                  row["status"] = reason.group(1) if reason else "WATCHDOG_OR_PROCESS_ERROR"
+                  row["reason"] = reason.group(2) if reason else ""
+              report["rows"].append(row)
+              persist()
+              return row
+          base = Path(".rawmocs-base/crates/rawmocs-cli/target/release/rawmocs").resolve()
+          candidate = Path(".rawmocs-admission/crates/rawmocs-cli/target/release/rawmocs").resolve()
+          b = trial("release-default", base, [])
+          d = trial("candidate-default", candidate, [])
+          assert b["exit"] == d["exit"] == 5 and b["reason"] == d["reason"] == "source bytes cap", report
+          x = trial("candidate-explicit", candidate, ["--max-source-bytes", "16000000"])
+          assert x["exit"] in (0, 4, 5, 6, 124), x
+          if x["exit"] == 0:
+              tools = Path(".rawmocs-base/crates/rawmocs-cli/tools").resolve()
+              sys.path.insert(0, str(tools))
+              from release_transfer import check_count
+              report["witness"] = {"status": "UNAVAILABLE", "attempts": []}
+              for script in ("original_exact_prejoin.py", "original_fixed_interval.py"):
+                  cmd = ["timeout", "-k", "2s", "120s", "prlimit", "--as=3221225472", "--",
+                         sys.executable, str(tools / "repro" / script), str(cnf), sha]
+                  ref = subprocess.run(cmd, capture_output=True, text=True, timeout=125)
+                  (root / (script + ".stdout")).write_text(ref.stdout)
+                  (root / (script + ".stderr")).write_text(ref.stderr)
+                  report["witness"]["attempts"].append({"script": script, "exit": ref.returncode})
+                  persist()
+                  if ref.returncode != 0:
+                      continue
+                  receipt = json.loads(ref.stdout)
+                  assert receipt["source_sha256"] == sha and receipt["bits"] == 550
+                  assert receipt["width"] <= 19 and receipt["work"] <= 40000000 and receipt["peak"] <= 2000000
+                  assert receipt["status"] in ("INDEPENDENT_INTERVAL_COMPLETE", "INDEPENDENT_FIXED_INTERVAL_COMPLETE")
+                  report["witness"]["relative_upper"] = check_count(x, receipt, 30)
+                  report["witness"]["status"] = "PASS"
+                  break
+              report["status"] = "WITNESSED_COUNT" if report["witness"]["status"] == "PASS" else "COMPLETED_UNWITNESSED"
+          else:
+              report["status"] = "BOUNDED_INCONCLUSIVE"
+          persist()
+          print("SOURCE_ADMISSION_FINAL", json.dumps(report), flush=True)
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: rawmocs-wstate16-source-admission
+          path: .source-admission-evidence/
           include-hidden-files: true
           if-no-files-found: warn

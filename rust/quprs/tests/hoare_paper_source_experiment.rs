@@ -1483,7 +1483,6 @@ fn native_tiling8_failure_injection(){
 }
 #[test]
 fn native_cyclo64_reference(){
-    use quprs::rational::Rational;
     use quprs::{Rational,PhaseCoeff};
     let mut checks=0;
     for d in [2,4,8,16,32,64]{
@@ -1530,6 +1529,20 @@ fn native_tiling8_width_control(){
     for (i,v) in r.values.iter().enumerate(){assert_eq!(*v,Some(if i==4095{Z8_ONE}else{[0;4]}));}
     assert!(matches!(tiled_boundary8(&ps,mask,mask,std::time::Instant::now()),Err("DEADLINE")));
     println!("HOARE_NATIVE_TILING8_CONTROL exact=4096 full_rejected=true fixed={} calls={} peak={} work={} fallback_calls={}",r.fixed,r.calls,r.peak,r.work,r.fallback_calls);
+    // Inject failure on only the first selected tile. The second tile
+    // must remain credited; fallback must never recompute its outputs.
+    let mut retried=Vec::new();
+    let r=tiled_boundary8_with(&ps,mask,mask,deadline,false,|plan,z,d|{
+        if plan.fixed!=all&&z==mask{return Err("INJECTED_FIRST_TILE");}
+        if plan.fixed==all{retried.push(z);}
+        execute_boundary8(plan,z,d)
+    }).unwrap();
+    assert_eq!(r.calls,2);assert_eq!(r.fallback_calls,2048);
+    assert_eq!(retried.len(),2048);assert!(retried.iter().all(|z|z&1==0));
+    assert!(r.work<=TILE_WORK_CAP);
+    for (i,v) in r.values.iter().enumerate(){assert_eq!(*v,Some(if i==4095{Z8_ONE}else{[0;4]}));}
+    println!("HOARE_NATIVE_TILING8_PARTIAL_RECOVERY retained=2048 recovered=2048 duplicate=0");
+
 }
 
 #[test]

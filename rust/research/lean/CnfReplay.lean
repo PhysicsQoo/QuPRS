@@ -4312,6 +4312,180 @@ theorem ledger_partition_sum {A : Type} [Zero A] [Add A]
   rw [List.length_append] at hsum
   exact hsum
 
+
+-- Suffix values are unaffected by an aligned prefix that does not
+-- contain the queried variable. This is independent of ordering.
+theorem ledger_decode_suffix (ds ls : List Nat) (xs ys : List Bool) (x : Nat)
+    (hl : xs.length = ds.length) (hn : x ∉ ds) :
+    decodeLive (ds ++ ls) (xs ++ ys) x = decodeLive ls ys x := by
+  induction ds generalizing xs with
+  | nil =>
+    cases xs with
+    | nil => rfl
+    | cons b bs => cases hl
+  | cons d ds ih =>
+    cases xs with
+    | nil => cases hl
+    | cons b bs =>
+      have hne : x ≠ d := fun he => hn (List.mem_cons.mpr (Or.inl he))
+      have ht : x ∉ ds := fun hm => hn (List.mem_cons.mpr (Or.inr hm))
+      change (if x = d then b else decodeLive (ds ++ ls) (bs ++ ys) x) =
+        decodeLive ls ys x
+      simp only [hne, ite_false]
+      exact ih bs (Nat.succ.inj hl) ht
+
+def ledgerPhaseBits (v : Nat → Bool) (ms : List (List Nat)) : List Bool :=
+  ms.map (fun m => andValue (m.map v))
+
+def ledgerGuardTruth (v : Nat → Bool) (cs : List (List (List Nat))) : Bool :=
+  cs.all (fun row => !anfValue v row)
+
+theorem ledger_phase_bits_agree (a b : Nat → Bool) (ms : List (List Nat))
+    (h : ∀ m, m ∈ ms → agreeOn (liftVal a) (liftVal b) m) :
+    ledgerPhaseBits a ms = ledgerPhaseBits b ms := by
+  induction ms with
+  | nil => rfl
+  | cons m ms ih =>
+    have hm : andValue (m.map a) = andValue (m.map b) :=
+      and_value_agree (liftVal a) (liftVal b) m (h m (List.mem_cons.mpr (Or.inl rfl)))
+    have ht := ih (fun q hq => h q (List.mem_cons.mpr (Or.inr hq)))
+    change andValue (m.map a) :: ledgerPhaseBits a ms =
+      andValue (m.map b) :: ledgerPhaseBits b ms
+    rw [hm, ht]
+
+theorem ledger_anf_agree (a b : Nat → Bool) (ms : List (List Nat))
+    (h : ∀ m, m ∈ ms → agreeOn (liftVal a) (liftVal b) m) :
+    anfValue a ms = anfValue b ms := by
+  induction ms with
+  | nil => rfl
+  | cons m ms ih =>
+    have hm : andValue (m.map a) = andValue (m.map b) :=
+      and_value_agree (liftVal a) (liftVal b) m (h m (List.mem_cons.mpr (Or.inl rfl)))
+    have ht := ih (fun q hq => h q (List.mem_cons.mpr (Or.inr hq)))
+    change (anfValue a ms).xor (andValue (m.map a)) =
+      (anfValue b ms).xor (andValue (m.map b))
+    rw [hm, ht]
+
+theorem ledger_guard_agree (a b : Nat → Bool) (cs : List (List (List Nat)))
+    (h : ∀ row, row ∈ cs → ∀ m, m ∈ row → agreeOn (liftVal a) (liftVal b) m) :
+    ledgerGuardTruth a cs = ledgerGuardTruth b cs := by
+  induction cs with
+  | nil => rfl
+  | cons row cs ih =>
+    have hr := ledger_anf_agree a b row (h row (List.mem_cons.mpr (Or.inl rfl)))
+    have ht := ih (fun q hq => h q (List.mem_cons.mpr (Or.inr hq)))
+    change (!anfValue a row && ledgerGuardTruth a cs) =
+      (!anfValue b row && ledgerGuardTruth b cs)
+    rw [hr, ht]
+
+-- Coefficient interpretation is indexed by exact phase payload and
+-- term position, not by assignment. The polynomial is still a sum
+-- of coefficients selected by Boolean monomials, with one common
+-- normalization outside this unnormalized value.
+def ledgerPhasePolynomial {P : Type} [Zero P] [Add P]
+    (coeff : Nat → P) : Nat → List Bool → P
+  | _, [] => 0
+  | i, bit :: bits =>
+    if bit then coeff i + ledgerPhasePolynomial coeff (i+1) bits
+    else ledgerPhasePolynomial coeff (i+1) bits
+
+def ledgerPhaseTerm {P A : Type} [Zero P] [Add P] [Zero A]
+    (coeff : Token → Nat → P) (ex : P → A) (s : LedgerSnap) (v : Nat → Bool) : A :=
+  if ledgerGuardTruth v s.constraints then
+    ex (ledgerPhasePolynomial (coeff s.phaseText) 0 (ledgerPhaseBits v s.phaseSupport))
+  else 0
+
+def ledgerPhaseValue {P A : Type} [Zero P] [Add P] [Zero A] [Add A]
+    (coeff : Token → Nat → P) (ex : P → A) (s : LedgerSnap) : A :=
+  sumBits s.live.length (fun bits => ledgerPhaseTerm coeff ex s (decodeLive s.live bits))
+
+theorem ledger_phase_term_support {P A : Type} [Zero P] [Add P] [Zero A]
+    (coeff : Token → Nat → P) (ex : P → A) (a b : LedgerSnap)
+    (v u : Nat → Bool)
+    (ht : a.phaseText = b.phaseText) (hp : a.phaseSupport = b.phaseSupport)
+    (hg : a.constraints = b.constraints)
+    (hps : ∀ m, m ∈ a.phaseSupport → agreeOn (liftVal v) (liftVal u) m)
+    (hgs : ∀ row, row ∈ a.constraints → ∀ m, m ∈ row → agreeOn (liftVal v) (liftVal u) m) :
+    ledgerPhaseTerm coeff ex a v = ledgerPhaseTerm coeff ex b u := by
+  have hb := ledger_phase_bits_agree v u a.phaseSupport hps
+  have hc := ledger_guard_agree v u a.constraints hgs
+  unfold ledgerPhaseTerm
+  rw [hb, hc, ht, hp, hg]
+
+theorem ledger_phase_term_live {P A : Type} [Zero P] [Add P] [Zero A]
+    (coeff : Token → Nat → P) (ex : P → A) (s : LedgerSnap)
+    (h : canonicalLedgerSnap s) (v u : Nat → Bool)
+    (ha : agreeOn (liftVal v) (liftVal u) s.live) :
+    ledgerPhaseTerm coeff ex s v = ledgerPhaseTerm coeff ex s u := by
+  have hk := canonical_ledger_support_known s h
+  exact ledger_phase_term_support coeff ex s s v u rfl rfl rfl
+    (fun m hm x hx => ha x (hk.1 m hm x hx))
+    (fun row hr m hm x hx => ha x (hk.2 row hr m hm x hx))
+
+theorem ledger_free_term_retained {P A : Type} [Zero P] [Add P] [Zero A]
+    (coeff : Token → Nat → P) (ex : P → A) (a b : LedgerSnap)
+    (ha : canonicalLedgerSnap a) (hb : canonicalLedgerSnap b)
+    (hf : freeSnapOK a b = true) (v u : Nat → Bool)
+    (h : agreeOn (liftVal v) (liftVal u) b.live) :
+    ledgerPhaseTerm coeff ex a v = ledgerPhaseTerm coeff ex b u := by
+  have ht := free_snapshot_payload a b hf
+  have hp := free_snapshot_typed_payload a b ha hb hf
+  have hk := free_snapshot_retained_support a b ha hb hf
+  exact ledger_phase_term_support coeff ex a b v u ht.1 hp.1 hp.2
+    (fun m hm x hx => h x (hk.1 m hm x hx))
+    (fun row hr m hm x hx => h x (hk.2 row hr m hm x hx))
+
+-- Free semantics for polynomial phase weights with an explicit
+-- coefficient interpretation. Numeric coefficient decoding and the
+-- final exponential/normalization specialization remain separate.
+theorem ledger_free_polynomial_value {P A : Type} [Zero P] [Add P] [Zero A] [Add A]
+    (zl : ∀ a : A, 0+a=a) (zr : ∀ a : A, a+0=a)
+    (shuffle : ∀ a b c d : A, (a+b)+(c+d) = (a+c)+(b+d))
+    (coeff : Token → Nat → P) (ex : P → A)
+    (a b : LedgerSnap) (ha : canonicalLedgerSnap a) (hb : canonicalLedgerSnap b)
+    (hs : ∀ x, x ∈ b.live → x ∈ a.live) (hf : freeSnapOK a b = true) :
+    ledgerPhaseValue coeff ex a =
+      freeDouble (removedIds a b).length (ledgerPhaseValue coeff ex b) := by
+  let ds := removedIds a b
+  let dst := ds ++ b.live
+  let w := fun bits => ledgerPhaseTerm coeff ex a (decodeLive dst bits)
+  have hp : List.Perm a.live dst := ledger_live_partition a b ha hb hs
+  have hfirst : ledgerPhaseValue coeff ex a =
+      sumBits a.live.length (fun xs => w (reindexLedgerBits a.live dst xs)) := by
+    unfold ledgerPhaseValue
+    apply sum_bits_congr
+    intro xs _
+    apply ledger_phase_term_live coeff ex a ha
+    intro x hx
+    exact (decode_projection dst (decodeLive a.live xs) x (hp.mem_iff.mp hx)).symm
+  have hsum : sumBits a.live.length (fun xs => w (reindexLedgerBits a.live dst xs)) =
+      sumBits (ds.length + b.live.length) w :=
+    ledger_partition_sum zl zr shuffle a b ha hb hs w
+  have hprefix : ∀ xs ys : List Bool, xs.length = ds.length → ys.length = b.live.length →
+      w (xs ++ ys) = ledgerPhaseTerm coeff ex b (decodeLive b.live ys) := by
+    intro xs ys hx _
+    apply ledger_free_term_retained coeff ex a b ha hb hf
+    intro x hx'
+    have hn : x ∉ ds := fun hd => ((ledger_removed_ids_iff a b x).mp hd).2 hx'
+    exact ledger_decode_suffix ds b.live xs ys x hx hn
+  exact hfirst.trans (hsum.trans (sum_bits_free_prefix ds.length b.live.length w
+    (fun ys => ledgerPhaseTerm coeff ex b (decodeLive b.live ys)) hprefix))
+
+theorem ledger_accepted_free_polynomial {P A : Type} [Zero P] [Add P] [Zero A] [Add A]
+    (zl : ∀ a : A, 0+a=a) (zr : ∀ a : A, a+0=a)
+    (shuffle : ∀ a b c d : A, (a+b)+(c+d) = (a+c)+(b+d))
+    (coeff : Token → Nat → P) (ex : P → A)
+    (t next : LedgerTally) (s : LedgerStep)
+    (ha : canonicalLedgerSnap s.before) (hb : canonicalLedgerSnap s.trial)
+    (hc : s.commit = true) (hk : s.kind = 1 ∨ s.kind = 3)
+    (h : ledgerAdvance t s = some next) :
+    ledgerPhaseValue coeff ex s.before =
+      freeDouble (removedIds s.before s.trial).length (ledgerPhaseValue coeff ex s.trial) ∧
+      ledgerStepExponent s = 2 * (removedIds s.before s.trial).length := by
+  have hp := ledger_advance_free_obligations t next s hc hk h
+  exact ⟨ledger_free_polynomial_value zl zr shuffle coeff ex s.before s.trial ha hb
+    (inputs_known_sound _ _ hp.1) hp.2.1, hp.2.2⟩
+
 -- Localize any unexpected dependency to a definition vs theorem.
 #print axioms splitBytes
 #print axioms digits
@@ -4624,6 +4798,20 @@ theorem ledger_partition_sum {A : Type} [Zero A] [Add A]
 #print axioms sum_bits_bijection
 #print axioms ledger_reindex_sum
 #print axioms ledger_partition_sum
+#print axioms ledger_decode_suffix
+#print axioms ledgerPhaseBits
+#print axioms ledgerGuardTruth
+#print axioms ledger_phase_bits_agree
+#print axioms ledger_anf_agree
+#print axioms ledger_guard_agree
+#print axioms ledgerPhasePolynomial
+#print axioms ledgerPhaseTerm
+#print axioms ledgerPhaseValue
+#print axioms ledger_phase_term_support
+#print axioms ledger_phase_term_live
+#print axioms ledger_free_term_retained
+#print axioms ledger_free_polynomial_value
+#print axioms ledger_accepted_free_polynomial
 end QuPRS.CnfReplay
 
 def main (args : List String) : IO Unit := do

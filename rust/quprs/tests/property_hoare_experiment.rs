@@ -1572,6 +1572,105 @@ mod exact_property_cnf {
         count(&c,&[],&mut fuel,true).map(|v|v==0)
     }
 
+    // Compose representative sections by reverse stable live-ID order.
+    // Coordinate evidence only: never infer amplitude preservation from
+    // an endpoint section. RR replay and its normalization are separate.
+    fn section_chain_bad_cnf(receipts:&[GuardedReceipt],pre:&[Anf],post:&[Anf])->Option<Cnf>{
+        if receipts.is_empty()||receipts.len()>32{return None;}
+        if receipts.windows(2).any(|w|w[0].after!=w[1].before){return None;}
+        let first=&receipts.first()?.before;
+        let last=&receipts.last()?.after;
+        let mut terms=0usize;
+        for r in receipts{
+            if r.after.ids.len()>=r.before.ids.len(){return None;}
+            // Reuse existing layout/encoding checks; does not prove local UNSAT.
+            section_bad_cnf(&r.before,&r.after,&r.section,pre,post)?;
+            let mut removed:Vec<_>=r.section.iter().map(|(id,_)|*id).collect();
+            removed.sort_unstable();
+            if removed!=r.removed{return None;}
+            terms=terms.checked_add(r.section.iter().map(|(_,p)|p.len()).sum::<usize>())?;
+            if terms>1024{return None;}
+        }
+        let mut c=Cnf::new(last.ids.len());
+        let u:Vec<_>=(0..last.ids.len()).map(|i|i as Lit+2).collect();
+        let mut map:BTreeMap<u32,Lit>=last.ids.iter().copied().zip(u.iter().copied()).collect();
+        for r in receipts.iter().rev(){
+            let bits=r.after.ids.iter().map(|id|map.get(id).copied()).collect::<Option<Vec<_>>>()?;
+            let mut added=Vec::new();
+            for (id,p) in &r.section{
+                let l=c.anf(&section_compact(p,&r.after.ids)?,&bits);
+                if !c.bounded(){return None;}
+                added.push((*id,l));
+            }
+            for (id,l) in added{
+                if map.insert(id,l).is_some(){return None;}
+            }
+        }
+        let t=first.ids.iter().map(|id|map.get(id).copied()).collect::<Option<Vec<_>>>()?;
+        let z0:Vec<_>=first.output.iter().map(|p|c.anf(p,&t)).collect();
+        let z1:Vec<_>=last.output.iter().map(|p|c.anf(p,&u)).collect();
+        let g0=section_boundary(&mut c,first,&t,&z0,pre,post)?;
+        let g1=section_boundary(&mut c,last,&u,&z1,pre,post)?;
+        let mut bad=-g0;
+        for (&a,&b) in z0.iter().zip(&z1){let neq=c.xor(a,b);bad=c.or(bad,neq);}
+        c.enforce(g1);c.enforce(bad);
+        if !c.bounded(){return None;}
+        Some(c)
+    }
+
+    #[test]
+    fn hoare_native_rr_section_chain(){
+        let mut prefixes=0;let mut rejected=0;let mut entries=0;
+        let mut endpoint_mutants=0;
+        let unrestricted=[Anf::new()];
+        assert!(section_chain_bad_cnf(&[],&[],&unrestricted).is_none());
+        for ops in [
+            vec![G::H(0),G::H(0),G::H(0),G::H(0)],
+            vec![G::H(0),G::S(0),G::H(0),G::H(0),G::H(0)],
+            vec![G::H(0),G::H(0),G::H(1),G::S(1),G::H(1)],
+        ]{
+            let n=2;
+            let mut initial=PathSum::new(n);initial.set_auto_reduce(false);
+            for op in ops{op.apply(&mut initial,false);}
+            initial.v.get_fresh_var();
+            let first=NativeGuardFrame::new(&initial,Anf::from([0])).unwrap();
+            let mut ps=initial.clone();let mut g=first.clone();
+            let mut receipts=Vec::new();
+            for _ in 0..16{
+                let Some(step)=guarded_native_step(&ps,n,&g) else{break;};
+                let r=guarded_receipt(&ps,n,&g,&step).unwrap();
+                assert_eq!(section_unsat(&r.before,&r.after,&r.section,&[],&unrestricted,200_000),Some(true));
+                receipts.push(r);
+                let c=section_chain_bad_cnf(&receipts,&[],&unrestricted).unwrap();
+                assert_eq!(count(&c,&[],&mut 200_000,true),Some(0));
+                assert_eq!(count(&c,&[],&mut 0,true),None);
+                let (rp,rg,sc)=replay_guarded_receipts(initial.clone(),n,first.clone(),&receipts).unwrap();
+                ps=step.ps;g=step.guard;
+                assert_eq!(guarded_snapshot(&rp,n,&rg),guarded_snapshot(&ps,n,&g));
+                for (a,b) in guarded_entries(&initial,n,&first,&[],&unrestricted)
+                    .into_iter().zip(guarded_entries(&ps,n,&g,&[],&unrestricted)){
+                    assert_eq!(a,scale_guarded_entry(b,sc));entries+=1;
+                }
+                let mut bad=receipts.clone();bad.last_mut().unwrap().section.clear();
+                assert!(section_chain_bad_cnf(&bad,&[],&unrestricted).is_none());rejected+=1;
+                let mut bad=receipts.clone();xor_insert(&mut bad.last_mut().unwrap().after.output[0],0);
+                let c=section_chain_bad_cnf(&bad,&[],&unrestricted).unwrap();
+                assert_eq!(count(&c,&[],&mut 200_000,true),Some(1));
+                assert!(replay_guarded_receipts(initial.clone(),n,first.clone(),&bad).is_none());
+                endpoint_mutants+=1;
+                if receipts.len()>1{
+                    let mut bad=receipts.clone();bad.swap(0,1);
+                    assert!(section_chain_bad_cnf(&bad,&[],&unrestricted).is_none());rejected+=1;
+                    let mut bad=receipts.clone();xor_insert(&mut bad.last_mut().unwrap().before.extra,0);
+                    assert!(section_chain_bad_cnf(&bad,&[],&unrestricted).is_none());rejected+=1;
+                }
+                prefixes+=1;
+            }
+        }
+        assert!(prefixes>3&&rejected>prefixes&&entries>0&&endpoint_mutants==prefixes);
+        println!("HOARE_NATIVE_RR_SECTION_CHAIN prefixes={prefixes} entries={entries} rejected={rejected} endpoint_mutants={endpoint_mutants} zero_fuel_unknown=true");
+    }
+
     #[test]
     fn hoare_native_rr_section_transport(){
         let mut by_rule=[0usize;3];let mut multi=0;let mut steps=0;

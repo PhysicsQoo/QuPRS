@@ -151,25 +151,70 @@ def parseClause (n : Nat) (xs : List Token) : Option (List Int) := do
   let ints ← xs.mapM parseIntToken
   finishClause n ints.reverse
 
--- Recognize the precise GPMC weight grammar structurally. Decimal
--- magnitude and ideal-phase accuracy remain a separate Rust check.
+-- Exact decimal transport: (signed numerator, positive denominator).
+-- No floating-point conversion; retain the actual serialized values.
+-- Fractions need not be reduced. Exponent and token caps match Rust.
+abbrev DecimalValue := Int × Nat
+abbrev ComplexValue := DecimalValue × DecimalValue
+abbrev WeightEntry := Int × ComplexValue
+
+def signedToken (s : Token) : Bool × Token :=
+  match s with
+  | c :: cs => if c == 45 then (true, cs)
+    else if c == 43 then (false, cs) else (false, s)
+  | [] => (false, [])
+
+def decimalMantissa (s : Token) : Option (Int × Nat) := do
+  let (neg, unsigned) := signedToken s
+  let (ds, places) ←
+    match splitBytes 46 unsigned with
+    | [whole] => some (whole, 0)
+    | [whole, frac] => some (whole ++ frac, frac.length)
+    | _ => none
+  let n ← parseNatToken ds
+  return (if neg then -(Int.ofNat n) else Int.ofNat n, places)
+
+def decimalExponent (s : Token) : Option Int := do
+  let (neg, ds) := signedToken s
+  let n ← parseNatToken ds
+  if natLE n 4096 then
+    some (if neg then -(Int.ofNat n) else Int.ofNat n)
+  else none
+
+def decimalValue (s : Token) : Option DecimalValue := do
+  if !natLE s.length 512 then none else
+    let (mant, exp) ←
+      match splitBytes 101 (s.map (fun b => if b == 69 then 101 else b)) with
+      | [m] => some (m, (0 : Int))
+      | [m,e] => do return (m, ← decimalExponent e)
+      | _ => none
+    let (n, places) ← decimalMantissa mant
+    let shift := exp - Int.ofNat places
+    let power := 10 ^ shift.natAbs
+    if negative shift then some (n, power)
+    else some (n * Int.ofNat power, 1)
+
 structure ParsedCnf where
   vars : Nat
   clauses : List (List Int)
   weights : List Int
+  weightValues : List WeightEntry
 
 def parseCnfRows (n : Nat) :
-    List (List Token) → Bool → List (List Int) → List Int →
-    Option (List (List Int) × List Int)
+    List (List Token) → Bool → List (List Int) → List WeightEntry →
+    Option (List (List Int) × List WeightEntry)
   | [], _, cs, ws => some (cs, ws)
   | row :: rest, inClauses, cs, ws =>
     match row with
     | [c, p, tag, id, re, im, zero] =>
       if c == [99] && p == [112] && tag == [119, 101, 105, 103, 104, 116] && zero == [48] then do
         let v ← parseIntToken id
-        if inClauses || !literalValid n v || ws.any (intEq v) ||
+        if inClauses || !literalValid n v || ws.any (fun e => intEq v e.1) ||
             (negative v && (re != [49, 46, 48] || im != [48, 46, 48])) then none
-        else parseCnfRows n rest false cs (v :: ws)
+        else
+          let real ← decimalValue re
+          let imag ← decimalValue im
+          parseCnfRows n rest false cs ((v, (real, imag)) :: ws)
       else do
         let clause ← parseClause n row
         parseCnfRows n rest true (clause :: cs) ws
@@ -185,7 +230,8 @@ def parseCnf (s : List Nat) : Option ParsedCnf :=
       let n ← parseNatToken n
       let m ← parseNatToken m
       let (cs, ws) ← parseCnfRows n rest false [] []
-      if cs.length == m then some { vars := n, clauses := cs, weights := ws } else none
+      if cs.length == m then some { vars := n, clauses := cs,
+        weights := ws.map Prod.fst, weightValues := ws } else none
     else none
   | _ => none
 
@@ -2083,6 +2129,102 @@ theorem accepted_phase_monomial (n : Nat) (rs : List Record)
   change extendVal v rs z = andValue (ids.map (extendVal v rs)) at hdef
   exact hdef.trans (congrArg andValue hvalues)
 
+
+-- The exact rational pair from the admitted decimal tokens, with
+-- multiplicative unit for an unlisted literal. Interpretation is
+-- explicit, rather than equating printed weights with ideal phases.
+def lookupWeight (id : Int) : List WeightEntry → ComplexValue
+  | [] => ((1,1),(0,1))
+  | e :: es => if intEq id e.1 then e.2 else lookupWeight id es
+
+def serializedProduct {A : Type} [One A] [Mul A]
+    (interpret : ComplexValue → A) (p : ParsedCnf) (n : Nat) (bits : List Bool) : A :=
+  literalProduct (fun id => interpret (lookupWeight id p.weightValues))
+    (decodeBits bits) (dimacsIds n)
+
+theorem accepted_serialized_weight_total {A : Type} [Zero A] [Add A] [One A] [Mul A]
+    (zl : ∀ a : A, 0+a=a) (zr : ∀ a : A, a+0=a)
+    (shuffle : ∀ a b c d : A, (a+b)+(c+d) = (a+c)+(b+d))
+    (gate cnf : List Nat) (n : Nat) (rs : List Record) (p : ParsedCnf)
+    (cs : List (List Int)) (ws : List Nat)
+    (hg : parseGate gate = some (n, rs)) (hp : parseCnf cnf = some p)
+    (hr : replayRows n rs = some (cs, ws)) (h : check gate cnf = true)
+    (interpret : ComplexValue → A) :
+    totalWmc n p (serializedProduct interpret p n) =
+      sumBits (liveIds rs).length (fun xs =>
+        let u := extendVal (decodeLive (liveIds rs) xs) rs
+        if guardTruth u rs then
+          literalProduct (fun id => interpret (lookupWeight id p.weightValues))
+            u (dimacsIds n) else 0) :=
+  (total_wmc_partition zl zr shuffle n p rs (serializedProduct interpret p n)
+    (replay_live_unique n rs cs ws hr)).trans
+    (sum_bits_congr (liveIds rs).length _ _ (fun xs _ =>
+      accepted_literal_fiber zl zr gate cnf n rs p cs ws hg hp hr h
+        (decodeLive (liveIds rs) xs)
+        (fun id => interpret (lookupWeight id p.weightValues))))
+
+-- Abstract exact phase algebra: exponentiation is a supplied
+-- homomorphism from additive coefficients to multiplicative weights.
+-- This separates the exact algebraic identity from analytic and
+-- numerical approximation obligations.
+def selectedPhaseSum {P : Type} [Zero P] [Add P]
+    (coeff : Nat → P) (v : Nat → Bool) (weighted : List Nat) : List Nat → P
+  | [] => 0
+  | z :: zs =>
+    if natMem z weighted && v z then
+      coeff z + selectedPhaseSum coeff v weighted zs
+    else selectedPhaseSum coeff v weighted zs
+
+theorem selected_phase_exp {P A : Type} [Zero P] [Add P] [One A] [Mul A]
+    (ex : P → A) (ez : ex 0 = 1)
+    (ea : ∀ p q : P, ex (p+q) = ex p * ex q)
+    (coeff : Nat → P) (weight : Int → A) (v : Nat → Bool)
+    (weighted ids : List Nat)
+    (hw : ∀ z, z ∈ ids → natMem z weighted = true → weight (pos z) = ex (coeff z)) :
+    selectedPhaseProduct weight v weighted ids = ex (selectedPhaseSum coeff v weighted ids) := by
+  induction ids with
+  | nil => exact ez.symm
+  | cons z zs ih =>
+    have ht := ih (fun x hm hmem => hw x (List.mem_cons.mpr (Or.inr hm)) hmem)
+    have hz := hw z (List.mem_cons.mpr (Or.inl rfl))
+    change (if natMem z weighted && v z then
+      weight (pos z) * selectedPhaseProduct weight v weighted zs
+      else selectedPhaseProduct weight v weighted zs) =
+      ex (if natMem z weighted && v z then
+        coeff z + selectedPhaseSum coeff v weighted zs
+        else selectedPhaseSum coeff v weighted zs)
+    cases he : (natMem z weighted && v z) with
+    | false => exact ht
+    | true =>
+      have hm := (and_true_parts he).1
+      change weight (pos z) * selectedPhaseProduct weight v weighted zs =
+        ex (coeff z + selectedPhaseSum coeff v weighted zs)
+      rw [hz hm, ht, ea]
+
+theorem accepted_total_phase_sum {P A : Type} [Zero P] [Add P]
+    [Zero A] [Add A] [One A] [Mul A]
+    (zl : ∀ a : A, 0+a=a) (zr : ∀ a : A, a+0=a)
+    (shuffle : ∀ a b c d : A, (a+b)+(c+d) = (a+c)+(b+d))
+    (ol : ∀ a : A, 1*a=a)
+    (gate cnf : List Nat) (n : Nat) (rs : List Record) (p : ParsedCnf)
+    (cs : List (List Int)) (ws : List Nat)
+    (hg : parseGate gate = some (n, rs)) (hp : parseCnf cnf = some p)
+    (hr : replayRows n rs = some (cs, ws)) (h : check gate cnf = true)
+    (ex : P → A) (ez : ex 0 = 1) (ea : ∀ p q : P, ex (p+q) = ex p * ex q)
+    (coeff : Nat → P) (weight : Int → A)
+    (hn : ∀ z, z ∈ dimacsIds n → weight (-pos z) = 1)
+    (hu : ∀ z, z ∈ dimacsIds n → natMem z ws = false → weight (pos z) = 1)
+    (hw : ∀ z, z ∈ dimacsIds n → natMem z ws = true → weight (pos z) = ex (coeff z)) :
+    totalWmc n p (fun bits => literalProduct weight (decodeBits bits) (dimacsIds n)) =
+      sumBits (liveIds rs).length (fun xs =>
+        let u := extendVal (decodeLive (liveIds rs) xs) rs
+        if guardTruth u rs then ex (selectedPhaseSum coeff u ws (dimacsIds n)) else 0) := by
+  have ht := accepted_total_phase_product zl zr shuffle ol gate cnf n rs p cs ws hg hp hr h weight hn hu
+  exact ht.trans (sum_bits_congr (liveIds rs).length _ _ (fun xs _ =>
+    congrArg (fun x => if guardTruth (extendVal (decodeLive (liveIds rs) xs) rs) rs then x else 0)
+      (selected_phase_exp ex ez ea coeff weight (extendVal (decodeLive (liveIds rs) xs) rs)
+        ws (dimacsIds n) hw)))
+
 -- Localize any unexpected dependency to a definition vs theorem.
 #print axioms splitBytes
 #print axioms digits
@@ -2260,6 +2402,16 @@ theorem accepted_phase_monomial (n : Nat) (rs : List Record)
 #print axioms source_dimacs_live
 #print axioms mapped_source_values
 #print axioms accepted_phase_monomial
+#print axioms signedToken
+#print axioms decimalMantissa
+#print axioms decimalExponent
+#print axioms decimalValue
+#print axioms lookupWeight
+#print axioms serializedProduct
+#print axioms selectedPhaseSum
+#print axioms accepted_serialized_weight_total
+#print axioms selected_phase_exp
+#print axioms accepted_total_phase_sum
 end QuPRS.CnfReplay
 
 def main (args : List String) : IO Unit := do
@@ -2302,6 +2454,18 @@ def main (args : List String) : IO Unit := do
       QuPRS.CnfReplay.uniqueIds [2,1,2] then
     throw (IO.userError "live projection or phase binding regression")
   IO.println "CRR_LEAN_PHASE_PROJECTION_PASS controls=8"
+  -- Exact numerator/denominator controls, including malformed
+  -- positive weights formerly admitted as opaque tokens.
+  if QuPRS.CnfReplay.decimalValue [45,49,46,50,53,101,45,50] != some (-125,10000) ||
+      QuPRS.CnfReplay.decimalValue [43,50,69,43,51] != some (2000,1) ||
+      QuPRS.CnfReplay.decimalValue [46,53] != some (5,10) ||
+      QuPRS.CnfReplay.decimalValue [49,46] != some (1,1) ||
+      QuPRS.CnfReplay.decimalValue [46] != none ||
+      QuPRS.CnfReplay.decimalValue [49,101,52,48,57,55] != none ||
+      QuPRS.CnfReplay.decimalValue [49,46,50,46,51] != none ||
+      QuPRS.CnfReplay.decimalValue [110,97,110] != none then
+    throw (IO.userError "exact decimal grammar regression")
+  IO.println "CRR_LEAN_EXACT_DECIMAL_PASS controls=8"
   let mode :: paths := args | throw (IO.userError "usage: CnfReplay accept|reject files")
   if (mode != "accept" && mode != "reject") || paths.isEmpty then
     throw (IO.userError "bad replay mode or empty cohort")

@@ -2157,3 +2157,126 @@ fn native_reference_export(){
         Err(_)=>println!("CRR_REF_SOLVER {{\"status\":\"incomplete\"}}"),
     }
 }
+
+
+// Source-locked receipt pilot. The same bytes are hashed and parsed.
+// Git blob pins are copied from the locked paper corpus manifest;
+// SHA256 binds the actual byte payload rather than a filename.
+#[cfg(test)]
+fn receipt_sha(data:&[u8])->String{
+    use sha2::{Digest,Sha256};
+    format!("{:x}",Sha256::digest(data))
+}
+#[cfg(test)]
+fn receipt_read(path:&std::path::Path,expected:&str)->(String,String){
+    use std::io::Write;
+    use std::process::{Command,Stdio};
+    let bytes=std::fs::read(path).expect("source bytes");
+    let mut child=Command::new("git").args(["hash-object","--no-filters","--stdin"])
+        .stdin(Stdio::piped()).stdout(Stdio::piped()).spawn().expect("git blob hash");
+    child.stdin.take().unwrap().write_all(&bytes).unwrap();
+    let out=child.wait_with_output().unwrap();assert!(out.status.success());
+    assert_eq!(std::str::from_utf8(&out.stdout).unwrap().trim(),expected,"source pin drift: {path:?}");
+    let sha=receipt_sha(&bytes);
+    (String::from_utf8(bytes).expect("UTF8 QASM"),sha)
+}
+#[cfg(test)]
+fn receipt_trace(t:&Trace)->String{
+    let mut live:Vec<_>=t.live.iter().copied().collect();live.sort_unstable();
+    let mut phase:Vec<_>=t.p.terms.iter().collect();phase.sort_unstable_by(|(a,_),(b,_)|a.cmp(b));
+    let rows:Vec<Vec<Vec<u32>>>=t.constraints.iter().map(|r|{
+        let mut p:Vec<_>=r.iter().cloned().collect();p.sort();p
+    }).collect();
+    // Versioned deterministic research hash; not a serialized proof format.
+    let text=format!("crr-trace-v1|n={}|live={live:?}|phase={phase:?}|rows={rows:?}",t.n);
+    receipt_sha(text.as_bytes())
+}
+#[cfg(test)]
+fn receipt_ledger(entries:&[LedgerEntry])->String{
+    let mut text=String::from("crr-ledger-v1");
+    for e in entries{
+        let rule=match &e.rule{
+            LedgerRule::Alias(links,map)=>{
+                let mut p:Vec<_>=map.iter().collect();p.sort_unstable();
+                format!("alias:{links:?}:{p:?}")
+            },
+            LedgerRule::BatchFree=>"batch_free".into(),
+            LedgerRule::Iter(w)=>format!("{w:?}"),
+        };
+        text.push_str(&format!("|{rule}|{}|{}|{}",e.accepted,receipt_trace(&e.before),receipt_trace(&e.trial)));
+    }
+    receipt_sha(text.as_bytes())
+}
+
+#[test]
+fn exact_trace_source_locked_receipts(){
+    use quprs::{check_equivalence_with_options,EquivalenceStatus,VerificationMethod,VerificationOptions};
+    use quprs::qasm::parse_qasm_str;
+    use std::path::Path;
+    let root=Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    // Manifest table2_mqt, fixed cohort selected before running.
+    let cases=[
+        ("qft_16","qft_nativegates_ibm_qiskit_opt0_16.qasm","398b32262259af75fcf44ab711b77281818d0cc7","d321013120dbad7082892026e1ee7a70f9edc206"),
+        ("qpeexact_8","qpeexact_nativegates_ibm_qiskit_opt0_8.qasm","4582df5b4cefe3cc69227d29eb2894ccd1c5412a","46a2b00a19bbc769aefa77eebb14fa262fd98302"),
+        ("ghz_32","ghz_nativegates_ibm_qiskit_opt0_32.qasm","07c16aaefc4b33750e86a73a0cf276fafe59f8cd","dc87f6aa2dde89a153685bd2b16c446bbc30c261"),
+        ("graphstate_16","graphstate_nativegates_ibm_qiskit_opt0_16.qasm","ab34308febb31ea9a49e9761a988aad7017f3487","c2c6f9d04f6a8c2778415572aa247ee93e138c09"),
+    ];
+    let (mut passed,mut active,mut selected_count,mut skipped,mut refused)=(0,0,0,0,0);
+    for (case,file,src_pin,dst_pin) in cases{
+        let (src,src_sha)=receipt_read(&root.join("benchmarks/MQTBench").join(file),src_pin);
+        let (dst,dst_sha)=receipt_read(&root.join("benchmarks/MQTBench/h,ry,rz,cx").join(file),dst_pin);
+        let (a,n)=parse_qasm_str(&src).expect("source parse");
+        let (b,m)=parse_qasm_str(&dst).expect("target parse");
+        assert_eq!(n,m);
+        let r=check_equivalence_with_options(n,&a,&b,&VerificationOptions{
+            method:VerificationMethod::ReductionRules,rr_tolerance:0.0,timeout_secs:20,
+            ..VerificationOptions::default()
+        }).expect("native RR");
+        assert!(!r.solver_invoked);
+        let p=r.final_pathsum();
+        let native=r.status.as_str();
+        let prefix=format!("CRR_SOURCE_RECEIPT case={case} source_sha256={src_sha} target_sha256={dst_sha} native={native}");
+        if r.rr_approximate||matches!(&r.status,EquivalenceStatus::Timeout|EquivalenceStatus::MemoryOut){
+            println!("{prefix} status=not_admitted reason=native_admission source_semantics_certified=false solver=not_run");
+            skipped+=1;continue;
+        }
+        let Some(start)=Trace::from_native(p)else{
+            println!("{prefix} status=not_admitted reason=trace_admission source_semantics_certified=false solver=not_run");
+            skipped+=1;continue;
+        };
+        if start.size()>TERM_CAP{
+            println!("{prefix} status=not_admitted reason=term_cap source_semantics_certified=false solver=not_run");
+            skipped+=1;continue;
+        }
+        let twice=(n+p.v.path_vars.len()) as i32;
+        let (end,ledger,counts)=record_guarded_ledger(&start);
+        let k=2*(counts.1+counts.2)+counts.3;
+        if let Err(reason)=check_ordered_ledger(p,&start,&end,&ledger,twice,counts,k){
+            println!("{prefix} status=certificate_rejected reason={reason:?} source_semantics_certified=false solver=not_run");
+            refused+=1;continue;
+        }
+        let candidate=end.encoding_view(p);
+        let (av,ac)=trace_cnf_dimensions(p);
+        let (bv,bc)=trace_cnf_dimensions(&candidate);
+        let before=start.cost().0;let after=end.cost().0;
+        let eligible=start.live.len()!=start.n&&screen_accept(&start).0
+            &&before>0&&after<before&&after.saturating_mul(100)<=before.saturating_mul(95);
+        let selected=eligible&&bv<=av&&bc<=ac&&(bv<av||bc<ac);
+        let chosen=if selected{&candidate}else{p};
+        let (mgr,v,c)=route_encode(chosen);
+        assert_eq!((v,c),if selected{(bv,bc)}else{(av,ac)});
+        let dimacs=mgr.try_to_dimacs_string("gpmc").expect("receipt DIMACS");
+        let (_,lv,lc,lm,lo,ls)=lazy_prepare(p);
+        assert_eq!((v,c,selected),(lv,lc,ls));
+        assert_eq!((lm,lo),if selected{(counts.1+counts.2,counts.3)}else{(0,0)});
+        let initial_sha=receipt_trace(&start);let final_sha=receipt_trace(&end);
+        let ledger_sha=receipt_ledger(&ledger);let cnf_sha=receipt_sha(dimacs.as_bytes());
+        let accepted=ledger.iter().filter(|e|e.accepted).count();
+        println!("{prefix} status=certified residual_sha256={initial_sha} final_sha256={final_sha} ledger_sha256={ledger_sha} cnf_sha256={cnf_sha} accepted={accepted} rejected={} alias={} free={} hh={} omega={} normalization_twice={twice} multiplier_squared_exponent={k} selected={selected} vars={v} clauses={c} selected_multiplier_squared_exponent={} source_semantics_certified=false cnf_semantics_certified=false solver=not_run",
+            counts.4,counts.5,counts.1,counts.2,counts.3,if selected{k}else{0});
+        passed+=1;active+=usize::from(accepted>0);selected_count+=usize::from(selected);
+    }
+    assert_eq!(passed+skipped+refused,cases.len());
+    assert!(passed>0&&active>0,"no nontrivial real residual certificate");
+    println!("CRR_SOURCE_RECEIPT_SUMMARY cohort=4 certified={passed} nontrivial={active} selected={selected_count} not_admitted={skipped} rejected={refused} solver_calls=0");
+}

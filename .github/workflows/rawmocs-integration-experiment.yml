@@ -10,7 +10,7 @@ on:
       suite:
         description: Experimental evidence suite
         type: choice
-        options: [legacy, cross-family, source-admission, root-profile, factor-classes, sparse-anchor, prefix-memo, axis-profile, direct-binary, operand-profile, pool-profile, last-use-donor, masked-donor, descendant-units, inplace-scan, inplace-branch, move-components, borrowed-cache, general-cumulative, general-simulation-repair, general-native-gpmc, scope-scratch, streaming-large-general, large-root-closure, large-descendant-closure]
+        options: [legacy, cross-family, source-admission, root-profile, factor-classes, sparse-anchor, prefix-memo, axis-profile, direct-binary, operand-profile, pool-profile, last-use-donor, masked-donor, descendant-units, inplace-scan, inplace-branch, move-components, borrowed-cache, general-cumulative, general-simulation-repair, general-native-gpmc, scope-scratch, streaming-large-general, large-root-closure, large-descendant-closure, fixed-work-descendant]
         default: legacy
 permissions:
   contents: read
@@ -1768,7 +1768,7 @@ jobs:
           if-no-files-found: warn
 
   large-descendant-closure:
-    if: github.event_name == 'push' || inputs.suite == 'large-descendant-closure'
+    if: github.event_name == 'workflow_dispatch' && inputs.suite == 'large-descendant-closure'
     name: Ordered descendant closure / large source search telemetry
     runs-on: ubuntu-24.04
     timeout-minutes: 8
@@ -1903,5 +1903,117 @@ jobs:
         with:
           name: rawmocs-large-descendant-closure
           path: .desc-evidence/
+          include-hidden-files: true
+          if-no-files-found: warn
+
+  fixed-work-descendant:
+    if: github.event_name == 'push' || inputs.suite == 'fixed-work-descendant'
+    name: Fixed-work ordered descendant closure / same-node prefix
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: PhysicsQoo/RaWMoCS
+          ref: 438b2a39fd724e9167518776b6e9af862c7fadf7
+          path: .classes-candidate
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: rawmocs-quprs-planner-gen-*
+          run-id: 45734596083
+          github-token: ${{ github.token }}
+          path: .fixed-input
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: .classes-candidate/crates/rawmocs-cli -> target
+          shared-key: rawmocs-general-dependencies
+          cache-workspace-crates: 'false'
+      - name: Build exact fixed-work candidate
+        run: |
+          set -euo pipefail
+          test "$(git -C .classes-candidate rev-parse HEAD)" = 438b2a39fd724e9167518776b6e9af862c7fadf7
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libgmp-dev libmpfr-dev m4 make gcc time pkg-config
+          cargo test --locked --release --manifest-path .classes-candidate/crates/rawmocs-cli/Cargo.toml
+          cargo build --locked --release --manifest-path .classes-candidate/crates/rawmocs-cli/Cargo.toml
+      - name: Matched fixed-node work and ordered residual fingerprint
+        run: |
+          set -euo pipefail
+          mkdir -p .fixed-evidence
+          python3 - <<'PY'
+          import hashlib,json,os,re,statistics,subprocess,time
+          from pathlib import Path
+          root=Path(".fixed-evidence").resolve()
+          binary=Path(".classes-candidate/crates/rawmocs-cli/target/release/rawmocs").resolve()
+          def digest(p): return hashlib.sha256(p.read_bytes()).hexdigest()
+          report={"candidate_sha":"438b2a39fd724e9167518776b6e9af862c7fadf7","binary_sha256":digest(binary),"scope":"Same ordered node-entry prefix, not full WMC speedup or certified count; fingerprint overhead in both arms","cases":{}}
+          def save(): (root/"report.json").write_text(json.dumps(report,indent=2)+"\n")
+          for name,sha,digits,nodes,limit,large in (
+              ("wstate16","d7b8732b06552354e7e08e516fd858d2f9419b33ccb185e6d8c31ce96d5ba78c",30,20,35,True),
+              ("wstate16","d7b8732b06552354e7e08e516fd858d2f9419b33ccb185e6d8c31ce96d5ba78c",130,20,35,True),
+              ("qnn12","2c74e555a8a8ea974cde02bcc5cc0823c5ed63b5fc7be8f628f777accd433204",30,10000,5,False)):
+              src=Path(".fixed-input")/("rawmocs-quprs-planner-gen-"+name)
+              cnf,=src.rglob("gpmc-capture.cnf")
+              assert digest(cnf)==sha
+              key=f"{name}-{digits}"
+              case={"source_sha256":sha,"digits":digits,"node_budget":nodes,"deadline_s":limit,"rows":[]}
+              report["cases"][key]=case
+              for i,arm in enumerate(("off","on","on","off")):
+                  env={k:v for k,v in os.environ.items() if not k.startswith("RAWMOCS_RESEARCH_")}
+                  env["RAWMOCS_RESEARCH_NODE_BUDGET"]=str(nodes)
+                  if arm=="on": env["RAWMOCS_RESEARCH_LARGE_DESC_INDEX"]="1"
+                  label=f"{key}-{i}-{arm}"
+                  rss=root/(label+".rss")
+                  flags=["--large-general"] if large else []
+                  start=time.monotonic()
+                  p=subprocess.run(["timeout","-k","2s",str(limit+5)+"s","prlimit","--as=3221225472","--","/usr/bin/time","-f","%M","-o",str(rss),str(binary),"--digits",str(digits),"--solver","general",*flags,"--timeout-ms",str(limit*1000),str(cnf.resolve())],env=env,capture_output=True,text=True,timeout=limit+10)
+                  row={"arm":arm,"exit":p.returncode,"wall_s":time.monotonic()-start}
+                  case["rows"].append(row)
+                  (root/(label+".stdout")).write_text(p.stdout)
+                  (root/(label+".stderr")).write_text(p.stderr)
+                  if rss.exists():
+                      vals=[l for l in rss.read_text().splitlines() if l.strip().isdigit()]
+                      if len(vals)==1: row["rss_kib"]=int(vals[0])
+                  matches=re.findall(r"^RAWMOCS_ROOT_STATS (.+)$",p.stderr,re.M)
+                  assert len(matches)==1,(label,p.returncode,p.stderr[-2000:])
+                  row["stats"]={k:(v=="true" if v in ("true","false") else int(v)) for k,v in (t.split("=") for t in matches[0].split())}
+                  trace=re.findall(r"^RAWMOCS_FIXED_WORK nodes=(\d+) entry_fingerprint=([0-9a-f]{16})$",p.stderr,re.M)
+                  assert len(trace)==1,(label,p.stderr[-2000:])
+                  row["trace_nodes"]=int(trace[0][0]);row["fingerprint"]=trace[0][1]
+                  assert not p.stdout.strip(),row
+                  if large: assert "RAWMOCS_SOURCE_ADMITTED variables=63399 clauses=536464 literals=1482754 " in p.stderr
+                  assert row["stats"]["root_index_attempts"]==0
+                  if arm=="off": assert row["stats"]["descendant_index_attempts"]==0
+                  if p.returncode==8:
+                      assert "RAWMOCS_FAILURE kind=RESEARCH_LIMIT: research node budget" in p.stderr
+                      assert row["trace_nodes"]==row["stats"]["nodes"]==nodes
+                      row["status"]="FIXED_PREFIX_COMPLETE"
+                  else:
+                      assert p.returncode==4 and "RAWMOCS_FAILURE kind=TIMEOUT" in p.stderr,row
+                      row["status"]="CENSORED_TIMEOUT"
+                  save()
+              rows=case["rows"]
+              if all(r["status"]=="FIXED_PREFIX_COMPLETE" for r in rows):
+                  assert len({r["fingerprint"] for r in rows})==1,(key,rows)
+                  for k in ("nodes","branches","splits","hits"):
+                      assert len({r["stats"][k] for r in rows})==1,(key,k,rows)
+                  if name=="wstate16":
+                      assert all(r["stats"]["descendant_index_complete"]>0 for r in rows if r["arm"]=="on")
+                  case["status"]="MATCHED_PREFIX_PASS"
+                  case["median_s"]={a:statistics.median(r["wall_s"] for r in rows if r["arm"]==a) for a in ("off","on")}
+              else:
+                  case["status"]="CENSORED_NO_RATIO"
+              save()
+          report["status"]="FIXED_WORK_DIAGNOSTIC_COMPLETE"
+          save()
+          print("FIXED_DESC_FINAL",json.dumps(report),flush=True)
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: rawmocs-fixed-work-descendant
+          path: .fixed-evidence/
           include-hidden-files: true
           if-no-files-found: warn

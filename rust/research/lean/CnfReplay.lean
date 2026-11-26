@@ -30,7 +30,7 @@ theorem and_nary (xs : List Bool) (z : Bool) :
     andNClauses xs z = true ↔ z = andValue xs := by
   unfold andNClauses
   rw [and_forward]
-  cases z <;> cases h : andValue xs <;> simp [h]
+  cases z <;> cases andValue xs <;> decide
 
 inductive Record where
   | live (source id : Nat)
@@ -76,24 +76,35 @@ def parseClause (n : Nat) (xs : List String) : Option (List Int) := do
     else none
   | _ => none
 
--- Exact emitted GPMC grammar. Weight records are recognized but not
--- interpreted by this Boolean checker. They remain in the archived CNF.
-def parseCnf (s : String) : Option (Nat × List (List Int)) := do
+-- Recognize the precise GPMC weight grammar structurally. Decimal
+-- magnitude and ideal-phase accuracy remain a separate Rust check.
+structure ParsedCnf where
+  vars : Nat
+  clauses : List (List Int)
+  weights : List Int
+
+def parseCnfRows (n : Nat) :
+    List (List String) → Bool → List (List Int) → List Int →
+    Option (List (List Int) × List Int)
+  | [], _, cs, ws => some (cs, ws)
+  | row :: rest, inClauses, cs, ws =>
+    match row with
+    | ["c", "p", "weight", id, re, im, "0"] => do
+      let v ← id.toInt?
+      if inClauses || v == 0 || v.natAbs > n || ws.contains v ||
+          (v < 0 && (re != "1.0" || im != "0.0")) then none
+      else parseCnfRows n rest false cs (v :: ws)
+    | _ => do
+      let c ← parseClause n row
+      parseCnfRows n rest true (c :: cs) ws
+
+def parseCnf (s : String) : Option ParsedCnf := do
   match rows s with
   | ["p", "cnf", n, m] :: ["c", "t", "wmc"] :: rest =>
     let n ← n.toNat?
     let m ← m.toNat?
-    let mut clauses := []
-    let mut inClauses := false
-    for row in rest do
-      match row with
-      | ["c", "p", "weight", _, _, _, "0"] =>
-        if inClauses then return none
-      | _ =>
-        inClauses := true
-        let c ← parseClause n row
-        clauses := c :: clauses
-    if clauses.length = m then return (n, clauses) else none
+    let (cs, ws) ← parseCnfRows n rest false [] []
+    if cs.length = m then some { vars := n, clauses := cs, weights := ws } else none
   | _ => none
 
 def bagEq {A : Type} [BEq A] : List A → List A → Bool
@@ -120,7 +131,7 @@ def eqRows (a b : Nat) : List (List Int) :=
 -- Replay all records in order. Live entries first; all later outputs
 -- fresh, dependencies already available; equalities and phase
 -- declarations can only refer to the completed graph.
-def replay (n : Nat) (records : List Record) (actual : List (List Int)) : Bool := Id.run do
+def replayRows (n : Nat) (records : List Record) : Option (List (List Int) × List Nat) := Id.run do
   let mut seen : List Nat := []
   let mut live : List (Nat × Nat) := []
   let mut products : List (Nat × List Nat) := []
@@ -130,48 +141,115 @@ def replay (n : Nat) (records : List Record) (actual : List (List Int)) : Bool :
   for r in records do
     match r with
     | .live v id =>
-      if stage != 0 || !validId n id || seen.contains id || live.any (fun p => p.1 == v) then return false
+      if stage != 0 || !validId n id || seen.contains id || live.any (fun p => p.1 == v) then return none
       seen := id :: seen
       live := (v,id) :: live
     | .zero z =>
-      if stage > 1 || !validId n z || seen.contains z then return false
+      if stage > 1 || !validId n z || seen.contains z then return none
       stage := 1
       seen := z :: seen
       clauses := [-pos z] :: clauses
     | .andGate z inputs =>
       if stage > 1 || !validId n z || seen.contains z ||
-          !distinctNat inputs || !inputs.all (fun v => seen.contains v) then return false
+          !distinctNat inputs || !inputs.all (fun v => seen.contains v) then return none
       stage := 1
       seen := z :: seen
       products := (z,inputs) :: products
       clauses := andRows z inputs ++ clauses
     | .xorGate z a b =>
       if stage > 1 || !validId n z || seen.contains z ||
-          !seen.contains a || !seen.contains b then return false
+          !seen.contains a || !seen.contains b then return none
       stage := 1
       seen := z :: seen
       clauses := xorRows z a b ++ clauses
     | .eqGate a b =>
-      if stage > 2 || !seen.contains a || !seen.contains b then return false
+      if stage > 2 || !seen.contains a || !seen.contains b then return none
       stage := 2
       clauses := eqRows a b ++ clauses
     | .phase z source =>
       stage := 3
-      if weighted.contains z || !distinctNat source then return false
+      if weighted.contains z || !distinctNat source then return none
       let some ids := source.mapM (fun v => (live.find? (fun p => p.1 == v)).map Prod.snd)
-        | return false
-      let some p := products.find? (fun p => p.1 == z) | return false
-      if p.2 != ids then return false
+        | return none
+      let some p := products.find? (fun p => p.1 == z) | return none
+      if p.2 != ids then return none
       weighted := z :: weighted
-  return seen.length == n && bagEq clauses actual
+  if seen.length == n then return some (clauses, weighted) else return none
+
+-- Redundant semantic coverage is deliberately retained alongside
+-- the stronger multiplicity check. This executable predicate is the
+-- one used by the following kernel theorem, not an unrelated model.
+def covers (xs ys : List (List Int)) : Bool :=
+  match xs with
+  | [] => true
+  | x :: rest => decide (x ∈ ys) && covers rest ys
+
+theorem covers_iff (xs ys : List (List Int)) :
+    covers xs ys = true ↔ ∀ x, x ∈ xs → x ∈ ys := by
+  induction xs with
+  | nil => simp [covers]
+  | cons x xs ih =>
+    simp only [covers, Bool.and_eq_true, decide_eq_true_eq, ih, List.mem_cons]
+    constructor
+    · intro h y hy
+      rcases hy with he | he
+      · subst y
+        exact h.1
+      · exact h.2 y he
+    · intro h
+      exact ⟨h x (Or.inl rfl), fun y hy => h y (Or.inr hy)⟩
+
+def satisfies (clauses : List (List Int)) (value : Int → Bool) : Prop :=
+  ∀ c, c ∈ clauses → ∃ lit, lit ∈ c ∧ value lit = true
+
+def checkRows (generated actual : List (List Int)) : Bool :=
+  (bagEq generated actual && covers generated actual) && covers actual generated
+
+theorem check_rows_sound (generated actual : List (List Int))
+    (h : checkRows generated actual = true) (value : Int → Bool) :
+    satisfies generated value ↔ satisfies actual value := by
+  have hc := Bool.and_eq_true.mp h
+  have hg := (covers_iff generated actual).mp (Bool.and_eq_true.mp hc.1).2
+  have ha := (covers_iff actual generated).mp hc.2
+  constructor
+  · intro hs c hm
+    exact hs c (ha c hm)
+  · intro hs c hm
+    exact hs c (hg c hm)
+
+def weightIds (weighted : List Nat) : List Int :=
+  weighted.flatMap (fun z => [pos z, -pos z])
 
 def check (gate cnf : String) : Bool :=
   match parseGate gate, parseCnf cnf with
-  | some (n, rs), some (m, clauses) => n == m && replay n rs clauses
+  | some (n, rs), some p =>
+    match replayRows n rs with
+    | some (generated, weighted) =>
+      (n == p.vars && bagEq (weightIds weighted) p.weights) &&
+        checkRows generated p.clauses
+    | none => false
   | _, _ => false
+
+-- Typed replay boundary: acceptance implies clause satisfaction
+-- equivalence for every literal valuation. Parser-to-gate semantics
+-- and the topological unique-extension refinement are still separate.
+theorem accepted_rows_sound (n : Nat) (rs : List Record)
+    (p : ParsedCnf) (generated : List (List Int)) (weighted : List Nat)
+    (hr : replayRows n rs = some (generated, weighted))
+    (h : (match replayRows n rs with
+      | some (cs, ws) => (n == p.vars && bagEq (weightIds ws) p.weights) &&
+          checkRows cs p.clauses
+      | none => false) = true)
+    (value : Int → Bool) :
+    satisfies generated value ↔ satisfies p.clauses value := by
+  rw [hr] at h
+  exact check_rows_sound generated p.clauses (Bool.and_eq_true.mp h).2 value
 
 #print axioms and_forward
 #print axioms and_nary
+#print axioms covers_iff
+#print axioms check_rows_sound
+#print axioms accepted_rows_sound
 end QuPRS.CnfReplay
 
 def main (args : List String) : IO Unit := do

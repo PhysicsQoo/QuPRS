@@ -2961,6 +2961,19 @@ fn exact_trace_gate_interface(){
     let mut row:Vec<i32>=lines[i].split_whitespace().map(|x|x.parse().unwrap()).collect();
     row[0]=-row[0];lines[i]=row.iter().map(i32::to_string).collect::<Vec<_>>().join(" ");
     export_portable_gate("wrong_clause",&portable_gate_text(&e,a.vars),&lines.join("\n"),true);
+    let gate=portable_gate_text(&e,a.vars);
+    let no_phase=gate.lines().filter(|line|!line.starts_with("phase ")).collect::<Vec<_>>().join("\n");
+    export_portable_gate("missing_phase",&no_phase,&cnf,true);
+    let weight=cnf.lines().find(|line|line.starts_with("c p weight ")&&!line.starts_with("c p weight -")).unwrap();
+    let no_weight=cnf.lines().filter(|line|*line!=weight).collect::<Vec<_>>().join("\n");
+    export_portable_gate("missing_positive_weight",&gate,&no_weight,true);
+    let duplicate=cnf.replacen("c t wmc\n",&format!("c t wmc\n{weight}\n"),1);
+    export_portable_gate("duplicate_weight",&gate,&duplicate,true);
+    let negative=cnf.lines().find(|line|line.starts_with("c p weight -")).unwrap();
+    let fields:Vec<_>=negative.split_whitespace().collect();
+    assert_eq!(&fields[4..],&["1.0","0.0","0"]);
+    let wrong=cnf.replace(negative,&format!("c p weight {} 0.0 1.0 0",fields[3]));
+    export_portable_gate("wrong_negative_weight",&gate,&wrong,true);
     println!("CRR_GATE_INTERFACE_CERTIFICATE positive=1 rejected=6 digest={} cross_language_refinement=false",gate_receipt_sha(&e));
 }
 

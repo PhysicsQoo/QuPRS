@@ -2046,15 +2046,19 @@ theorem mapped_source_values (rs : List Record) (source ids : List Nat)
         | some rest => some (id :: rest)) = some ids at h
     cases hd : sourceDimacs s rs with
     | none =>
-      -- cases reduces the match in h.
+      rw [hd] at h
       cases h
     | some id =>
+      rw [hd] at h
       change (match sourceIds rs source with
         | none => none
         | some rest => some (id :: rest)) = some ids at h
       cases ht : sourceIds rs source with
-      | none => cases h
+      | none =>
+        rw [ht] at h
+        cases h
       | some rest =>
+        rw [ht] at h
         have he : id :: rest = ids := Option.some.inj h
         subst ids
         have hv : v id = u id := ha id (source_dimacs_live s id rs hd)

@@ -2092,7 +2092,7 @@ fn native_qwalk_indexed_rr(){
         for op in &ops{op.apply(&mut raw,false);}
         let zero=Poly::default();raw.p.substitute_var_with_poly(4,&zero);raw.f.substitute_var_with_poly(4,&zero);
         let build=t.elapsed();
-        let mut prior=None;
+        let mut prior:Option<(PathSum,Receipt,Vec<(u32,usize,Option<u32>)>)>=None;
         let mut reference=BTreeMap::<u64,Vec<Z64>>::new();
         for indexed in [false,true]{
             let start=std::time::Instant::now();

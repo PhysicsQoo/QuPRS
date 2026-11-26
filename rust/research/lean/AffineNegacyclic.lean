@@ -8,6 +8,11 @@ set_option warningAsError true
 namespace QuPRS.AffineNegacyclic
 open QuPRS.AffineCyclotomicLift
 
+-- Keep comparison decisions explicitly constructive at concrete types.
+local instance (priority := 2000) : DecidableEq Nat := Nat.decEq
+local instance (priority := 2000) (a b : Nat) : Decidable (a < b) := Nat.decLt a b
+local instance (priority := 2000) (a b : Nat) : Decidable (a ≤ b) := Nat.decLe a b
+
 def nativeTerm (d k i j : Nat) (a b : Int) : Int :=
   if (i+j) % d = k then
     if i+j < d then a*b else -(a*b)
@@ -181,9 +186,21 @@ theorem pair_rows_nodup (a b : Nat → Int) (is js : List Nat)
       have hik : i = k := congrArg PairTerm.i heq
       exact hn.1 (hik.symm ▸ hk)
 
+theorem range_nodup_constructive (d : Nat) : (List.range d).Nodup := by
+  induction d with
+  | zero => exact List.nodup_nil
+  | succ d ih =>
+      rw [List.range_succ]
+      apply List.nodup_append.mpr
+      refine ⟨ih, by simp, ?_⟩
+      intro x hx y hy he
+      have hx' : x < d := List.mem_range.mp hx
+      have hy' : y = d := List.mem_singleton.mp hy
+      exact (Nat.ne_of_lt hx') (he.trans hy')
+
 theorem pairs_nodup (d : Nat) (a b : Nat → Int) :
     (pairs d a b).Nodup :=
-  pair_rows_nodup a b (List.range d) (List.range d) List.nodup_range List.nodup_range
+  pair_rows_nodup a b (List.range d) (List.range d) (range_nodup_constructive d) (range_nodup_constructive d)
 
 theorem pair_rows_length (a b : Nat → Int) (is js : List Nat) :
     (is.flatMap (fun i => js.map (fun j => (⟨i,j,a i,b j⟩ : PairTerm)))).length =
@@ -204,6 +221,7 @@ theorem pairs_length (d : Nat) (a b : Nat → Int) :
 
 #print axioms pair_row_nodup
 #print axioms pair_rows_nodup
+#print axioms range_nodup_constructive
 #print axioms pairs_nodup
 #print axioms pair_rows_length
 #print axioms pairs_length

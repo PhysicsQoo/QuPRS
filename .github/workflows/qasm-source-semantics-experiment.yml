@@ -978,17 +978,32 @@ jobs:
             if grep -E 'sorryAx|Lean[.]trustCompiler|Classical[.]choice' /tmp/qasm-lean-affine-negacyclic.log; then
               negacyclic_status=1
             fi
-            test "$(grep -Ec 'does not depend on any axioms|depends on axioms' /tmp/qasm-lean-affine-negacyclic.log)" -eq 14 || negacyclic_status=1
-            for theorem in native_term_correct term_lift term_off_grid pair_sum_lift pair_sum_off_grid pairs_membership zero_pair_term native_acc_correct cartesian_acc_correct pair_row_nodup pair_rows_nodup pairs_nodup pair_rows_length pairs_length; do
+            test "$(grep -Ec 'does not depend on any axioms|depends on axioms' /tmp/qasm-lean-affine-negacyclic.log)" -eq 15 || negacyclic_status=1
+            for theorem in native_term_correct term_lift term_off_grid pair_sum_lift pair_sum_off_grid pairs_membership zero_pair_term native_acc_correct cartesian_acc_correct pair_row_nodup pair_rows_nodup range_nodup_constructive pairs_nodup pair_rows_length pairs_length; do
               test "$(grep -Ec "^'QuPRS[.]AffineNegacyclic[.]$theorem' (does not depend on any axioms|depends on axioms)" /tmp/qasm-lean-affine-negacyclic.log)" -eq 1 || negacyclic_status=1
             done
           else
             negacyclic_status=1
           fi
           if test "$negacyclic_status" -eq 0; then
-            echo 'LEAN4_AFFINE_NEGACYCLIC_PASS theorem_axiom_reports=14 bounded_pair=true pair_sum_lift=true off_grid_zero=true cartesian_accumulator_model=true zero_skip=true pair_uniqueness=true pair_cardinality=true checked_i128_refinement=false'
+            echo 'LEAN4_AFFINE_NEGACYCLIC_PASS theorem_axiom_reports=15 bounded_pair=true pair_sum_lift=true off_grid_zero=true cartesian_accumulator_model=true zero_skip=true pair_uniqueness=true pair_cardinality=true checked_i128_refinement=false'
           else
             echo 'LEAN4_AFFINE_NEGACYCLIC_FAIL' >&2
+          fi
+
+          checked_status=0
+          lean AffineCheckedArithmetic.lean 2>&1 | tee /tmp/qasm-lean-affine-checked.log || checked_status=$?
+          if grep -E 'sorryAx|Lean[.]trustCompiler|Classical[.]choice' /tmp/qasm-lean-affine-checked.log; then
+            checked_status=1
+          fi
+          test "$(grep -Ec 'does not depend on any axioms|depends on axioms' /tmp/qasm-lean-affine-checked.log)" -eq 8 || checked_status=1
+          for theorem in checked_some_iff checked_none_iff mul_some_exact add_some_exact sub_some_exact step_some_exact trace_some_exact step_product_overflow; do
+            test "$(grep -Ec "^'QuPRS[.]AffineCheckedArithmetic[.]$theorem' (does not depend on any axioms|depends on axioms)" /tmp/qasm-lean-affine-checked.log)" -eq 1 || checked_status=1
+          done
+          if test "$checked_status" -eq 0; then
+            echo 'LEAN4_AFFINE_CHECKED_ARITHMETIC_PASS theorem_axiom_reports=8 bounded_integer_model=true successful_trace_exact=true overflow_reject=true rust_intrinsic_refinement=false'
+          else
+            echo 'LEAN4_AFFINE_CHECKED_ARITHMETIC_FAIL' >&2
           fi
 
           incidence_status=0
@@ -1006,7 +1021,7 @@ jobs:
           else
             echo 'LEAN4_AFFINE_NATIVE_INCIDENCE_FAIL' >&2
           fi
-          test "$normalization_status" -eq 0 && test "$lift_status" -eq 0 && test "$incidence_status" -eq 0 && test "$negacyclic_status" -eq 0
+          test "$normalization_status" -eq 0 && test "$lift_status" -eq 0 && test "$incidence_status" -eq 0 && test "$negacyclic_status" -eq 0 && test "$checked_status" -eq 0
 
       - name: Build and test std-only independent verifier
         run: |

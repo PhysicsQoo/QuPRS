@@ -1929,7 +1929,9 @@ def run_gpmc_pure(directory, exe, tmp, deadline):
         run_native_gse_wmc(directory,solve,deadline,long_metrics)
         long_metrics=None
         query_cap=5
-    if (directory/"qft-factor8-pilot.done").is_file():
+    if (directory/"hybrid-sector.tsv").is_file():
+        run_hybrid_sector(directory,exe,tmp)
+    elif (directory/"qft-factor8-pilot.done").is_file():
         # Prior 30s QFT WMC timeout controls are frozen.
         print("HOARE_QFT_FACTOR8_WMC_BASELINE_FROZEN",flush=True)
     elif (directory/"feynman-router.tsv").is_file():
@@ -2572,6 +2574,93 @@ def run_disjoint_ablation(directory,exe,tmp):
             matches+=1
     print("HOARE_DISJOINT_ABLATION_PARITY complete_cases="+str(matches),flush=True)
 
+
+
+def run_hybrid_sector(directory,exe,tmp):
+    """Sector-level exact coverage, actual unresolved-only GPMC.
+    Native prep is staged: charge consumed sector receipts, not claim
+    an online end-to-end wall clock. No oracle is consulted for routing.
+    """
+    fields="key case ord x n h status reason mass vars clauses sign denominator common_ns prefix_ns factor_ns encoding_ns expected".split()
+    plans=list(csv.DictReader((directory/"hybrid-sector.tsv").open(),fieldnames=fields,delimiter="\t"))
+    legal={"qft4":[0,1,2,3],"mod5":[0,1,2,3],"hwb6":[0,1,2,3],"barenco5":[0,1,2,3],
+           "wide14-zero":[0,1],"wide14-positive":[0,1],"mixed13":[0,4096]}
+    assert len(plans)==22 and len({p["key"] for p in plans})==22
+    groups={}
+    for p in plans:groups.setdefault(p["case"],[]).append(p)
+    assert set(groups)==set(legal)
+    solver_hash=hashlib.sha256(pathlib.Path(exe).read_bytes()).hexdigest()
+    total_calls=0
+    for case,group in groups.items():
+        assert [int(p["x"]) for p in group]==legal[case]
+        assert [int(p["ord"]) for p in group]==list(range(len(group)))
+        common=int(group[0]["common_ns"])
+        assert all(int(p["common_ns"])==common for p in group)
+        spent=common/1e9
+        coverage={}
+        rows=[]
+        for p in group:
+            if any(v>0 for v in coverage.values()) or spent>=30:break
+            row={k:p[k] for k in fields if k!="expected"}
+            for k in ("ord","x","n","h","vars","clauses","sign","denominator","common_ns","prefix_ns","factor_ns","encoding_ns"):row[k]=int(row[k])
+            spent+=(row["prefix_ns"]+row["factor_ns"])/1e9
+            mass=None;row["metrics"]=[];row["backend"]=None;row["count"]=None
+            if spent>=30:
+                row["status"]="BUDGET_NOT_RUN"
+            elif p["status"]=="FACTOR_EXACT":
+                assert not (directory/(p["key"]+".cnf")).exists()
+                mass=int(p["mass"]);assert mass>=0
+                row["backend"]="factor";row["status"]="EXACT"
+            elif p["status"]=="WMC_READY":
+                assert p["mass"]=="-" and p["reason"]!="-"
+                spent+=row["encoding_ns"]/1e9
+                start=time.monotonic()
+                try:
+                    if spent>=30:raise TimeoutError("native encoding budget")
+                    base=(directory/(p["key"]+".cnf")).read_text()
+                    assert base.splitlines()[0]==f'p cnf {row["vars"]} {row["clauses"]}'
+                    data,radix,bound=single_fibre_pack(base,[row["sign"]],row["n"]+2*row["h"])
+                    query=pathlib.Path(tmp)/"hybrid-sector.cnf"
+                    query.write_text(data)
+                    row["query_sha256"]=hashlib.sha256(data.encode()).hexdigest()
+                    row["solver_sha256"]=solver_hash
+                    remaining=30-spent-(time.monotonic()-start)
+                    if remaining<=0:raise TimeoutError("hybrid budget")
+                    total_calls+=1;row["backend"]="GPMC"
+                    out=profile_gpmc([str(exe),"-mode=1","-natw",str(query)],min(30,remaining),
+                                     pathlib.Path(tmp)/"hybrid-sector-time.tsv",row["metrics"])
+                    packed=parse_gpmc_integer(out,"wmc",bound*radix)
+                    a,b=single_fibre_decode(packed,radix,bound,2)
+                    assert a>=b
+                    mass=a-b;row["status"]="EXACT"
+                except (TimeoutError,subprocess.TimeoutExpired):row["status"]="TIMEOUT"
+                except SolverSignalKilled:row["status"]="SIGNAL_KILL"
+                # A malformed count or execution error fails the experiment,
+                # never converts to zero or to a different solver.
+                spent+=time.monotonic()-start
+            if mass is not None:
+                assert row["x"] not in coverage
+                coverage[row["x"]]=mass;row["count"]=str(mass)
+            row["accounted_s"]=spent;rows.append(row)
+            print("HOARE_HYBRID_SECTOR "+json.dumps(row),flush=True)
+        # Check independent expected support only after dispatch.
+        for p in group:
+            x=int(p["x"])
+            if x in coverage:assert (coverage[x]!=0)==(p["expected"]=="true"),(case,x)
+        verdict="REFUTED" if any(v>0 for v in coverage.values()) else "PROVED" if len(coverage)==len(group) else "UNKNOWN"
+        factor=sum(r["status"]=="EXACT" and r["backend"]=="factor" for r in rows)
+        wmc=sum(r["status"]=="EXACT" and r["backend"]=="GPMC" for r in rows)
+        assert factor+wmc==len(coverage)
+        assert verdict==("PROVED" if case in ("hwb6","barenco5","wide14-zero") else "REFUTED")
+        if case=="mixed13":assert factor==1 and wmc==1
+        if case=="wide14-zero":assert factor==0 and wmc==2
+        if case=="wide14-positive":assert factor==0 and wmc==1
+        if case in ("qft4","mod5","hwb6","barenco5"):assert wmc==0
+        print("HOARE_HYBRID_SUMMARY "+json.dumps(dict(case=case,verdict=verdict,exact=len(coverage),
+            planned=len(group),factor=factor,wmc=wmc,accounted_s=spent,visited=len(rows),
+            first_positive=next((x for x,v in coverage.items() if v>0),None))),flush=True)
+    assert total_calls==4,total_calls
+    print("HOARE_HYBRID_COHORT cases=7 actual_gpmc_calls=4 duplicate_sectors=0",flush=True)
 
 def run_feynman_router(directory,exe,tmp):
     fields="key case route x status n h vars clauses sign denominator scale common_ns prefix_ns encoding_ns expected".split()

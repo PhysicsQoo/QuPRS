@@ -2263,6 +2263,103 @@ fn native_qwalk_hh_incident_rr(){
     }
 }
 
+
+// Staged sector dispatcher: both backends refer to exactly the same
+// fixed-input residual. Emit CNF only when the factor result is absent.
+// The Python consumer charges native preparation and live GPMC calls.
+#[test]
+fn native_hybrid_sector_export(){
+    use QuantumOp as G;
+    let dir=std::env::var_os("HOARE_PAPER_PROJECTED_DIR").map(std::path::PathBuf::from);
+    let mut manifest=String::new();
+    let mut cases:Vec<(&str,Vec<QuantumOp>,usize,Vec<u64>,Vec<bool>)>=Vec::new();
+    for (name,src) in [
+        ("qft4",include_str!("../../../benchmarks/Feynman/qft_4.qasm")),
+        ("mod5",include_str!("../../../benchmarks/Feynman/mod5_4.qasm")),
+        ("hwb6",include_str!("../../../benchmarks/Feynman/hwb6.qasm")),
+        ("barenco5",include_str!("../../../benchmarks/Feynman/barenco_tof_5.qasm")),
+    ]{
+        let (ops,n)=feynman_source_ops(src);
+        let (native,width)=parse_qasm_str(src).unwrap();
+        assert_eq!((native,width),(ops.clone(),n));
+        let mask=1u64<<(n-1);
+        let expected=(0..4u64).map(|x|gate_reference_width(&ops,x,n).iter().enumerate()
+            .any(|(z,r)|z as u64&mask!=0&&r.iter().any(|&v|v!=0))).collect();
+        cases.push((name,ops,n,(0..4).collect(),expected));
+    }
+    // Real unitary controls. Wide output sector with no hidden variables
+    // is intentionally rejected by the boundary coverage-width guard.
+    cases.push(("wide14-zero",vec![G::H(0),G::H(1)],14,vec![0,1],vec![false,false]));
+    cases.push(("wide14-positive",vec![G::H(0),G::X(13)],14,vec![0,1],vec![true,true]));
+    // q12 controls fanout of H(q0) into q1..q11. For x=0 the
+    // selected forbidden sector is zero. For x=4096 the retained
+    // twelve outputs depend on the same hidden bit (bucket width13).
+    let mut fan=vec![G::H(0)];
+    for q in 1..12{fan.push(G::CCX(12,0,q));}
+    cases.push(("mixed13",fan,13,vec![0,4096],vec![false,true]));
+    let mut total=0;let mut factor=0;let mut exported=0;
+    for (name,ops,n,inputs,expected) in cases{
+        let t=std::time::Instant::now();
+        let mut raw=PathSum::new(n);raw.set_auto_reduce(false);
+        for op in &ops{op.apply(&mut raw,false);}
+        let (general,gr,_,_,expired,_)=reduce_indexed(raw,t+std::time::Duration::from_secs(30),true);
+        assert!(!expired&&!gr.limit);let common=t.elapsed().as_nanos();
+        let mask=1u64<<(n-1);
+        let post=vec![Anf::from([0,mask])];
+        let deadline=t+std::time::Duration::from_secs(30);
+        for (ord,(&x,&want)) in inputs.iter().zip(&expected).enumerate(){
+            let t=std::time::Instant::now();
+            let (prefix,r,_,_,expired,_)=reduce_indexed(fixed_input(general.clone(),x),deadline,true);
+            let prefix_ns=t.elapsed().as_nanos();
+            let t=std::time::Instant::now();
+            let result=if expired{Err("DEADLINE")}else if r.limit{Err("RR_LIMIT")}
+                else{early_sector_minimum(&prefix,mask,mask,deadline)};
+            let factor_ns=t.elapsed().as_nanos();
+            let key=format!("hybrid-sector-{name}-{ord}");
+            let mut mass="-".to_owned();let mut reason="-";let mut status="FACTOR_EXACT";
+            let mut vars=0;let mut clauses=0;let mut sign=0;let mut d=0;let mut enc_ns=0;
+            match result{
+                Ok(v)=>{
+                    assert_eq!(v.len(),mask as usize);
+                    // Unnormalized coefficient-square sum in a common basis.
+                    // The embedding preserves this sum; no physical leakage claim.
+                    let m=v.iter().flatten().try_fold(0i128,|a,&b|a.checked_add(b.checked_mul(b)?)).unwrap();
+                    assert_eq!(m!=0,want);mass=m.to_string();factor+=1;
+                }
+                Err(e)=>{
+                    reason=e;status="UNSUPPORTED";
+                    if !expired&&!r.limit&&std::time::Instant::now()<deadline{
+                        let pre:Vec<Anf>=(0..n).map(|i|if x>>i&1==1{Anf::from([1u64<<i])}
+                            else{Anf::from([0,1u64<<i])}).collect();
+                        let t=std::time::Instant::now();
+                        if let Some((c,l,den))=native_dyadic_projection_variant(&prefix,&pre,&post,32768,262144,true){
+                            vars=c.vars;clauses=c.clauses.len();sign=l;d=den;
+                            if let Some(dir)=&dir{
+                                let mut text=format!("p cnf {vars} {clauses}\n");
+                                for row in &c.clauses{for l in row{text.push_str(&format!("{l} "));}text.push_str("0\n");}
+                                std::fs::write(dir.join(format!("{key}.cnf")),text).unwrap();
+                            }
+                            status="WMC_READY";exported+=1;
+                        }
+                        enc_ns=t.elapsed().as_nanos();
+                    }
+                }
+            }
+            if name.starts_with("wide14"){assert_eq!(reason,"WIDTH_LIMIT");assert_eq!(status,"WMC_READY");}
+            if name=="mixed13"{
+                if ord==0{assert_eq!(status,"FACTOR_EXACT");}
+                else{assert_eq!(reason,"WIDTH_LIMIT");assert_eq!(status,"WMC_READY");}
+            }
+            manifest.push_str(&format!("{key}\t{name}\t{ord}\t{x}\t{n}\t{}\t{status}\t{reason}\t{mass}\t{vars}\t{clauses}\t{sign}\t{d}\t{common}\t{prefix_ns}\t{factor_ns}\t{enc_ns}\t{want}\n",h(&prefix)));
+            total+=1;
+            println!("HOARE_NATIVE_HYBRID_SECTOR name={name} x={x} status={status} reason={reason} scale2={}",gr.scale2+r.scale2);
+        }
+    }
+    assert_eq!(total,22);assert_eq!(factor,17);assert_eq!(exported,5);
+    if let Some(dir)=&dir{std::fs::write(dir.join("hybrid-sector.tsv"),manifest).unwrap();}
+    println!("HOARE_NATIVE_HYBRID_EXPORT sectors={total} factor={factor} wmc_ready={exported}");
+}
+
 #[test]
 fn paper_qwalk_native_source_admission(){
     let Some(dir)=std::env::var_os("HOARE_PAPER_QWALK_DIR") else{

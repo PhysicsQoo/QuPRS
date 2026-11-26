@@ -137,6 +137,7 @@ jobs:
           grep -Fx 'HOARE_NATIVE_EARLY_COVERAGE partial_zero_unknown=true partial_positive_refuted=true full_zero_proved=true expired_unchanged=true' evidence/hoare-paper-source.log
           grep -F 'HOARE_NATIVE_INDEXED_RR cases=1024 ' evidence/hoare-paper-source.log
           grep -F 'HOARE_NATIVE_HH_INCIDENT checks=8192 ' evidence/hoare-paper-source.log
+          grep -Fx 'HOARE_NATIVE_HYBRID_EXPORT sectors=22 factor=17 wmc_ready=5' evidence/hoare-paper-source.log
           grep -Fx 'HOARE_NATIVE_TILING8_FAILURE recovered=4 partial_positive=3 partial_zero=3 unresolved=1' evidence/hoare-paper-source.log
           grep -Fx 'HOARE_NATIVE_TILING8_PARTIAL_RECOVERY retained=2048 recovered=2048 duplicate=0' evidence/hoare-paper-source.log
           for source in vchain noancilla; do

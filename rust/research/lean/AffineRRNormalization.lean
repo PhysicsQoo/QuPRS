@@ -138,7 +138,7 @@ theorem guarded_omega_square {Z : Type} [DecidableEq Z]
         entry g out z b * entry g out z b) := by
   unfold entry mask
   cases (g && decide (out = z)) with
-  | false => decide
+  | false => rfl
   | true => exact omega_pair_square a b
 
 #print axioms guarded_elim_square

@@ -15,10 +15,9 @@ open QuPRS.AffineOutputChecker
 open QuPRS.AffineOutputMask
 open QuPRS.AffineOutputWordCertificate
 
-def buildColumn {n : Nat} (one : Fin n → BitVec n) (p : Fin n → Bool) :
-    List (Fin n) → BitVec n
-  | [] => 0
-  | j :: js => if p j then one j ||| buildColumn one p js else buildColumn one p js
+def buildColumn {n : Nat} {X : Type} (one : X → BitVec n) (p : X → Bool)
+    (xs : List X) : BitVec n :=
+  xs.foldr (fun j tail => if p j then one j ||| tail else tail) 0
 
 theorem decode_or_word {n : Nat} (a b : BitVec n) (i : Fin n) :
     decode (a ||| b) i = (decode a i || decode b i) := by
@@ -47,35 +46,38 @@ theorem decode_if_bit {n : Nat} (p : Bool) (a b : BitVec n) (i : Fin n) :
     decode (if p then a else b) i = (if p then decode a i else decode b i) := by
   cases p <;> rfl
 
-/-- Use only explicit congruence/transitivity terms in the fold step.
-    In particular no rewrite under a Boolean-coerced conditional. -/
+/-- Isolate the constructive fold from the concrete index type. The
+    DecidableEq instance is passed parametrically throughout. -/
+theorem column_decode_generic {n : Nat} {X : Type} [DecidableEq X]
+    (one : X → BitVec n) (p : X → Bool) (js : List X)
+    (i : X) (k : Fin n)
+    (hone : ∀ j, decode (one j) k = decide (i = j)) :
+    decode (buildColumn one p js) k = (decide (i ∈ js) && p i) := by
+  induction js with
+  | nil =>
+      have hz : decide (i ∈ ([] : List X)) = false :=
+        decide_eq_false List.not_mem_nil
+      rw [hz]
+      exact decode_zero k
+  | cons j xs ih =>
+      change decode (if p j then one j ||| buildColumn one p xs else buildColumn one p xs) k =
+        (decide (i ∈ j :: xs) && p i)
+      calc
+        _ = (if p j then decode (one j ||| buildColumn one p xs) k else
+            decode (buildColumn one p xs) k) :=
+          decode_if_bit (p j) _ _ k
+        _ = (if p j then decide (i = j) || (decide (i ∈ xs) && p i) else
+            decide (i ∈ xs) && p i) := by
+          rw [decode_or_word, hone j, ih]
+        _ = ((decide (i = j) || decide (i ∈ xs)) && p i) :=
+          column_step_bit p i j (decide (i ∈ xs))
+        _ = _ := congrArg (fun v : Bool => v && p i) (mem_cons_bit i j xs).symm
+
 theorem column_decode {n : Nat} (one : Fin n → BitVec n)
     (p : Fin n → Bool) (js : List (Fin n)) (i : Fin n)
     (hone : ∀ j k, decode (one j) k = decide (k = j)) :
     decode (buildColumn one p js) i = (decide (i ∈ js) && p i) :=
-  List.rec (motive := fun xs => decode (buildColumn one p xs) i =
-      (decide (i ∈ xs) && p i))
-    (decode_zero i)
-    (fun j xs ih =>
-      let tail := buildColumn one p xs
-      let t := decode tail i
-      let e := decide (i = j)
-      let m := decide (i ∈ xs)
-      calc
-        decode (buildColumn one p (j :: xs)) i =
-          (if p j then decode (one j ||| tail) i else t) :=
-            decode_if_bit (p j) (one j ||| tail) tail i
-        _ = (if p j then decode (one j) i || t else t) :=
-          congrArg (fun v : Bool => if p j then v else t)
-            (decode_or_word (one j) tail i)
-        _ = (if p j then e || t else t) :=
-          congrArg (fun v : Bool => if p j then v || t else t) (hone j i)
-        _ = (if p j then e || (m && p i) else m && p i) :=
-          congrArg (fun v : Bool => if p j then e || v else v) ih
-        _ = ((e || m) && p i) := column_step_bit p i j m
-        _ = (decide (i ∈ j :: xs) && p i) :=
-          congrArg (fun v : Bool => v && p i) (mem_cons_bit i j xs).symm)
-    js
+  column_decode_generic one p js i i (fun j => hone j i)
 
 def fullColumn {n : Nat} (one : Fin n → BitVec n) (p : Fin n → Bool) : BitVec n :=
   buildColumn one p (List.finRange n)
@@ -365,6 +367,8 @@ theorem gathered_phase_coordinate_preserved {n : Nat} {M Y : Type} [DecidableEq 
 #print axioms mem_cons_bit
 #print axioms column_step_bit
 #print axioms decode_if_bit
+#print axioms buildColumn
+#print axioms column_decode_generic
 #print axioms column_decode
 #print axioms full_column_decode
 #print axioms selected_nodup

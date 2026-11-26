@@ -35,7 +35,7 @@ theorem scale2_counts (rs : List Rule) :
 theorem scale2_append (rs ts : List Rule) :
     scale2 (rs ++ ts) = scale2 rs + scale2 ts := by
   induction rs with
-  | nil => rfl
+  | nil => exact (Nat.zero_add (scale2 ts)).symm
   | cons r rs ih =>
       change delta r + scale2 (rs ++ ts) = (delta r + scale2 rs) + scale2 ts
       rw [ih, Nat.add_assoc]
@@ -85,6 +85,29 @@ theorem trace_zero_iff (rs : List Rule) (a b : Int)
   · intro hz
     rw [hz, Int.mul_zero]
 
+/-- Local exact squared-coordinate identities for the three rules.
+    Elim and HH double the retained coefficient; omega is modeled by
+    multiplication by 1+i on a two-coordinate integer pair. -/
+theorem double_square (a : Int) :
+    (a+a)*(a+a) = factor (delta .elim) * (a*a) := by
+  change (a+a)*(a+a) = 4*(a*a)
+  simp only [Int.add_mul, Int.mul_add]
+  omega
+
+theorem hh_double_square (a : Int) :
+    (a+a)*(a+a) = factor (delta .hh) * (a*a) :=
+  double_square a
+
+theorem omega_pair_square (a b : Int) :
+    (a-b)*(a-b)+(a+b)*(a+b) = factor (delta .omega) * (a*a+b*b) := by
+  change (a-b)*(a-b)+(a+b)*(a+b) = 2*(a*a+b*b)
+  simp only [Int.sub_mul, Int.mul_sub, Int.add_mul, Int.mul_add]
+  rw [Int.mul_comm b a]
+  omega
+
+#print axioms double_square
+#print axioms hh_double_square
+#print axioms omega_pair_square
 #print axioms scale2_counts
 #print axioms scale2_append
 #print axioms factor_add

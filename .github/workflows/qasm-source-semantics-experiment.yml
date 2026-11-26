@@ -946,12 +946,12 @@ jobs:
           if grep -E 'sorryAx|Lean[.]trustCompiler|Classical[.]choice' /tmp/qasm-lean-affine-normalization.log; then
             normalization_status=1
           fi
-          test "$(grep -Ec 'does not depend on any axioms|depends on axioms' /tmp/qasm-lean-affine-normalization.log)" -eq 6 || normalization_status=1
-          for theorem in scale2_counts scale2_append factor_add factor_nonzero trace_scale trace_zero_iff; do
+          test "$(grep -Ec 'does not depend on any axioms|depends on axioms' /tmp/qasm-lean-affine-normalization.log)" -eq 9 || normalization_status=1
+          for theorem in double_square hh_double_square omega_pair_square scale2_counts scale2_append factor_add factor_nonzero trace_scale trace_zero_iff; do
             test "$(grep -Ec "^'QuPRS[.]AffineRRNormalization[.]$theorem' (does not depend on any axioms|depends on axioms)" /tmp/qasm-lean-affine-normalization.log)" -eq 1 || normalization_status=1
           done
           if test "$normalization_status" -eq 0; then
-            echo 'LEAN4_AFFINE_RR_NORMALIZATION_PASS theorem_axiom_reports=6 receipt_counts=true scale_composition=true conditional_trace_zero=true local_rule_semantics=false'
+            echo 'LEAN4_AFFINE_RR_NORMALIZATION_PASS theorem_axiom_reports=9 receipt_counts=true scale_composition=true conditional_trace_zero=true local_coordinate_identities=true local_rule_semantics=false'
           else
             echo 'LEAN4_AFFINE_RR_NORMALIZATION_FAIL' >&2
           fi
@@ -978,12 +978,12 @@ jobs:
             echo 'Unexpected affine incidence theorem axiom dependency' >&2
             incidence_status=1
           fi
-          test "$(grep -Ec 'does not depend on any axioms|depends on axioms' /tmp/qasm-lean-affine-incidence.log)" -eq 19 || incidence_status=1
-          for theorem in decode_or_word mem_cons_bit column_decode full_column_decode selected_nodup nodup_same_members_perm parity_perm row_keys_perm native_incidence_eval native_word_reconstruction one_hot_decode unique_keys_mem unique_keys_nodup gather_keys_nodup gather_keys_coverage gather_keys_exact gathered_word_reconstruction gathered_fibre_preserved gathered_phase_coordinate_preserved; do
+          test "$(grep -Ec 'does not depend on any axioms|depends on axioms' /tmp/qasm-lean-affine-incidence.log)" -eq 21 || incidence_status=1
+          for theorem in decode_or_word mem_cons_bit column_step_bit decode_if_bit column_decode full_column_decode selected_nodup nodup_same_members_perm parity_perm row_keys_perm native_incidence_eval native_word_reconstruction one_hot_decode unique_keys_mem unique_keys_nodup gather_keys_nodup gather_keys_coverage gather_keys_exact gathered_word_reconstruction gathered_fibre_preserved gathered_phase_coordinate_preserved; do
             test "$(grep -Ec "^'QuPRS[.]AffineNativeIncidence[.]$theorem' (does not depend on any axioms|depends on axioms)" /tmp/qasm-lean-affine-incidence.log)" -eq 1 || incidence_status=1
           done
           if test "$incidence_status" -eq 0; then
-            echo 'LEAN4_AFFINE_NATIVE_INCIDENCE_PASS theorem_axiom_reports=19 or_fold=true row_set_semantics=true source_reconstruction=true one_hot_shift=true key_coverage_model=true signed_phase_coordinate_fibres=true rust_container_refinement=false cyclotomic_embedding=false'
+            echo 'LEAN4_AFFINE_NATIVE_INCIDENCE_PASS theorem_axiom_reports=21 or_fold=true row_set_semantics=true source_reconstruction=true one_hot_shift=true key_coverage_model=true signed_phase_coordinate_fibres=true rust_container_refinement=false cyclotomic_embedding=false'
           else
             echo 'LEAN4_AFFINE_NATIVE_INCIDENCE_FAIL' >&2
           fi

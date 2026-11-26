@@ -30,6 +30,23 @@ theorem mem_cons_bit {X : Type} [DecidableEq X] (i j : X) (js : List X) :
   apply Bool.eq_iff_iff.mpr
   simp only [Bool.or_eq_true_iff, decide_eq_true_eq, List.mem_cons]
 
+/-- All equality decisions stay parametric, rather than using a
+    tactic-generated split on the concrete Fin decision procedure. -/
+theorem column_step_bit {X : Type} [DecidableEq X]
+    (p : X → Bool) (i j : X) (a : Bool) :
+    (if p j then decide (i = j) || (a && p i) else a && p i) =
+      ((decide (i = j) || a) && p i) := by
+  by_cases h : i = j
+  · subst j
+    rw [decide_eq_true (show i = i from rfl)]
+    cases p i <;> cases a <;> rfl
+  · rw [decide_eq_false h]
+    cases p j <;> cases p i <;> cases a <;> rfl
+
+theorem decode_if_bit {n : Nat} (p : Bool) (a b : BitVec n) (i : Fin n) :
+    decode (if p then a else b) i = (if p then decode a i else decode b i) := by
+  cases p <;> rfl
+
 theorem column_decode {n : Nat} (one : Fin n → BitVec n)
     (p : Fin n → Bool) (js : List (Fin n)) (i : Fin n)
     (hone : ∀ j k, decode (one j) k = decide (k = j)) :
@@ -39,32 +56,10 @@ theorem column_decode {n : Nat} (one : Fin n → BitVec n)
       change decode (0 : BitVec n) i = false
       exact decode_zero i
   | cons j js ih =>
-      rw [mem_cons_bit]
-      cases he : decide (i = j) with
-      | true =>
-          have h : i = j := of_decide_eq_true he
-          subst j
-          have hb : decode (one i) i = true := (hone i i).trans (decide_eq_true rfl)
-          cases hp : p i with
-          | false =>
-              have hf : buildColumn one p (i :: js) = buildColumn one p js := by
-                simp only [buildColumn, hp, Bool.false_eq_true, ite_false]
-              rw [hf, ih, hp] <;> cases decide (i ∈ js) <;> rfl
-          | true =>
-              have hf : buildColumn one p (i :: js) = one i ||| buildColumn one p js := by
-                simp only [buildColumn, hp, ite_true]
-              rw [hf, decode_or_word, hb] <;> rfl
-      | false =>
-          have hb : decode (one j) i = false := (hone j i).trans he
-          cases hp : p j with
-          | false =>
-              have hf : buildColumn one p (j :: js) = buildColumn one p js := by
-                simp only [buildColumn, hp, Bool.false_eq_true, ite_false]
-              rw [hf, ih] <;> rfl
-          | true =>
-              have hf : buildColumn one p (j :: js) = one j ||| buildColumn one p js := by
-                simp only [buildColumn, hp, ite_true]
-              rw [hf, decode_or_word, hb, ih] <;> rfl
+      change decode (if p j then one j ||| buildColumn one p js else buildColumn one p js) i =
+        (decide (i ∈ j :: js) && p i)
+      rw [decode_if_bit, decode_or_word, hone j i, ih, mem_cons_bit]
+      exact column_step_bit p i j (decide (i ∈ js))
 
 def fullColumn {n : Nat} (one : Fin n → BitVec n) (p : Fin n → Bool) : BitVec n :=
   buildColumn one p (List.finRange n)
@@ -352,6 +347,8 @@ theorem gathered_phase_coordinate_preserved {n : Nat} {M Y : Type} [DecidableEq 
 
 #print axioms decode_or_word
 #print axioms mem_cons_bit
+#print axioms column_step_bit
+#print axioms decode_if_bit
 #print axioms column_decode
 #print axioms full_column_decode
 #print axioms selected_nodup

@@ -2708,6 +2708,34 @@ fn native_affine_output_quotient_parity(){
     println!("HOARE_NATIVE_AFFINE_QUOTIENT queries={queries} vectors={checks} strict={strict} contradictions={contradictions} exact=true");
 }
 
+
+#[test]
+fn native_affine_word_parity_reference(){
+    // Independent LSB iteration, including the maximum admitted width.
+    // This is a finite intrinsic differential test, not a Rust proof.
+    let mut checks=0usize;
+    for a in 0..(1u64<<16){
+        for r in [0xffffu64,0xaaaa,0x5555,a.rotate_left(7)&0xffff]{
+            let mut expected=false;
+            let mut support=true;
+            for j in 0..16{
+                let aj=(a>>j)&1!=0;
+                let rj=(r>>j)&1!=0;
+                expected^=aj&&rj;
+                if rj&&!aj{support=false;}
+            }
+            assert_eq!((a&r).count_ones()%2!=0,expected);
+            assert_eq!(r&!a==0,support);
+            checks+=1;
+        }
+    }
+    assert_eq!(checks,262144);
+    assert_eq!((1u64<<63).count_ones(),1);
+    assert_eq!(((1u64<<63)|1).count_ones()%2,0);
+    assert_ne!((1u64<<63)&!0xffff,0);
+    println!("HOARE_NATIVE_AFFINE_WORD_PARITY checks=262144 width=16 storage=64 high_bits=true");
+}
+
 #[test]
 fn native_affine_certificate_replay(){
     let mut ps=PathSum::new(4);ps.set_auto_reduce(false);

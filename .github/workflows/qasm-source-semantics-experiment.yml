@@ -14,6 +14,7 @@ on:
       - rust/research/conditional_rr_reference.py
       - rust/research/lean/ConditionalTrace.lean
       - rust/research/lean/AliasForest.lean
+      - rust/research/lean/ForestEnumeration.lean
       - benchmarks/rust_core/benches/conditional_trace.rs
       - benchmarks/rust_core/Cargo.toml
       - benchmarks/rust_core/Cargo.lock
@@ -940,7 +941,7 @@ jobs:
             test "$(grep -Ec "^'QuPRS[.]ConditionalTrace[.]$theorem' (does not depend on any axioms|depends on axioms)" ../../../evidence/conditional-lean-proof.log)" -eq 1
           done
           echo 'CRR_LEAN_LOCAL_PASS theorem_axiom_reports=14 complex_embedding=false rust_refinement=false'
-          LEAN_PATH=. lean AliasForest.lean 2>&1 | tee ../../../evidence/conditional-lean-forest.log
+          LEAN_PATH=. lean -o AliasForest.olean AliasForest.lean 2>&1 | tee ../../../evidence/conditional-lean-forest.log
           if grep -E 'sorryAx|Lean[.]trustCompiler|Classical[.]choice' ../../../evidence/conditional-lean-forest.log; then
             echo 'Unexpected forest axiom dependency' >&2
             exit 1
@@ -950,6 +951,16 @@ jobs:
             test "$(grep -Ec "^'QuPRS[.]AliasForest[.]$theorem' (does not depend on any axioms|depends on axioms)" ../../../evidence/conditional-lean-forest.log)" -eq 1
           done
           echo 'CRR_LEAN_FOREST_PASS theorem_axiom_reports=18 live_domain_bijection=true enumeration_refinement=false rust_refinement=false'
+          sha256sum ForestEnumeration.lean >> ../../../evidence/source-sha256.txt
+          LEAN_PATH=. lean ForestEnumeration.lean 2>&1 | tee ../../../evidence/conditional-lean-enumeration.log
+          if grep -E 'sorryAx|Lean[.]trustCompiler|Classical[.]choice' ../../../evidence/conditional-lean-enumeration.log; then
+            exit 1
+          fi
+          test "$(grep -Ec 'does not depend on any axioms|depends on axioms' ../../../evidence/conditional-lean-enumeration.log)" -eq 16
+          for theorem in set_self set_other enumeration_length enumeration_cover enumeration_outside enumeration_distinguishes map_nodup_of_inj set_injective_on_enum enumeration_nodup root_seed_cover root_seed_unique extended_cover extended_unique extended_nodup extended_satisfies enumerated_sum; do
+            test "$(grep -Ec "^'QuPRS[.]ForestEnumeration[.]$theorem' (does not depend on any axioms|depends on axioms)" ../../../evidence/conditional-lean-enumeration.log)" -eq 1
+          done
+          echo 'CRR_LEAN_ENUMERATION_PASS theorem_axiom_reports=16 original_permutation=false rust_refinement=false'
       - name: Prepare bounded native Conditional RR CodSpeed target
         if: env.CRR_PERF_STAGE == 'simulation'
         run: |

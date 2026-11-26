@@ -19,7 +19,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        case: ${{ fromJSON(github.event_name == 'workflow_dispatch' && '["e2e","qpeinexact22-432","grover6-432","gf2-7-333","fallback","qft16-memory","qft20","qft22","qpeinexact20","grover6","qaoa9","vqe8","qnn8","wstate8","qft20-negative","planner-qft16","planner-qft22","planner-qft20","planner-qnn8"]' || '["planner-qft16","planner-qft20","planner-qnn8"]') }}
+        case: ${{ fromJSON(github.event_name == 'workflow_dispatch' && '["e2e","qpeinexact22-432","grover6-432","gf2-7-333","fallback","qft16-memory","qft20","qft22","qpeinexact20","grover6","qaoa9","vqe8","qnn8","wstate8","qft20-negative","planner-qft16","planner-qft22","planner-qft20","planner-qnn8"]' || '["planner-gen-qaoa9","planner-gen-vqe8","planner-gen-wstate16","planner-gen-qpeexact16","planner-gen-qpeinexact20","planner-gen-grover5","planner-gen-qwalk4","planner-gen-graphstate16","planner-gen-ghz32","planner-gen-qnn12","planner-gen-fallback"]') }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -124,7 +124,7 @@ jobs:
             --raw .rawmocs/crates/rawmocs-cli/target/release/rawmocs --gpmc .gpmc/build/gpmc \
             --bin rust/target/release/examples/rawmocs_cohort --oracle .rawmocs/crates/rawmocs-cli/tools/repro --out .integration-evidence/expanded
       - name: Run matched planner and memory ablation
-        if: startsWith(matrix.case, 'planner-')
+        if: startsWith(matrix.case, 'planner-') && !startsWith(matrix.case, 'planner-gen-')
         env:
           PYTHONHASHSEED: '0'
           PYTHONPATH: ${{ github.workspace }}:${{ github.workspace }}/src:${{ github.workspace }}/.rawmocs/crates/rawmocs-cli/tools
@@ -143,6 +143,24 @@ jobs:
             --candidate .rawmocs-candidate/crates/rawmocs-cli/target/release/rawmocs \
             --gpmc .gpmc/build/gpmc --bin rust/target/release/examples/rawmocs_cohort \
             --oracle .rawmocs/crates/rawmocs-cli/tools/repro --out .integration-evidence/ablation
+      - name: Evaluate frozen candidate across circuit families and fallback
+        if: startsWith(matrix.case, 'planner-gen-')
+        env:
+          PYTHONHASHSEED: '0'
+          PYTHONPATH: ${{ github.workspace }}:${{ github.workspace }}/src:${{ github.workspace }}/.rawmocs/crates/rawmocs-cli/tools
+          CASE: ${{ matrix.case }}
+        run: |
+          set -euo pipefail
+          mkdir -p .integration-evidence
+          git rev-parse HEAD > .integration-evidence/quprs-revision.txt
+          git -C .rawmocs rev-parse HEAD > .integration-evidence/rawmocs-revision.txt
+          git -C .rawmocs-candidate rev-parse HEAD > .integration-evidence/candidate-revision.txt
+          git -C .gpmc rev-parse HEAD > .integration-evidence/gpmc-revision.txt
+          python research/rawmocs_integration/cross_family.py --case "${CASE#planner-gen-}" \
+            --raw .rawmocs/crates/rawmocs-cli/target/release/rawmocs \
+            --candidate .rawmocs-candidate/crates/rawmocs-cli/target/release/rawmocs \
+            --gpmc .gpmc/build/gpmc --bin rust/target/release/examples/rawmocs_cohort \
+            --oracle .rawmocs/crates/rawmocs-cli/tools/repro --out .integration-evidence/cross-family
       - uses: actions/upload-artifact@v4
         if: always()
         with:

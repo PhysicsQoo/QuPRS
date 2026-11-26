@@ -10,7 +10,7 @@ on:
       suite:
         description: Experimental evidence suite
         type: choice
-        options: [legacy, cross-family, source-admission, root-profile, factor-classes, sparse-anchor, prefix-memo, axis-profile, direct-binary, operand-profile, pool-profile, last-use-donor, masked-donor, descendant-units, inplace-scan, inplace-branch]
+        options: [legacy, cross-family, source-admission, root-profile, factor-classes, sparse-anchor, prefix-memo, axis-profile, direct-binary, operand-profile, pool-profile, last-use-donor, masked-donor, descendant-units, inplace-scan, inplace-branch, move-components]
         default: legacy
 permissions:
   contents: read
@@ -981,13 +981,13 @@ jobs:
           if-no-files-found: warn
 
   descendant-units:
-    if: github.event_name == 'push' || (inputs.suite == 'descendant-units' || inputs.suite == 'inplace-scan' || inputs.suite == 'inplace-branch')
+    if: github.event_name == 'push' || (inputs.suite == 'descendant-units' || inputs.suite == 'inplace-scan' || inputs.suite == 'inplace-branch' || inputs.suite == 'move-components')
     name: General fallback descendant unit closure
     runs-on: ubuntu-24.04
     timeout-minutes: 8
     env:
-      EXPERIMENT: ${{ inputs.suite == 'descendant-units' && 'descendant-units' || inputs.suite == 'inplace-scan' && 'inplace-scan' || 'inplace-branch' }}
-      CANDIDATE_SHA: ${{ inputs.suite == 'descendant-units' && '762a1da60c70000134b31dd41aee7e0c78068209' || inputs.suite == 'inplace-scan' && '9b10e04b02637db0eede7e5811f3cd54d054b191' || '14cd70cae44cf116ba7014da1a446f30eec4a48b' }}
+      EXPERIMENT: ${{ inputs.suite == 'descendant-units' && 'descendant-units' || inputs.suite == 'inplace-scan' && 'inplace-scan' || inputs.suite == 'inplace-branch' && 'inplace-branch' || 'move-components' }}
+      CANDIDATE_SHA: ${{ inputs.suite == 'descendant-units' && '762a1da60c70000134b31dd41aee7e0c78068209' || inputs.suite == 'inplace-scan' && '9b10e04b02637db0eede7e5811f3cd54d054b191' || inputs.suite == 'inplace-branch' && '14cd70cae44cf116ba7014da1a446f30eec4a48b' || '0d7c3d482c6d45f6c5b1eeaf718d7b79a96572f8' }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -1056,8 +1056,8 @@ jobs:
                   assert ref is not None
               cases.append((name,cnf.resolve(),sha,limit,ref))
           experiment=os.environ["EXPERIMENT"]
-          candidate_arm={"descendant-units":"adaptive","inplace-scan":"inplace","inplace-branch":"branch"}[experiment]
-          baseline_arm="inplace" if experiment=="inplace-branch" else "scan"
+          candidate_arm={"descendant-units":"adaptive","inplace-scan":"inplace","inplace-branch":"branch","move-components":"components"}[experiment]
+          baseline_arm="branch" if experiment=="move-components" else "inplace" if experiment=="inplace-branch" else "scan"
           report={"experiment":experiment,"candidate_sha":os.environ["CANDIDATE_SHA"],"binary_sha256":digest(solver),
                   "working_bits":100,"scope":"Same-binary instrumented general fallback; bounded search progress, not GPMC speedup","cases":{}}
           def save():
@@ -1071,13 +1071,16 @@ jobs:
                   env.pop("RAWMOCS_RESEARCH_DESCENDANT_UNITS",None)
                   env.pop("RAWMOCS_RESEARCH_INPLACE_SCAN",None)
                   env.pop("RAWMOCS_RESEARCH_INPLACE_BRANCH",None)
+                  env.pop("RAWMOCS_RESEARCH_MOVE_COMPONENTS",None)
                   env["RAWMOCS_RESEARCH_GENERAL_STATS"]="1"
                   if arm=="adaptive":
                       env["RAWMOCS_RESEARCH_DESCENDANT_UNITS"]="1"
-                  elif arm in ("inplace","branch"):
+                  elif arm in ("inplace","branch","components"):
                       env["RAWMOCS_RESEARCH_INPLACE_SCAN"]="1"
-                  if arm=="branch":
+                  if arm in ("branch","components"):
                       env["RAWMOCS_RESEARCH_INPLACE_BRANCH"]="1"
+                  if arm=="components":
+                      env["RAWMOCS_RESEARCH_MOVE_COMPONENTS"]="1"
                   rss=root/(label+".rss")
                   argv=["timeout","-k","2s",str(limit+3)+"s","prlimit","--as=3221225472","--",
                       "/usr/bin/time","-f","%M","-o",str(rss),str(solver),"--digits","30",
@@ -1104,7 +1107,7 @@ jobs:
                       assert stats["complete"]==int(p.returncode==0)
                       assert stats["root_indexed"]<=stats["indexed_attempts"]
                       assert stats["indexed_complete"]+stats["indexed_conflicts"]<=stats["indexed_attempts"]
-                      if arm in ("scan","inplace","branch"):
+                      if arm in ("scan","inplace","branch","components"):
                           assert stats["indexed_attempts"]==0
                       if p.returncode==0:
                           sat,count=p.stdout.splitlines()
@@ -1136,12 +1139,12 @@ jobs:
                   assert a["stdout_sha256"]==b["stdout_sha256"]
                   for k in ("nodes","cache_hits","branches","splits"):
                       assert a["stats"][k]==b["stats"][k], (name,k)
-                  if candidate_arm in ("inplace","branch"):
+                  if candidate_arm in ("inplace","branch","components"):
                       assert a["stats"]==b["stats"], name
                   c=run(candidate_arm,2)
                   d=run(baseline_arm,3)
                   assert c["exit"]==d["exit"]==0 and c["stdout_sha256"]==d["stdout_sha256"]==a["stdout_sha256"]
-                  if candidate_arm in ("inplace","branch"):
+                  if candidate_arm in ("inplace","branch","components"):
                       assert a["stats"]==c["stats"]==d["stats"], name
                   case["status"]="PAIRED_COUNT_PARITY" if all(r["status"] in ("ANALYTIC_PASS","WITNESSED_PASS") for r in case["rows"]) else "COUNT_PARITY_UNWITNESSED"
               else:
@@ -1149,7 +1152,7 @@ jobs:
               save()
           report["status"]="BOUNDED_DIAGNOSTIC_COMPLETE"
           save()
-          print({"descendant-units":"DESCENDANT_UNITS_FINAL","inplace-scan":"INPLACE_SCAN_FINAL","inplace-branch":"INPLACE_BRANCH_FINAL"}[experiment],json.dumps(report),flush=True)
+          print({"descendant-units":"DESCENDANT_UNITS_FINAL","inplace-scan":"INPLACE_SCAN_FINAL","inplace-branch":"INPLACE_BRANCH_FINAL","move-components":"MOVE_COMPONENTS_FINAL"}[experiment],json.dumps(report),flush=True)
           PY
       - uses: actions/upload-artifact@v4
         if: always()

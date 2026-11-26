@@ -1259,6 +1259,266 @@ theorem accepted_guard_rejects (gate cnf : List Nat) (n : Nat)
   rw [hf] at ht
   cases ht
 
+
+-- Exact finite assignment representation: bit position k represents
+-- DIMACS variable k+1. Values outside the declared domain are ignored.
+def bitsAt : List Bool → Nat → Bool
+  | [], _ => false
+  | b :: _, 0 => b
+  | _ :: bs, k+1 => bitsAt bs k
+
+def packBits (v : Nat → Bool) : Nat → List Bool
+  | 0 => []
+  | n+1 => v 0 :: packBits (fun k => v (k+1)) n
+
+def decodeBits (bits : List Bool) (x : Nat) : Bool :=
+  bitsAt bits (x-1)
+
+theorem pack_length (v : Nat → Bool) (n : Nat) :
+    (packBits v n).length = n := by
+  induction n generalizing v with
+  | zero => rfl
+  | succ n ih => simp only [packBits, List.length_cons, ih]
+
+theorem pack_at (v : Nat → Bool) (n k : Nat) (hk : k < n) :
+    bitsAt (packBits v n) k = v k := by
+  induction n generalizing v k with
+  | zero => exact False.elim (Nat.not_lt_zero k hk)
+  | succ n ih =>
+    cases k with
+    | zero => rfl
+    | succ k => exact ih (fun j => v (j+1)) k (Nat.lt_of_succ_lt_succ hk)
+
+theorem bits_ext (xs ys : List Bool) (hl : xs.length = ys.length)
+    (h : ∀ k, k < xs.length → bitsAt xs k = bitsAt ys k) : xs = ys := by
+  induction xs generalizing ys with
+  | nil => cases ys <;> simp_all
+  | cons x xs ih =>
+    cases ys with
+    | nil => simp at hl
+    | cons y ys =>
+      have he : x = y := h 0 (Nat.zero_lt_succ xs.length)
+      have ht : xs = ys := ih ys (Nat.succ.inj hl)
+        (fun k hk => h (k+1) (Nat.succ_lt_succ hk))
+      rw [he, ht]
+
+theorem decode_pack_agree (v : Nat → Bool) (n : Nat) :
+    agreeOn (liftVal (decodeBits (packBits (fun k => v (k+1)) n))) (liftVal v) (dimacsIds n) := by
+  intro x hx
+  have h := (dimacs_ids_iff n x).mp hx
+  cases x with
+  | zero => exact False.elim (Nat.lt_irrefl 0 h.1)
+  | succ k =>
+    exact pack_at (fun j => v (j+1)) n k h.2
+
+theorem bits_eq_of_domain (bits : List Bool) (v : Nat → Bool) (n : Nat)
+    (hl : bits.length = n)
+    (h : agreeOn (liftVal (decodeBits bits)) (liftVal v) (dimacsIds n)) :
+    bits = packBits (fun k => v (k+1)) n := by
+  apply bits_ext bits (packBits (fun k => v (k+1)) n)
+  · exact hl.trans (pack_length _ _).symm
+  · intro k hk
+    have hn : k < n := hl ▸ hk
+    have hv := h (k+1) ((dimacs_ids_iff n (k+1)).mpr ⟨Nat.zero_lt_succ k, hn⟩)
+    exact hv.trans (pack_at (fun j => v (j+1)) n k hn).symm
+
+def liveMatch (a b : Nat → Bool) : List Nat → Bool
+  | [] => true
+  | x :: xs => (a x == b x) && liveMatch a b xs
+
+theorem bool_match (a b : Bool) : (a == b) = true ↔ a = b := by
+  cases a <;> cases b <;> decide
+
+theorem live_match_iff (a b : Nat → Bool) (ids : List Nat) :
+    liveMatch a b ids = true ↔ agreeOn (liftVal a) (liftVal b) ids := by
+  induction ids with
+  | nil => simp [liveMatch, agreeOn]
+  | cons x xs ih =>
+    constructor
+    · intro h
+      have hh := and_true_parts (show ((a x == b x) && liveMatch a b xs) = true from h)
+      exact agree_cons _ _ x xs ((bool_match (a x) (b x)).mp hh.1) (ih.mp hh.2)
+    · intro h
+      have hx := (bool_match (a x) (b x)).mpr (h x (List.mem_cons.mpr (Or.inl rfl)))
+      have ht := ih.mpr (fun y hm => h y (List.mem_cons.mpr (Or.inr hm)))
+      change ((a x == b x) && liveMatch a b xs) = true
+      rw [hx, ht]
+      rfl
+
+theorem record_sem_agree (a b : Int → Bool) (r : Record)
+    (h : agreeOn a b (rowIds r)) : recordSem a r ↔ recordSem b r := by
+  cases r with
+  | live s id => exact Iff.rfl
+  | phase z xs => exact Iff.rfl
+  | zero z =>
+    change a (pos z) = false ↔ b (pos z) = false
+    rw [h z (by simp [rowIds])]
+  | andGate z xs =>
+    have hz := h z (List.mem_cons.mpr (Or.inl rfl))
+    have hi : agreeOn a b xs := fun x hm => h x (List.mem_cons.mpr (Or.inr hm))
+    change a (pos z) = andValue (xs.map (fun v => a (pos v))) ↔
+      b (pos z) = andValue (xs.map (fun v => b (pos v)))
+    rw [hz, and_value_agree a b xs hi]
+  | xorGate z x y =>
+    change a (pos z) = (a (pos x)).xor (a (pos y)) ↔
+      b (pos z) = (b (pos x)).xor (b (pos y))
+    rw [h z (by simp [rowIds]), h x (by simp [rowIds]), h y (by simp [rowIds])]
+  | eqGate x y =>
+    change a (pos x) = a (pos y) ↔ b (pos x) = b (pos y)
+    rw [h x (by simp [rowIds]), h y (by simp [rowIds])]
+
+theorem accepted_sat_agree (gate cnf : List Nat) (n : Nat)
+    (rs : List Record) (p : ParsedCnf) (cs : List (List Int)) (ws : List Nat)
+    (hg : parseGate gate = some (n, rs)) (hp : parseCnf cnf = some p)
+    (hr : replayRows n rs = some (cs, ws)) (h : check gate cnf = true)
+    (a b : Nat → Bool) (ha : agreeOn (liftVal a) (liftVal b) (dimacsIds n)) :
+    satisfies p.clauses (liftVal a) ↔ satisfies p.clauses (liftVal b) := by
+  have h1 := accepted_records_sound gate cnf n rs p cs ws hg hp hr h
+    (liftVal a) (accepted_lift_coherent n rs cs ws hr a)
+  have h2 := accepted_records_sound gate cnf n rs p cs ws hg hp hr h
+    (liftVal b) (accepted_lift_coherent n rs cs ws hr b)
+  have hs : recordsSem (liftVal a) rs ↔ recordsSem (liftVal b) rs := by
+    constructor
+    · intro hs r hm
+      exact (record_sem_agree (liftVal a) (liftVal b) r
+        (fun x hx => ha x (replay_record_ids n rs cs ws hr r hm x hx))).mp (hs r hm)
+    · intro hs r hm
+      exact (record_sem_agree (liftVal a) (liftVal b) r
+        (fun x hx => ha x (replay_record_ids n rs cs ws hr r hm x hx))).mpr (hs r hm)
+  exact h1.trans (hs.trans h2.symm)
+
+theorem accepted_live_in_domain (n : Nat) (rs : List Record) (cs : List (List Int)) (ws : List Nat)
+    (hr : replayRows n rs = some (cs, ws)) :
+    ∀ x, x ∈ liveIds rs → x ∈ dimacsIds n := by
+  have hs : ∀ (seen : List Nat) (rs : List Record) (x : Nat),
+      x ∈ seen → x ∈ finalSeen seen rs := by
+    intro seen records
+    induction records generalizing seen with
+    | nil => exact fun x hm => hm
+    | cons r rest ih =>
+      exact fun x hm => ih (nextSeen seen r) x (seen_subset_next seen r x hm)
+  exact fun x hx => (domain_membership n rs (replay_domain_checked n rs cs ws hr) x).mp (hs (liveIds rs) rs x hx)
+
+-- Enumerate all 2^n bit vectors exactly once by their leading bit.
+-- No exponential enumeration is executed for real benchmark files.
+def sumBits {A : Type} [Add A] : Nat → (List Bool → A) → A
+  | 0, f => f []
+  | n+1, f => sumBits n (fun xs => f (false :: xs)) +
+      sumBits n (fun xs => f (true :: xs))
+
+theorem sum_bits_zero {A : Type} [Zero A] [Add A] (zl : ∀ a : A, 0 + a = a)
+    (n : Nat) (f : List Bool → A) (h : ∀ xs, xs.length = n → f xs = 0) :
+    sumBits n f = 0 := by
+  induction n generalizing f with
+  | zero => exact h [] rfl
+  | succ n ih =>
+    change sumBits n (fun xs => f (false :: xs)) +
+      sumBits n (fun xs => f (true :: xs)) = 0
+    rw [ih (fun xs => f (false :: xs)) (fun xs hx => h (false :: xs) (congrArg Nat.succ hx)),
+      ih (fun xs => f (true :: xs)) (fun xs hx => h (true :: xs) (congrArg Nat.succ hx))]
+    exact zl 0
+
+theorem sum_bits_single {A : Type} [Zero A] [Add A]
+    (zl : ∀ a : A, 0 + a = a) (zr : ∀ a : A, a + 0 = a)
+    (target : List Bool) (f : List Bool → A) (w : A)
+    (hw : f target = w)
+    (hz : ∀ xs, xs.length = target.length → xs ≠ target → f xs = 0) :
+    sumBits target.length f = w := by
+  induction target generalizing f with
+  | nil => exact hw
+  | cons b bs ih =>
+    cases b with
+    | false =>
+      have h1 := ih (fun xs => f (false :: xs)) hw
+        (fun xs hl hn => hz (false :: xs) (congrArg Nat.succ hl)
+          (fun he => hn (List.cons.inj he).2))
+      have h2 := sum_bits_zero zl bs.length (fun xs => f (true :: xs))
+        (fun xs hl => hz (true :: xs) (congrArg Nat.succ hl) (fun he => by cases he))
+      change sumBits bs.length (fun xs => f (false :: xs)) +
+        sumBits bs.length (fun xs => f (true :: xs)) = w
+      rw [h1, h2]
+      exact zr w
+    | true =>
+      have h1 := sum_bits_zero zl bs.length (fun xs => f (false :: xs))
+        (fun xs hl => hz (false :: xs) (congrArg Nat.succ hl) (fun he => by cases he))
+      have h2 := ih (fun xs => f (true :: xs)) hw
+        (fun xs hl hn => hz (true :: xs) (congrArg Nat.succ hl)
+          (fun he => hn (List.cons.inj he).2))
+      change sumBits bs.length (fun xs => f (false :: xs)) +
+        sumBits bs.length (fun xs => f (true :: xs)) = w
+      rw [h1, h2]
+      exact zl w
+
+def fiberTerm {A : Type} [Zero A] (p : ParsedCnf) (rs : List Record)
+    (v : Nat → Bool) (weight : List Bool → A) (bits : List Bool) : A :=
+  if liveMatch (decodeBits bits) v (liveIds rs) &&
+      cnfTruth (liftVal (decodeBits bits)) p.clauses then weight bits else 0
+
+def actualFiber {A : Type} [Zero A] [Add A] (n : Nat) (p : ParsedCnf)
+    (rs : List Record) (v : Nat → Bool) (weight : List Bool → A) : A :=
+  sumBits n (fiberTerm p rs v weight)
+
+-- Actual parsed CNF finite weighted fiber, for any exact weight
+-- function on its declared bit vectors. The live mask fixes x.
+-- The only possible contributing vector is the canonical extension.
+theorem accepted_weighted_fiber {A : Type} [Zero A] [Add A]
+    (zl : ∀ a : A, 0 + a = a) (zr : ∀ a : A, a + 0 = a)
+    (gate cnf : List Nat) (n : Nat)
+    (rs : List Record) (p : ParsedCnf) (cs : List (List Int)) (ws : List Nat)
+    (hg : parseGate gate = some (n, rs)) (hp : parseCnf cnf = some p)
+    (hr : replayRows n rs = some (cs, ws)) (h : check gate cnf = true)
+    (v : Nat → Bool) (weight : List Bool → A) :
+    actualFiber n p rs v weight =
+      if guardTruth (extendVal v rs) rs then
+        weight (packBits (fun k => extendVal v rs (k+1)) n) else 0 := by
+  let u := extendVal v rs
+  let target := packBits (fun k => u (k+1)) n
+  have hlen : target.length = n := pack_length _ _
+  have ht := (replay_rows_binding n rs cs ws hr).2
+  have hda := decode_pack_agree u n
+  have hl : agreeOn (liftVal (decodeBits target)) (liftVal v) (liveIds rs) :=
+    fun x hx => (hda x (accepted_live_in_domain n rs cs ws hr x hx)).trans
+      ((extend_preserves v (liveIds rs) rs ht x hx).symm)
+  have hm := (live_match_iff (decodeBits target) v (liveIds rs)).mpr hl
+  have he : cnfTruth (liftVal (decodeBits target)) p.clauses =
+      guardTruth u rs := by
+    apply bool_true_iff_eq
+    exact (cnf_truth_iff (liftVal (decodeBits target)) p.clauses).trans
+      ((accepted_sat_agree gate cnf n rs p cs ws hg hp hr h (decodeBits target) u hda).trans
+        (accepted_canonical_iff gate cnf n rs p cs ws hg hp hr h v))
+  have htarget : fiberTerm p rs v weight target =
+      (if guardTruth u rs then weight target else 0) := by
+    unfold fiberTerm
+    rw [hm, he]
+    rfl
+  have hzero : ∀ bits, bits.length = target.length → bits ≠ target →
+      fiberTerm p rs v weight bits = 0 := by
+    intro bits hb hn
+    unfold fiberTerm
+    cases hm' : (liveMatch (decodeBits bits) v (liveIds rs) &&
+        cnfTruth (liftVal (decodeBits bits)) p.clauses) with
+    | false => rfl
+    | true =>
+      have hh := and_true_parts hm'
+      have hmodel := (cnf_truth_iff (liftVal (decodeBits bits)) p.clauses).mp hh.2
+      have hlive := (live_match_iff (decodeBits bits) v (liveIds rs)).mp hh.1
+      have ha := accepted_model_canonical_agreement gate cnf n rs p cs ws hg hp hr h
+        v (decodeBits bits) hmodel hlive
+      exact False.elim (hn (bits_eq_of_domain bits u n (hb.trans hlen) ha))
+  have hf := sum_bits_single zl zr target (fiberTerm p rs v weight)
+    (if guardTruth u rs then weight target else 0) htarget hzero
+  rw [hlen] at hf
+  exact hf
+
+theorem accepted_fiber_count (gate cnf : List Nat) (n : Nat)
+    (rs : List Record) (p : ParsedCnf) (cs : List (List Int)) (ws : List Nat)
+    (hg : parseGate gate = some (n, rs)) (hp : parseCnf cnf = some p)
+    (hr : replayRows n rs = some (cs, ws)) (h : check gate cnf = true)
+    (v : Nat → Bool) :
+    actualFiber n p rs v (fun _ => (1 : Nat)) =
+      if guardTruth (extendVal v rs) rs then 1 else 0 :=
+  accepted_weighted_fiber Nat.zero_add Nat.add_zero gate cnf n rs p cs ws hg hp hr h v (fun _ => 1)
+
 -- Localize any unexpected dependency to a definition vs theorem.
 #print axioms splitBytes
 #print axioms digits
@@ -1373,6 +1633,27 @@ theorem accepted_guard_rejects (gate cnf : List Nat) (n : Nat)
 #print axioms accepted_model_canonical_agreement
 #print axioms accepted_extension_exists_iff
 #print axioms accepted_guard_rejects
+#print axioms bitsAt
+#print axioms packBits
+#print axioms decodeBits
+#print axioms liveMatch
+#print axioms sumBits
+#print axioms fiberTerm
+#print axioms actualFiber
+#print axioms pack_length
+#print axioms pack_at
+#print axioms bits_ext
+#print axioms decode_pack_agree
+#print axioms bits_eq_of_domain
+#print axioms bool_match
+#print axioms live_match_iff
+#print axioms record_sem_agree
+#print axioms accepted_sat_agree
+#print axioms accepted_live_in_domain
+#print axioms sum_bits_zero
+#print axioms sum_bits_single
+#print axioms accepted_weighted_fiber
+#print axioms accepted_fiber_count
 end QuPRS.CnfReplay
 
 def main (args : List String) : IO Unit := do

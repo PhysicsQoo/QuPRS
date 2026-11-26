@@ -23,7 +23,7 @@ def isZero {d : Nat} (a : Coeff d) : Bool :=
 theorem is_zero_sound {d : Nat} (a : Coeff d) (h : isZero a = true) :
     a = finZero d := by
   funext k
-  exact (List.all_eq_true.mp h) k (List.mem_finRange k)
+  exact of_decide_eq_true ((List.all_eq_true.mp h) k (List.mem_finRange k))
 
 theorem fin_mul_zero {d : Nat} (a : Coeff d) :
     finMul a (finZero d) = finZero d := by
@@ -94,13 +94,15 @@ theorem checked_product_some {d : Nat} (lo hi : Int) (acc r : Coeff d)
       | some mid =>
           have he := checked_mul_some lo hi acc v mid hm
           rw [hm] at h
-          split at h
-          · rename_i hz
+          change (if isZero mid then some mid else checkedProduct lo hi mid vs) = some r at h
+          by_cases hz : isZero mid = true
+          · rw [if_pos hz] at h
             have hmid : mid = finZero d := is_zero_sound mid hz
             have hr : r = mid := (Option.some.inj h).symm
             change r = finMul acc (finMul v (exactProduct vs))
             rw [← fin_mul_assoc, ← he, hr, hmid, fin_mul_comm (finZero d), fin_mul_zero]
-          · have hr := ih mid h
+          · rw [if_neg hz] at h
+            have hr := ih mid h
             change r = finMul acc (finMul v (exactProduct vs))
             rw [← fin_mul_assoc, ← he]
             exact hr
@@ -139,7 +141,7 @@ theorem checked_bucket_some {d : Nat} (lo hi : Int) (fs ts : List (Coeff d))
       | none => simp [hf, hs] at h
       | some s =>
           cases ht : checkedProduct lo hi (finOne d) ts with
-          | none => simp [hf, hs, ht] at h
+          | none => simp [hf, ht] at h
           | some t =>
               have hh : checkedAdd lo hi s t = some r := by
                 simpa [hf, hs, ht] using h
@@ -148,6 +150,119 @@ theorem checked_bucket_some {d : Nat} (lo hi : Int) (fs ts : List (Coeff d))
                   fin_add_zero_left,
                   checked_product_from_one lo hi f fs hf,
                   checked_product_from_one lo hi t ts ht]
+
+
+/-- The factor list is traversed in the actual partition order. -/
+theorem exact_product_eval {X : Type} {d : Nat} (a : X → Bool)
+    (fs : List (ScopedFactor X (Coeff d))) :
+    exactProduct (fs.map (fun f => f.eval a)) =
+      factorProduct (finOne d) finMul a fs := by
+  induction fs with
+  | nil => rfl
+  | cons f fs ih =>
+      change finMul (f.eval a) (exactProduct (fs.map (fun g => g.eval a))) =
+        finMul (f.eval a) (factorProduct (finOne d) finMul a fs)
+      rw [ih]
+
+def checkedRow {X : Type} [DecidableEq X] {d : Nat}
+    (lo hi : Int) (x : X) (fs : List (ScopedFactor X (Coeff d)))
+    (a : X → Bool) : Option (Coeff d) :=
+  checkedBucket lo hi
+    ((bucketFactors x fs).map (fun f => f.eval (write a x false)))
+    ((bucketFactors x fs).map (fun f => f.eval (write a x true)))
+
+theorem checked_row_some {X : Type} [DecidableEq X] {d : Nat}
+    (lo hi : Int) (x : X) (fs : List (ScopedFactor X (Coeff d)))
+    (a : X → Bool) (v : Coeff d) (h : checkedRow lo hi x fs a = some v) :
+    v = (contractedFactor (cycloAlgebra d) x fs).eval a := by
+  have he := checked_bucket_some lo hi _ _ v h
+  rw [exact_product_eval, exact_product_eval] at he
+  exact he
+
+/-- Materialize explicit row keys (Boolean lists, not packed machine words).
+    Any failed row rejects the entire table. Coverage is a separate premise. -/
+def checkedTable {X : Type} [DecidableEq X] {d : Nat}
+    (lo hi : Int) (x : X) (fs : List (ScopedFactor X (Coeff d))) :
+    List (List Bool) → Option (List (List Bool × Coeff d))
+  | [] => some []
+  | key :: keys =>
+      match checkedRow lo hi x fs
+          (deposit (contractedFactor (cycloAlgebra d) x fs).scope key) with
+      | none => none
+      | some v =>
+          match checkedTable lo hi x fs keys with
+          | none => none
+          | some rows => some ((key,v) :: rows)
+
+theorem checked_table_some {X : Type} [DecidableEq X] {d : Nat}
+    (lo hi : Int) (x : X) (fs : List (ScopedFactor X (Coeff d)))
+    (keys : List (List Bool)) (rows : List (List Bool × Coeff d))
+    (h : checkedTable lo hi x fs keys = some rows) :
+    rows = keys.map (fun key => (key, (contractedFactor (cycloAlgebra d) x fs).eval
+      (deposit (contractedFactor (cycloAlgebra d) x fs).scope key))) := by
+  induction keys generalizing rows with
+  | nil => exact (Option.some.inj h).symm
+  | cons key keys ih =>
+      cases hv : checkedRow lo hi x fs
+          (deposit (contractedFactor (cycloAlgebra d) x fs).scope key) with
+      | none => simp only [checkedTable, hv] at h; contradiction
+      | some v =>
+          simp only [checkedTable, hv] at h
+          cases ht : checkedTable lo hi x fs keys with
+          | none => rw [ht] at h; contradiction
+          | some tail =>
+              rw [ht] at h
+              have he : (key,v) :: tail = rows := Option.some.inj h
+              rw [← he, checked_row_some lo hi x fs _ v hv, ih tail ht]
+              rfl
+
+theorem checked_table_head_reject {X : Type} [DecidableEq X] {d : Nat}
+    (lo hi : Int) (x : X) (fs : List (ScopedFactor X (Coeff d)))
+    (key : List Bool) (keys : List (List Bool))
+    (h : checkedRow lo hi x fs
+      (deposit (contractedFactor (cycloAlgebra d) x fs).scope key) = none) :
+    checkedTable lo hi x fs (key :: keys) = none := by
+  simp only [checkedTable, h]
+
+/-- A returned row addressed by the projected assignment has the exact
+    contracted value, independent of coordinates outside its scope. -/
+theorem checked_table_lookup_sound {X : Type} [DecidableEq X] {d : Nat}
+    (lo hi : Int) (x : X) (fs : List (ScopedFactor X (Coeff d)))
+    (keys : List (List Bool)) (rows : List (List Bool × Coeff d))
+    (a : X → Bool) (v : Coeff d)
+    (h : checkedTable lo hi x fs keys = some rows)
+    (hm : (extract a (contractedFactor (cycloAlgebra d) x fs).scope,v) ∈ rows) :
+    v = (contractedFactor (cycloAlgebra d) x fs).eval a := by
+  rw [checked_table_some lo hi x fs keys rows h] at hm
+  obtain ⟨key, _, he⟩ := List.mem_map.mp hm
+  have hk := congrArg Prod.fst he
+  have hv := congrArg Prod.snd he
+  change key = extract a (contractedFactor (cycloAlgebra d) x fs).scope at hk
+  change (contractedFactor (cycloAlgebra d) x fs).eval
+    (deposit (contractedFactor (cycloAlgebra d) x fs).scope key) = v at hv
+  rw [hk] at hv
+  exact hv.symm.trans (factor_scope_projection _ _
+    (contractedFactor (cycloAlgebra d) x fs).support a)
+
+theorem checked_table_lookup_complete {X : Type} [DecidableEq X] {d : Nat}
+    (lo hi : Int) (x : X) (fs : List (ScopedFactor X (Coeff d)))
+    (keys : List (List Bool)) (rows : List (List Bool × Coeff d))
+    (a : X → Bool)
+    (h : checkedTable lo hi x fs keys = some rows)
+    (hk : extract a (contractedFactor (cycloAlgebra d) x fs).scope ∈ keys) :
+    (extract a (contractedFactor (cycloAlgebra d) x fs).scope,
+      (contractedFactor (cycloAlgebra d) x fs).eval a) ∈ rows := by
+  rw [checked_table_some lo hi x fs keys rows h]
+  apply List.mem_map.mpr
+  refine ⟨extract a (contractedFactor (cycloAlgebra d) x fs).scope, hk, ?_⟩
+  rw [factor_scope_projection _ _ (contractedFactor (cycloAlgebra d) x fs).support a]
+
+#print axioms exact_product_eval
+#print axioms checked_row_some
+#print axioms checked_table_some
+#print axioms checked_table_head_reject
+#print axioms checked_table_lookup_sound
+#print axioms checked_table_lookup_complete
 
 #print axioms is_zero_sound
 #print axioms fin_mul_zero

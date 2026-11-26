@@ -8899,7 +8899,7 @@ mod constrained_predicate_overlap {
                 let dom=(0..4u64).filter(|&x|x&!free==0).fold(0u64,|m,x|m|(1<<x));
                 let (check,cd)=frame_snapshot(&f);
                 assert!(gram(&s,&check,dom,cd)&&gram(&check,&s,cd,dom));
-                frames.push((s.clone(),dom,f));
+                frames.push((Symbolic{n:s.n,h:s.h,output:s.output.clone(),phase:s.phase.clone()},dom,f));
             }}
         }
         assert!(admit_flat(&native(2,&[G::H(0),G::H(0)]).unwrap(),0).is_none());

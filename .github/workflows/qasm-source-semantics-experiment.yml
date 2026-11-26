@@ -17,6 +17,7 @@ on:
       - rust/research/lean/ForestEnumeration.lean
       - rust/research/lean/ForestWeightedSum.lean
       - rust/research/lean/AliasTransport.lean
+      - rust/research/lean/TraceAliasSoundness.lean
       - benchmarks/rust_core/benches/conditional_trace.rs
       - benchmarks/rust_core/Cargo.toml
       - benchmarks/rust_core/Cargo.lock
@@ -978,7 +979,7 @@ jobs:
           done
           echo 'CRR_LEAN_WEIGHTED_SUM_PASS theorem_axiom_reports=19 original_permutation=true rust_refinement=false'
           sha256sum AliasTransport.lean >> ../../../evidence/source-sha256.txt
-          LEAN_PATH=. lean AliasTransport.lean 2>&1 | tee ../../../evidence/conditional-lean-transport.log
+          LEAN_PATH=. lean -o AliasTransport.olean AliasTransport.lean 2>&1 | tee ../../../evidence/conditional-lean-transport.log
           if grep -E 'sorryAx|Lean[.]trustCompiler|Classical[.]choice' ../../../evidence/conditional-lean-transport.log; then
             exit 1
           fi
@@ -987,6 +988,16 @@ jobs:
             test "$(grep -Ec "^'QuPRS[.]AliasTransport[.]$theorem' (does not depend on any axioms|depends on axioms)" ../../../evidence/conditional-lean-transport.log)" -eq 1
           done
           echo 'CRR_LEAN_TRANSPORT_PASS theorem_axiom_reports=13 abstract_coefficients=true rust_refinement=false'
+          sha256sum TraceAliasSoundness.lean >> ../../../evidence/source-sha256.txt
+          LEAN_PATH=. lean TraceAliasSoundness.lean 2>&1 | tee ../../../evidence/conditional-lean-trace-soundness.log
+          if grep -E 'sorryAx|Lean[.]trustCompiler|Classical[.]choice' ../../../evidence/conditional-lean-trace-soundness.log; then
+            exit 1
+          fi
+          test "$(grep -Ec 'does not depend on any axioms|depends on axioms' ../../../evidence/conditional-lean-trace-soundness.log)" -eq 8
+          for theorem in mono_live_congr anf_live_congr rows_live_congr phase_live_congr filter_zero_sum outside_forest_zero full_to_filtered trace_alias_soundness; do
+            test "$(grep -Ec "^'QuPRS[.]TraceAliasSoundness[.]$theorem' (does not depend on any axioms|depends on axioms)" ../../../evidence/conditional-lean-trace-soundness.log)" -eq 1
+          done
+          echo 'CRR_LEAN_TRACE_SOUNDNESS_PASS theorem_axiom_reports=8 forest_entailment_premise=true rust_refinement=false'
       - name: Prepare bounded native Conditional RR CodSpeed target
         if: env.CRR_PERF_STAGE == 'simulation'
         run: |

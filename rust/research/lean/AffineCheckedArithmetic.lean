@@ -117,6 +117,45 @@ theorem step_product_overflow (lo hi acc a b : Int) (negative : Bool)
     (checked_none_iff lo hi (a*b)).mpr h
   simp only [checkedStep, hm]
 
+
+/-- One coordinate's successful trace equals the signed integer sum. -/
+def signedSum : List Update → Int
+  | [] => 0
+  | u :: us => (if u.negative then -(u.a*u.b) else u.a*u.b) + signedSum us
+
+theorem exact_trace_sum (acc : Int) (us : List Update) :
+    exactTrace acc us = acc + signedSum us := by
+  induction us generalizing acc with
+  | nil => exact (Int.add_zero acc).symm
+  | cons u us ih =>
+      change exactTrace (exactStep acc u.a u.b u.negative) us =
+        acc + ((if u.negative then -(u.a*u.b) else u.a*u.b) + signedSum us)
+      rw [ih]
+      cases h : u.negative with
+      | false => simp [exactStep, h, Int.add_assoc]
+      | true => simp [exactStep, h, Int.sub_eq_add_neg, Int.add_assoc]
+
+theorem checked_trace_sum (lo hi acc r : Int) (us : List Update)
+    (h : checkedTrace lo hi acc us = some r) :
+    r = acc + signedSum us :=
+  (trace_some_exact lo hi acc r us h).trans (exact_trace_sum acc us)
+
+theorem step_accumulator_overflow (lo hi acc a b : Int) (negative : Bool)
+    (h : ¬ (lo ≤ exactStep acc a b negative ∧ exactStep acc a b negative ≤ hi)) :
+    checkedStep lo hi acc a b negative = none := by
+  unfold checkedStep
+  cases hm : checkedMul lo hi a b with
+  | none => rfl
+  | some p =>
+      have hp := mul_some_exact lo hi a b p hm
+      subst p
+      cases negative with
+      | false => exact (checked_none_iff lo hi (acc+a*b)).mpr h
+      | true => exact (checked_none_iff lo hi (acc-a*b)).mpr h
+
+#print axioms exact_trace_sum
+#print axioms checked_trace_sum
+#print axioms step_accumulator_overflow
 #print axioms checked_some_iff
 #print axioms checked_none_iff
 #print axioms mul_some_exact

@@ -1241,6 +1241,38 @@ fn cyclo_mul<const N:usize>(a:[i128;N],b:[i128;N])->Option<[i128;N]>{
         c[k%N]=if k<N{c[k%N].checked_add(p)?}else{c[k%N].checked_sub(p)?};
     }}Some(c)
 }
+#[test]
+fn native_cyclo_checked_boundaries(){
+    // Direct subtraction can succeed even when negating the product cannot.
+    assert_eq!(cyclo_mul::<4>([-1,0,0,i128::MIN],[1,1,0,0]),
+        Some([i128::MAX,-1,0,i128::MIN]));
+    assert_eq!(cyclo_mul::<2>([0,i128::MIN],[0,1]),None);
+    assert_eq!(cyclo_mul::<1>([i128::MIN],[-1]),None);
+    assert_eq!(cyclo_mul::<2>([i128::MAX,1],[1,1]),None);
+    assert_eq!(cyclo_mul::<1>([i128::MIN],[1]),Some([i128::MIN]));
+    assert_eq!(cyclo_mul::<4>([i128::MIN,0,0,i128::MAX],[0;4]),Some([0;4]));
+    let decode = |mut n:usize| -> [i128;4] {
+        std::array::from_fn(|_|{let x=(n%3) as i128-1;n/=3;x})
+    };
+    let mut checks=0;
+    for x in 0..81 {
+        for y in 0..81 {
+            let a=decode(x);let b=decode(y);
+            let expected:[i128;4]=std::array::from_fn(|k|{
+                let mut s=0;
+                for i in 0..4 {for j in 0..4 {
+                    if i+j==k{s+=a[i]*b[j];}
+                    if i+j==k+4{s-=a[i]*b[j];}
+                }}
+                s
+            });
+            assert_eq!(cyclo_mul(a,b),Some(expected));
+            checks+=1;
+        }
+    }
+    assert_eq!(checks,6561);
+    println!("HOARE_NATIVE_CYCLO_CHECKED cases=6561 boundary_cases=6 min_subtract=true overflow_reject=true");
+}
 #[derive(Clone)]
 struct Factor<const N:usize>{scope:u64,table:Vec<[i128;N]>}
 fn deposit8(mut i:usize,mut mask:u64)->u64{

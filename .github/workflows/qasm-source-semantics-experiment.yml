@@ -144,6 +144,7 @@ jobs:
           grep -Fx 'HOARE_NATIVE_AFFINE_CERTIFICATE_REPLAY mutations=10 bad_query=true deadline=true unfixed=true rank_zero=true' evidence/hoare-paper-source.log
           grep -Fx 'HOARE_NATIVE_AFFINE_WORD_PARITY checks=262144 width=16 storage=64 high_bits=true' evidence/hoare-paper-source.log
           grep -Fx 'HOARE_NATIVE_AFFINE_INCIDENCE cases=256 checks=65536 sparse_ids=true constants=true empty=true deadline=true' evidence/hoare-paper-source.log
+          grep -Fx 'HOARE_NATIVE_CYCLO_CHECKED cases=6561 boundary_cases=6 min_subtract=true overflow_reject=true' evidence/hoare-paper-source.log
           grep -Fx 'HOARE_NATIVE_TILING8_FAILURE recovered=4 partial_positive=3 partial_zero=3 unresolved=1' evidence/hoare-paper-source.log
           grep -Fx 'HOARE_NATIVE_TILING8_PARTIAL_RECOVERY retained=2048 recovered=2048 duplicate=0' evidence/hoare-paper-source.log
           for source in vchain noancilla; do
@@ -978,15 +979,15 @@ jobs:
             if grep -E 'sorryAx|Lean[.]trustCompiler|Classical[.]choice' /tmp/qasm-lean-affine-negacyclic.log; then
               negacyclic_status=1
             fi
-            test "$(grep -Ec 'does not depend on any axioms|depends on axioms' /tmp/qasm-lean-affine-negacyclic.log)" -eq 15 || negacyclic_status=1
-            for theorem in native_term_correct term_lift term_off_grid pair_sum_lift pair_sum_off_grid pairs_membership zero_pair_term native_acc_correct cartesian_acc_correct pair_row_nodup pair_rows_nodup range_nodup_constructive pairs_nodup pair_rows_length pairs_length; do
+            test "$(grep -Ec 'does not depend on any axioms|depends on axioms' /tmp/qasm-lean-affine-negacyclic.log)" -eq 18 || negacyclic_status=1
+            for theorem in signed_select wrap_positive wrap_negative native_term_correct term_lift term_off_grid pair_sum_lift pair_sum_off_grid pairs_membership zero_pair_term native_acc_correct cartesian_acc_correct pair_row_nodup pair_rows_nodup range_nodup_constructive pairs_nodup pair_rows_length pairs_length; do
               test "$(grep -Ec "^'QuPRS[.]AffineNegacyclic[.]$theorem' (does not depend on any axioms|depends on axioms)" /tmp/qasm-lean-affine-negacyclic.log)" -eq 1 || negacyclic_status=1
             done
           else
             negacyclic_status=1
           fi
           if test "$negacyclic_status" -eq 0; then
-            echo 'LEAN4_AFFINE_NEGACYCLIC_PASS theorem_axiom_reports=15 bounded_pair=true pair_sum_lift=true off_grid_zero=true cartesian_accumulator_model=true zero_skip=true pair_uniqueness=true pair_cardinality=true checked_i128_refinement=false'
+            echo 'LEAN4_AFFINE_NEGACYCLIC_PASS theorem_axiom_reports=18 bounded_pair=true pair_sum_lift=true off_grid_zero=true cartesian_accumulator_model=true zero_skip=true pair_uniqueness=true pair_cardinality=true checked_i128_refinement=false'
           else
             echo 'LEAN4_AFFINE_NEGACYCLIC_FAIL' >&2
           fi
@@ -996,12 +997,12 @@ jobs:
           if grep -E 'sorryAx|Lean[.]trustCompiler|Classical[.]choice' /tmp/qasm-lean-affine-checked.log; then
             checked_status=1
           fi
-          test "$(grep -Ec 'does not depend on any axioms|depends on axioms' /tmp/qasm-lean-affine-checked.log)" -eq 8 || checked_status=1
-          for theorem in checked_some_iff checked_none_iff mul_some_exact add_some_exact sub_some_exact step_some_exact trace_some_exact step_product_overflow; do
+          test "$(grep -Ec 'does not depend on any axioms|depends on axioms' /tmp/qasm-lean-affine-checked.log)" -eq 11 || checked_status=1
+          for theorem in exact_trace_sum checked_trace_sum step_accumulator_overflow checked_some_iff checked_none_iff mul_some_exact add_some_exact sub_some_exact step_some_exact trace_some_exact step_product_overflow; do
             test "$(grep -Ec "^'QuPRS[.]AffineCheckedArithmetic[.]$theorem' (does not depend on any axioms|depends on axioms)" /tmp/qasm-lean-affine-checked.log)" -eq 1 || checked_status=1
           done
           if test "$checked_status" -eq 0; then
-            echo 'LEAN4_AFFINE_CHECKED_ARITHMETIC_PASS theorem_axiom_reports=8 bounded_integer_model=true successful_trace_exact=true overflow_reject=true rust_intrinsic_refinement=false'
+            echo 'LEAN4_AFFINE_CHECKED_ARITHMETIC_PASS theorem_axiom_reports=11 bounded_integer_model=true successful_trace_exact=true signed_sum=true overflow_reject=true rust_intrinsic_refinement=false'
           else
             echo 'LEAN4_AFFINE_CHECKED_ARITHMETIC_FAIL' >&2
           fi

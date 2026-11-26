@@ -21,29 +21,52 @@ def nativeTerm (d k i j : Nat) (a b : Int) : Int :=
 def exactTerm (d k i j : Nat) (a b : Int) : Int :=
   coordinate d k (i+j) * (a*b)
 
-/-- The one-wrap native loop agrees with the signed phase coordinate
-    for every pair of in-range basis exponents and output coordinate. -/
+/-- Isolate the conditional algebra from the concrete index decisions. -/
+theorem signed_select {P Q R S : Prop}
+    [Decidable P] [Decidable Q] [Decidable R] [Decidable S]
+    (v : Int) (hp : Q → (P ↔ R) ∧ ¬ S)
+    (hn : ¬ Q → (P ↔ S) ∧ ¬ R) :
+    (if P then (if Q then v else -v) else 0) =
+      (if R then 1 else if S then -1 else 0) * v := by
+  by_cases h : Q
+  · obtain ⟨he, hs⟩ := hp h
+    by_cases hr : R
+    · have hh := he.mpr hr
+      simp [hh, h, hr]
+    · have hh : ¬ P := fun hq => hr (he.mp hq)
+      simp [hh, hr, hs]
+  · obtain ⟨he, hr⟩ := hn h
+    by_cases hs : S
+    · have hh := he.mpr hs
+      simp [hh, h, hr, hs]
+    · have hh : ¬ P := fun hq => hs (he.mp hq)
+      simp [hh, hr, hs]
+
+theorem wrap_positive (d k p : Nat) (hk : k < d) (h : p < d) :
+    (p % d = k ↔ p = k) ∧ p ≠ k+d := by
+  constructor
+  · rw [Nat.mod_eq_of_lt h]
+  · omega
+
+theorem wrap_negative (d k p : Nat) (hk : k < d)
+    (h2 : p < 2*d) (h : ¬ p < d) :
+    (p % d = k ↔ p = k+d) ∧ p ≠ k := by
+  have hd : d ≤ p := by omega
+  have hs : p-d < d := by omega
+  constructor
+  · rw [Nat.mod_eq_sub_mod hd, Nat.mod_eq_of_lt hs]
+    omega
+  · omega
+
+/-- Single-wrap native coefficient contribution. -/
 theorem native_term_correct (d k i j : Nat) (a b : Int)
     (hi : i < d) (hj : j < d) (hk : k < d) :
     nativeTerm d k i j a b = exactTerm d k i j a b := by
   have h2 : i+j < 2*d := by omega
   unfold nativeTerm exactTerm coordinate
   rw [Nat.mod_eq_of_lt h2]
-  by_cases h : i+j < d
-  · have hn : i+j ≠ k+d := by omega
-    rw [Nat.mod_eq_of_lt h, ite_eq_left h, ite_eq_right hn]
-    by_cases he : i+j = k
-    · simp only [ite_eq_left he, Int.one_mul]
-    · simp only [ite_eq_right he, Int.zero_mul]
-  · have hd : d ≤ i+j := by omega
-    have hsub : i+j-d < d := by omega
-    have hn : i+j ≠ k := by omega
-    have he : i+j-d = k ↔ i+j = k+d := by omega
-    rw [Nat.mod_eq_sub_mod hd, Nat.mod_eq_of_lt hsub, ite_eq_right h, ite_eq_right hn]
-    simp only [he]
-    by_cases heq : i+j = k+d
-    · simp only [ite_eq_left heq, Int.neg_mul, Int.one_mul]
-    · simp only [ite_eq_right heq, Int.zero_mul]
+  exact signed_select (a*b) (wrap_positive d k (i+j) hk)
+    (wrap_negative d k (i+j) hk h2)
 
 theorem term_lift (d k i j s : Nat) (a b : Int) (hs : 0 < s) :
     exactTerm (d*s) (k*s) (i*s) (j*s) a b =
@@ -229,6 +252,9 @@ theorem pairs_length (d : Nat) (a b : Nat → Int) :
 #print axioms zero_pair_term
 #print axioms native_acc_correct
 #print axioms cartesian_acc_correct
+#print axioms signed_select
+#print axioms wrap_positive
+#print axioms wrap_negative
 #print axioms native_term_correct
 #print axioms term_lift
 #print axioms term_off_grid

@@ -2228,6 +2228,230 @@ theorem accepted_total_phase_sum {P A : Type} [Zero P] [Add P]
       (selected_phase_exp ex ez ea coeff weight (extendVal (decodeLive (liveIds rs) xs) rs)
         ws (dimacsIds n) hw)))
 
+
+-- A separate versioned source coefficient stream. It retains the
+-- exact rational turns and radian components from the Rust residual
+-- certificate without modifying gate-v1 or equating them to MPFR.
+structure PhaseEntry where
+  out : Nat
+  source : List Nat
+  turns : DecimalValue
+  radians : DecimalValue
+deriving Repr
+
+def parsePhaseEntry : List Token → Option PhaseEntry
+  | tag :: z :: tn :: td :: rn :: rd :: src =>
+    if tag == [99,111,101,102] then do
+      let id ← parseNatToken z
+      let t ← parseIntToken tn
+      let d ← parseNatToken td
+      let a ← parseIntToken rn
+      let b ← parseNatToken rd
+      let support ← src.mapM parseNatToken
+      if d == 0 || b == 0 || negative t || !natLE (t.natAbs + 1) d ||
+          (intEq t 0 && intEq a 0) then none
+      else some (PhaseEntry.mk id support (t,d) (a,b))
+    else none
+  | _ => none
+
+def parsePhase (bytes : List Nat) : Option (List PhaseEntry) :=
+  if ascii bytes then
+    match rows bytes with
+    | [tag] :: rest =>
+      if tag == [99,114,114,45,112,104,97,115,101,45,118,49] then
+        rest.mapM parsePhaseEntry
+      else none
+    | _ => none
+  else none
+
+def phaseSource (z : Nat) : List Record → Option (List Nat)
+  | [] => none
+  | .phase id src :: rs =>
+    if (@decide (z = id) (Nat.decEq z id)) then some src else phaseSource z rs
+  | _ :: rs => phaseSource z rs
+
+def phaseEntryOK (rs : List Record) (e : PhaseEntry) : Bool :=
+  match phaseSource e.out rs with
+  | some src => natListEq e.source src
+  | none => false
+
+def phaseEntriesKnown (rs : List Record) : List PhaseEntry → Bool
+  | [] => true
+  | e :: es => phaseEntryOK rs e && phaseEntriesKnown rs es
+
+def phaseSidecarOK (rs : List Record) (es : List PhaseEntry) : Bool :=
+  natListEq (es.map PhaseEntry.out) (phaseIds rs) && phaseEntriesKnown rs es
+
+def checkPhaseSidecar (gate side : List Nat) : Bool :=
+  match parseGate gate, parsePhase side with
+  | some (_,rs), some es => phaseSidecarOK rs es
+  | _, _ => false
+
+def phaseLookup (z : Nat) : List PhaseEntry → Option PhaseEntry
+  | [] => none
+  | e :: es =>
+    if (@decide (z = e.out) (Nat.decEq z e.out)) then some e else phaseLookup z es
+
+theorem phase_source_sound (z : Nat) (rs : List Record) (src : List Nat)
+    (h : phaseSource z rs = some src) : Record.phase z src ∈ rs := by
+  induction rs with
+  | nil => cases h
+  | cons r rs ih =>
+    cases r with
+    | live s id => exact List.mem_cons.mpr (Or.inr (ih h))
+    | zero id => exact List.mem_cons.mpr (Or.inr (ih h))
+    | andGate id xs => exact List.mem_cons.mpr (Or.inr (ih h))
+    | xorGate id a b => exact List.mem_cons.mpr (Or.inr (ih h))
+    | eqGate a b => exact List.mem_cons.mpr (Or.inr (ih h))
+    | phase id xs =>
+      change (if (@decide (z = id) (Nat.decEq z id)) then some xs else phaseSource z rs) =
+        some src at h
+      cases he : (@decide (z = id) (Nat.decEq z id)) with
+      | false =>
+        have ht : phaseSource z rs = some src := by simpa [he] using h
+        exact List.mem_cons.mpr (Or.inr (ih ht))
+      | true =>
+        have hz : z = id := of_decide_eq_true he
+        have hx : xs = src := Option.some.inj (by simpa [he] using h)
+        subst id
+        subst xs
+        exact List.mem_cons.mpr (Or.inl rfl)
+
+theorem phase_entry_sound (rs : List Record) (e : PhaseEntry)
+    (h : phaseEntryOK rs e = true) : Record.phase e.out e.source ∈ rs := by
+  unfold phaseEntryOK at h
+  cases hs : phaseSource e.out rs with
+  | none => rw [hs] at h; cases h
+  | some src =>
+    rw [hs] at h
+    have he := (nat_list_eq_iff e.source src).mp h
+    have hm := phase_source_sound e.out rs src hs
+    rw [he]
+    exact hm
+
+theorem phase_entries_sound (rs : List Record) (es : List PhaseEntry)
+    (h : phaseEntriesKnown rs es = true) :
+    ∀ e, e ∈ es → Record.phase e.out e.source ∈ rs := by
+  induction es with
+  | nil => intro e hm; cases hm
+  | cons e es ih =>
+    have hh := and_true_parts (show (phaseEntryOK rs e && phaseEntriesKnown rs es) = true from h)
+    intro q hm
+    rcases List.mem_cons.mp hm with he | ht
+    · subst q
+      exact phase_entry_sound rs e hh.1
+    · exact ih hh.2 q ht
+
+theorem phase_lookup_sound (z : Nat) (es : List PhaseEntry) (e : PhaseEntry)
+    (h : phaseLookup z es = some e) : e ∈ es ∧ z = e.out := by
+  induction es with
+  | nil => cases h
+  | cons q es ih =>
+    change (if (@decide (z = q.out) (Nat.decEq z q.out)) then some q else phaseLookup z es) =
+      some e at h
+    cases he : (@decide (z = q.out) (Nat.decEq z q.out)) with
+    | false =>
+      have ht : phaseLookup z es = some e := by simpa [he] using h
+      have hh := ih ht
+      exact ⟨List.mem_cons.mpr (Or.inr hh.1), hh.2⟩
+    | true =>
+      have hz : z = q.out := of_decide_eq_true he
+      have hq : q = e := Option.some.inj (by simpa [he] using h)
+      subst q
+      exact ⟨List.mem_cons.mpr (Or.inl rfl), hz⟩
+
+theorem phase_lookup_exists (z : Nat) (es : List PhaseEntry)
+    (h : z ∈ es.map PhaseEntry.out) : ∃ e, phaseLookup z es = some e := by
+  induction es with
+  | nil => cases h
+  | cons e es ih =>
+    cases he : (@decide (z = e.out) (Nat.decEq z e.out)) with
+    | true =>
+      exact ⟨e, by simp [phaseLookup, he]⟩
+    | false =>
+      have hn : z ≠ e.out := fun hz => by
+        have ht : (@decide (z = e.out) (Nat.decEq z e.out)) = true := decide_eq_true hz
+        rw [he] at ht
+        cases ht
+      have hm : z ∈ es.map PhaseEntry.out := by
+        rcases List.mem_cons.mp h with hz | ht
+        · exact False.elim (hn hz)
+        · exact ht
+      obtain ⟨q, hq⟩ := ih hm
+      exact ⟨q, by simp [phaseLookup, he, hq]⟩
+
+theorem sidecar_weighted_lookup (n : Nat) (rs : List Record)
+    (cs : List (List Int)) (ws : List Nat) (hr : replayRows n rs = some (cs, ws))
+    (es : List PhaseEntry) (hs : phaseSidecarOK rs es = true)
+    (z : Nat) (hz : natMem z ws = true) :
+    ∃ e, phaseLookup z es = some e ∧ Record.phase z e.source ∈ rs := by
+  have hh := and_true_parts (show
+    (natListEq (es.map PhaseEntry.out) (phaseIds rs) && phaseEntriesKnown rs es) = true from hs)
+  have hi := (nat_list_eq_iff (es.map PhaseEntry.out) (phaseIds rs)).mp hh.1
+  have hm := (nat_mem_iff z ws).mp hz
+  rw [replay_phase_ids n rs cs ws hr] at hm
+  have hm' : z ∈ es.map PhaseEntry.out := by
+    rw [hi]
+    exact List.mem_reverse.mp hm
+  obtain ⟨e, he⟩ := phase_lookup_exists z es hm'
+  have hp := phase_lookup_sound z es e he
+  have hrec := phase_entries_sound rs es hh.2 e hp.1
+  have hbind : Record.phase z e.source ∈ rs := by
+    rw [hp.2]
+    exact hrec
+  exact ⟨e, he, hbind⟩
+
+-- The interpretation of a rational coefficient pair is supplied
+-- separately (turns and radians have different physical units).
+def sidecarCoeff {P : Type} [Zero P]
+    (interpret : DecimalValue → DecimalValue → P) (es : List PhaseEntry) (z : Nat) : P :=
+  match phaseLookup z es with
+  | some e => interpret e.turns e.radians
+  | none => 0
+
+def sourcePhaseBit (rs : List Record) (es : List PhaseEntry)
+    (v : Nat → Bool) (z : Nat) : Bool :=
+  match phaseLookup z es with
+  | some e => andValue (e.source.map (sourceVal v rs))
+  | none => false
+
+theorem accepted_source_phase_bit (n : Nat) (rs : List Record)
+    (cs : List (List Int)) (ws : List Nat) (hr : replayRows n rs = some (cs, ws))
+    (es : List PhaseEntry) (hs : phaseSidecarOK rs es = true)
+    (v : Nat → Bool) (z : Nat) (hz : natMem z ws = true) :
+    extendVal v rs z = sourcePhaseBit rs es v z := by
+  obtain ⟨e, he, hm⟩ := sidecar_weighted_lookup n rs cs ws hr es hs z hz
+  unfold sourcePhaseBit
+  rw [he]
+  exact accepted_phase_monomial n rs cs ws hr z e.source hm v
+
+theorem selected_phase_sum_agree {P : Type} [Zero P] [Add P]
+    (coeff : Nat → P) (a b : Nat → Bool) (weighted ids : List Nat)
+    (h : ∀ z, z ∈ ids → natMem z weighted = true → a z = b z) :
+    selectedPhaseSum coeff a weighted ids = selectedPhaseSum coeff b weighted ids := by
+  induction ids with
+  | nil => rfl
+  | cons z zs ih =>
+    have ht := ih (fun x hm hx => h x (List.mem_cons.mpr (Or.inr hm)) hx)
+    change (if natMem z weighted && a z then coeff z + selectedPhaseSum coeff a weighted zs
+      else selectedPhaseSum coeff a weighted zs) =
+      (if natMem z weighted && b z then coeff z + selectedPhaseSum coeff b weighted zs
+      else selectedPhaseSum coeff b weighted zs)
+    rw [ht]
+    cases he : natMem z weighted with
+    | false => rfl
+    | true => rw [h z (List.mem_cons.mpr (Or.inl rfl)) he]
+
+theorem accepted_source_phase_sum {P : Type} [Zero P] [Add P]
+    (n : Nat) (rs : List Record) (cs : List (List Int)) (ws : List Nat)
+    (hr : replayRows n rs = some (cs, ws))
+    (es : List PhaseEntry) (hs : phaseSidecarOK rs es = true)
+    (interpret : DecimalValue → DecimalValue → P) (v : Nat → Bool) :
+    selectedPhaseSum (sidecarCoeff interpret es) (extendVal v rs) ws (dimacsIds n) =
+      selectedPhaseSum (sidecarCoeff interpret es) (sourcePhaseBit rs es v) ws (dimacsIds n) :=
+  selected_phase_sum_agree (sidecarCoeff interpret es) _ _ ws (dimacsIds n)
+    (fun z _ hz => accepted_source_phase_bit n rs cs ws hr es hs v z hz)
+
 -- Localize any unexpected dependency to a definition vs theorem.
 #print axioms splitBytes
 #print axioms digits
@@ -2416,6 +2640,25 @@ theorem accepted_total_phase_sum {P A : Type} [Zero P] [Add P]
 #print axioms accepted_serialized_weight_total
 #print axioms selected_phase_exp
 #print axioms accepted_total_phase_sum
+#print axioms parsePhaseEntry
+#print axioms parsePhase
+#print axioms phaseSource
+#print axioms phaseEntryOK
+#print axioms phaseEntriesKnown
+#print axioms phaseSidecarOK
+#print axioms checkPhaseSidecar
+#print axioms phaseLookup
+#print axioms sidecarCoeff
+#print axioms sourcePhaseBit
+#print axioms phase_source_sound
+#print axioms phase_entry_sound
+#print axioms phase_entries_sound
+#print axioms phase_lookup_sound
+#print axioms phase_lookup_exists
+#print axioms sidecar_weighted_lookup
+#print axioms accepted_source_phase_bit
+#print axioms selected_phase_sum_agree
+#print axioms accepted_source_phase_sum
 end QuPRS.CnfReplay
 
 def main (args : List String) : IO Unit := do
@@ -2490,6 +2733,16 @@ def main (args : List String) : IO Unit := do
       QuPRS.CnfReplay.lookupWeight 2 changed.weightValues != ((25,1000),(-5,10)) then
     throw (IO.userError "serialized weight admission regression")
   IO.println "CRR_LEAN_SERIALIZED_WEIGHT_PASS controls=7"
+  let phaseSample : List Nat := [99,114,114,45,112,104,97,115,101,45,118,49,10,99,111,101,102,32,50,32,49,32,50,32,48,32,49,32,48,10]
+  if !(QuPRS.CnfReplay.checkPhaseSidecar sampleGate phaseSample) ||
+      QuPRS.CnfReplay.checkPhaseSidecar sampleGate [99,114,114,45,112,104,97,115,101,45,118,49,10] ||
+      QuPRS.CnfReplay.checkPhaseSidecar sampleGate [99,114,114,45,112,104,97,115,101,45,118,49,10,99,111,101,102,32,50,32,49,32,50,32,48,32,49,32,49,10] ||
+      QuPRS.CnfReplay.checkPhaseSidecar sampleGate [99,114,114,45,112,104,97,115,101,45,118,49,10,99,111,101,102,32,50,32,49,32,48,32,48,32,49,32,48,10] ||
+      QuPRS.CnfReplay.checkPhaseSidecar sampleGate [99,114,114,45,112,104,97,115,101,45,118,49,10,99,111,101,102,32,50,32,50,32,50,32,48,32,49,32,48,10] ||
+      QuPRS.CnfReplay.checkPhaseSidecar sampleGate [99,114,114,45,112,104,97,115,101,45,118,49,10,99,111,101,102,32,49,32,49,32,50,32,48,32,49,32,48,10] ||
+      QuPRS.CnfReplay.checkPhaseSidecar sampleGate [99,114,114,45,112,104,97,115,101,45,118,49,10,99,111,101,102,32,50,32,49,32,50,32,48,32,49,32,48,10,99,111,101,102,32,50,32,49,32,50,32,48,32,49,32,48,10] then
+    throw (IO.userError "phase sidecar regression")
+  IO.println "CRR_LEAN_PHASE_SIDECAR_PASS controls=7"
   let mode :: paths := args | throw (IO.userError "usage: CnfReplay accept|reject files")
   if (mode != "accept" && mode != "reject") || paths.isEmpty then
     throw (IO.userError "bad replay mode or empty cohort")
@@ -2500,5 +2753,11 @@ def main (args : List String) : IO Unit := do
     let got := QuPRS.CnfReplay.check
       (gate.data.toList.map UInt8.toNat) (cnf.data.toList.map UInt8.toNat)
     if got != want then throw (IO.userError s!"unexpected replay result {path}: {got}")
+    if want then
+      let side ← IO.FS.readBinFile (path ++ ".phase")
+      if !(QuPRS.CnfReplay.checkPhaseSidecar (gate.data.toList.map UInt8.toNat)
+          (side.data.toList.map UInt8.toNat)) then
+        throw (IO.userError s!"phase sidecar rejected {path}")
+      IO.println s!"CRR_LEAN_PORTABLE_PHASE path={path} matched=true"
     IO.println s!"CRR_LEAN_PORTABLE_GATE mode={mode} path={path} matched=true"
   IO.println s!"CRR_LEAN_PORTABLE_SUMMARY mode={mode} count={paths.length}"

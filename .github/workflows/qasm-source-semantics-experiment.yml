@@ -891,6 +891,7 @@ jobs:
           trap 'rm -rf "$tmp"' EXIT
           python3 scripts/install_gpmc_release.py --dest "$tmp/gpmc" | tee evidence/conditional-gpmc-release.json
           sha256sum "$tmp/gpmc" | tee evidence/conditional-gpmc-sha256.txt
+          QUPRS_GPMC_PATH="$tmp/gpmc" cargo test --locked --manifest-path rust/Cargo.toml -p quprs --test conditional_rr_experiment gpmc_trace_witness -- --nocapture 2>&1 | tee evidence/conditional-gpmc-witness.log
           CRR_GPMC_COMPARE=1 QUPRS_GPMC_PATH="$tmp/gpmc" \
             python3 rust/research/conditional_rr_incidence.py 2>&1 | tee evidence/conditional-incidence.jsonl
       - uses: actions/upload-artifact@v4

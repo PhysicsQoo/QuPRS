@@ -226,6 +226,7 @@ fn iterate_policy(t:&mut Trace,fuel:usize,guarded:bool)->(usize,usize,usize,usiz
     (subs,elim,hh,omega,rejected)
 }
 pub(super) fn profile(ps:&PathSum,case:&str){
+    if std::env::var_os("CRR_ROUTED").is_some(){route_profile(ps,case);return;}
     let start=std::time::Instant::now();
     let Some(mut t)=Trace::from_native(ps) else{
         println!("CRR_TRACE case={case} status=unsupported");return;
@@ -591,4 +592,166 @@ fn exact_trace_cost_policy_rejects_growth(){
     assert!(q.cost().0<=orig2.cost().0&&q.cost().1<orig2.cost().1);
     assert!(orig.cost().1>0);
     println!("CRR_COST_ORACLE reject_growth=1 accept_nonincrease=1 guarded_omega_models=512");
+}
+
+
+// Research-only actual dispatch. Timed interval includes post-RR
+// admission, reductions, discarded encodings, selected solver and
+// count restoration/classification. Native RR is shared upstream.
+type Count=quprs::precision_count::PrintedCount;
+type Rat=num_rational::BigRational;
+fn restore_count(mut c:Count,m:usize,o:usize,twice:i32)->(Count,quprs::precision_count::PrintedVerdict){
+    use num_bigint::BigInt;
+    use quprs::precision_count::observed_distance_verdict;
+    let factor=Rat::from_integer(BigInt::from(1u8)<<(m+o/2));
+    c.real*=&factor;c.imag*=&factor;
+    c.real_half_unit*=&factor;c.imag_half_unit*=&factor;
+    let verdict=observed_distance_verdict(&c,twice-(o%2) as i32,"1e-8").expect("distance");
+    if o%2==1{
+        let den=BigInt::from(1u8)<<384usize;
+        let target=&den*&den*2u8;
+        let mut lo=den.clone();let mut hi=&den*2u8;
+        while &hi-&lo>BigInt::from(1u8){
+            let mid=(&hi+&lo)/2u8;
+            if &mid*&mid<=target{lo=mid;}else{hi=mid;}
+        }
+        assert!(&lo*&lo<=target&&&hi*&hi>target);
+        let root=Rat::new(lo,den);
+        c.real*=&root;c.imag*=&root;
+        // Half-unit fields now describe the scaled printed resolution,
+        // not the sqrt enclosure or a certified numerical error bound.
+        c.real_half_unit*=&root;c.imag_half_unit*=&root;
+    }
+    (c,verdict)
+}
+fn route_encode(ps:&PathSum)->(quprs::wmc::WmcManager,usize,usize){
+    let mut mgr=quprs::wmc::WmcManager::new(ps);
+    mgr.enable_precise_gpmc_weights(256);
+    mgr.encode_trace(ps).expect("encode");
+    let dimacs=mgr.try_to_dimacs_string("gpmc").expect("serialize");
+    let h:Vec<_>=dimacs.lines().find(|l|l.starts_with("p cnf ")).expect("header").split_whitespace().collect();
+    (mgr,h[2].parse().expect("vars"),h[3].parse().expect("clauses"))
+}
+fn route_profile(ps:&PathSum,case:&str){
+    use std::time::{Instant,Duration};
+    use num_bigint::BigInt;
+    use num_traits::{Signed,ToPrimitive};
+    let repeat=std::env::var("CRR_REPEAT").ok().map(|v|v.parse::<usize>().unwrap()).unwrap_or(0);
+    let secs=std::env::var("CRR_SOLVER_SECS").ok().map(|v|v.parse::<u64>().unwrap()).unwrap_or(12);
+    assert!((8..=180).contains(&secs));
+    let twice=(2*ps.v.num_qubits+ps.v.path_vars.len()-ps.v.num_qubits) as i32;
+    // Admit using the same restricted trace representation; do not
+    // misreport an unsupported input as a successful no-op candidate.
+    let Some(admitted)=Trace::from_native(ps)else{
+        println!("CRR_TRACE case={case} status=unsupported");return;
+    };
+    if admitted.size()>TERM_CAP{
+        println!("CRR_TRACE case={case} status=term_cap");return;
+    }
+    println!("CRR_TRACE case={case} status=profiled mode=routed");
+    let run=|routed:bool|{
+        let start=Instant::now();
+        let arm=if routed{"routed"}else{"baseline"};
+        let (mut mgr,av,ac)=route_encode(ps);
+        let mut vars=av;let mut clauses=ac;let mut mult=0;let mut omega=0;
+        let mut selected="baseline";let mut reason="baseline_control";
+        let mut rejected=0;let mut subs=0;let mut elim=0;let mut hh=0;let mut o=0;
+        let mut initial_cp=0;let mut final_cp=0;
+        if routed{
+            let mut t=Trace::from_native(ps).expect("admitted");
+            initial_cp=t.cost().0;
+            // Skip reduction when there is no internal pivot or
+            // integrator. Otherwise all actual trial cost is timed.
+            if t.live.len()==t.n{
+                reason="no_hidden";final_cp=initial_cp;
+            }else{
+                (subs,elim,hh,o,rejected)=iterate_policy(&mut t,64,true);
+                final_cp=t.cost().0;
+                // A fixed, preregistered heuristic: require >=5%
+                // phase incidence improvement before second encoding.
+                // It is not an optimality or performance guarantee.
+                if initial_cp==0||final_cp.saturating_mul(100)>initial_cp.saturating_mul(95)
+                    ||final_cp==initial_cp{
+                    reason="proxy_reject";
+                }else{
+                    let (candidate,bv,bc)=route_encode(&t.encoding_view(ps));
+                    if bv<=av&&bc<=ac&&(bv<av||bc<ac){
+                        mgr=candidate;vars=bv;clauses=bc;
+                        mult=elim+hh;omega=o;selected="conditioned";reason="cnf_accept";
+                    }else{reason="cnf_reject";}
+                }
+            }
+        }
+        let prepare=start.elapsed().as_secs_f64();
+        println!("CRR_DISPATCH case={case} arm={arm} selected={selected} reason={reason} vars={vars} clauses={clauses} baseline_vars={av} baseline_clauses={ac} subs={subs} elim={elim} hh={hh} omega={o} rejected={rejected} phase_before={initial_cp} phase_after={final_cp} prepare_s={prepare}");
+        let begin=Instant::now();
+        let r=mgr.solve_with_deadline_distance_printed_precision("gpmc",Some(begin+Duration::from_secs(secs)),90);
+        let call=begin.elapsed().as_secs_f64();
+        match r{
+            Ok(c)=>{
+                let (c,v)=restore_count(c,mult,omega,twice);
+                println!("CRR_ROUTED_CALL case={case} arm={arm} status=complete selected={selected} call_s={call} total_s={} real={} imag={} normalization_twice={twice}",start.elapsed().as_secs_f64(),c.real,c.imag);
+                Some((c,v))
+            }
+            Err(e)=>{
+                println!("CRR_ROUTED_CALL case={case} arm={arm} status=incomplete selected={selected} call_s={call} total_s={} error={e:#}",start.elapsed().as_secs_f64());
+                None
+            }
+        }
+    };
+    let (a,b)=if repeat%2==0{(run(false),run(true))}else{let b=run(true);(run(false),b)};
+    let (Some((a,va)),Some((b,vb)))=(a,b)else{
+        println!("CRR_COMPARE case={case} status=incomplete");return;
+    };
+    let scale=Rat::from_integer(BigInt::from(1u8)<<(twice as usize/2));
+    let delta=((&a.real-&b.real).abs()+(&a.imag-&b.imag).abs())/scale;
+    assert!(delta<=Rat::new(BigInt::from(1u8),BigInt::from(10u8).pow(50)),"routed count mismatch {case}");
+    assert!(std::mem::discriminant(&va)==std::mem::discriminant(&vb));
+    println!("CRR_COMPARE case={case} status=matched normalized_l1_delta={:.5e} distance_midpoint_match=true",delta.to_f64().unwrap_or(f64::INFINITY));
+}
+
+#[test]
+fn gpmc_trace_witness(){
+    use quprs::rational::{PhaseCoeff,Rational};
+    use quprs::precision_count::PrintedVerdict;
+    use num_bigint::BigInt;
+    use num_traits::Signed;
+    use std::time::{Instant,Duration};
+    // Explicit invocation after pinned solver provision. Failure,
+    // including timeout, is a hard failure for these tiny witnesses.
+    assert!(std::env::var_os("QUPRS_GPMC_PATH").is_some());
+    for (name,quarter,global,er,ei,eq,expected_omega) in [
+        ("hh_identity",false,false,4i64,0i64,true,0usize),
+        ("hh_global_minus",false,true,-4,0,true,0),
+        ("hsh_neq_odd_omega",true,false,2,2,false,1),
+    ]{
+        // H (S or I) H on one qubit, path variables y,z;
+        // f=z, p=(x*y+y*z)/2 + y/4 [S] +1/2 [global].
+        // Diagonal z=x cancels both half terms. Independently known
+        // raw trace is 4, -4 or 2+2i; norm is 4 (twice log2 =4).
+        let mut ps=PathSum::new(1);ps.rr_tolerance=0.0;
+        let y=ps.v.get_fresh_var();let z=ps.v.get_fresh_var();
+        ps.f.functions[0].clear();ps.f.functions[0].insert(vec![z]);
+        ps.p.add_term(vec![0,y],PhaseCoeff::HALF);
+        ps.p.add_term(vec![y,z],PhaseCoeff::HALF);
+        if quarter{ps.p.add_term(vec![y],PhaseCoeff::new_constant(Rational::new(1,4)));}
+        if global{ps.p.add_term(vec![],PhaseCoeff::HALF);}
+        let mut t=Trace::from_native(&ps).unwrap();
+        // Deliberately unguarded: must exercise odd omega even if a
+        // cost policy would reject a small fixture.
+        let (_,e,h,o,_)=iterate_policy(&mut t,64,false);
+        assert_eq!(o,expected_omega);
+        let candidate=t.encoding_view(&ps);
+        for (arm,p,m,o) in [("baseline",&ps,0,0),("iterated",&candidate,e+h,o)]{
+            let (mgr,_,_)=route_encode(p);
+            let c=mgr.solve_with_deadline_distance_printed_precision("gpmc",Some(Instant::now()+Duration::from_secs(8)),90).expect("witness solve");
+            let (c,v)=restore_count(c,m,o,4);
+            let err=(c.real-Rat::from_integer(BigInt::from(er))).abs()+(c.imag-Rat::from_integer(BigInt::from(ei))).abs();
+            assert!(err<=Rat::new(BigInt::from(1u8),BigInt::from(10u8).pow(50)));
+            // Compare discriminants using explicit expected classification.
+            let wanted=if eq{PrintedVerdict::Equivalent}else{PrintedVerdict::NotEquivalent};
+            assert!(std::mem::discriminant(&v)==std::mem::discriminant(&wanted));
+            println!("CRR_WITNESS case={name} arm={arm} expected_real={er} expected_imag={ei} expected_eq={eq} omega={o} status=matched");
+        }
+    }
 }

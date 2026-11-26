@@ -22,9 +22,9 @@ REPEAT_IDS = ("qft_16", "qft_20", "qft_22", "qft_24",
               "qpeexact_16", "qpeinexact_16", "qpeexact_20", "qpeinexact_20",
               "wstate_8", "grover-noancilla_5", "qnn_8", "vqe_8",
               "qaoa_7", "ghz_32")
-for case_id, repeat in ((c, 0) for c in REPEAT_IDS):
-    solver_secs = 60 if case_id == "qft_20" else 12
-    process_secs = 210 if case_id == "qft_20" else 65
+for case_id, repeat in ((c, r) for c in REPEAT_IDS for r in range(1 if c in ("qft_22", "qft_24") else 2)):
+    solver_secs = 120 if case_id == "qft_22" else (60 if case_id == "qft_20" else 12)
+    process_secs = 280 if case_id == "qft_22" else (145 if case_id == "qft_20" else 65)
     case = cases[case_id]
     paths = {}
     hashes = {}
@@ -41,7 +41,7 @@ for case_id, repeat in ((c, 0) for c in REPEAT_IDS):
     env["CRR_SOLVER_SECS"] = str(solver_secs)
     env["CRR_TRACE_ONLY"] = "1"
     env["CRR_REPEAT"] = str(repeat)
-    env["CRR_COST_AWARE"] = "1"
+    env["CRR_ROUTED"] = "1"
     cmd = ["timeout", "--kill-after=3s", f"{process_secs}s", "cargo", "test", "--locked",
            "--manifest-path", "rust/Cargo.toml", "-p", "quprs",
            "--test", "conditional_rr_experiment", "native_eq_residual_incidence",
@@ -52,8 +52,8 @@ for case_id, repeat in ((c, 0) for c in REPEAT_IDS):
         "TIMEOUT" if run.returncode in (124, 137) else "ERROR")
     trace = [l for l in records if l.startswith("CRR_TRACE ")]
     compare = [l for l in records if l.startswith("CRR_COMPARE ")]
-    calls = [l for l in records if l.startswith("CRR_GPMC ")]
-    cnfs = [l for l in records if l.startswith("CRR_CNF ")]
+    calls = [l for l in records if l.startswith("CRR_ROUTED_CALL ")]
+    cnfs = [l for l in records if l.startswith("CRR_DISPATCH ")]
     complete_calls = sum(" status=complete " in l for l in calls)
     # Process completion and solver evidence are separate. Never turn
     # an unsupported/censored case into a matched numerical result.
@@ -63,18 +63,18 @@ for case_id, repeat in ((c, 0) for c in REPEAT_IDS):
         solver_status = "NOT_ADMITTED"
     elif not os.environ.get("CRR_GPMC_COMPARE"):
         solver_status = "NOT_REQUESTED"
-    elif len(compare) != 1 or len(calls) != 3 or len(cnfs) != 3:
+    elif len(compare) != 1 or len(calls) != 2 or len(cnfs) != 2:
         solver_status = "MISSING_EVIDENCE"
         status = "ERROR"
-    elif "status=matched " in compare[0] and complete_calls == 3:
+    elif "status=matched " in compare[0] and complete_calls == 2:
         solver_status = "MATCHED"
-    elif "status=incomplete" in compare[0] and complete_calls < 3:
+    elif "status=incomplete" in compare[0] and complete_calls < 2:
         solver_status = "INCOMPLETE"
     else:
         solver_status = "INCONSISTENT_EVIDENCE"
         status = "ERROR"
     failed |= status == "ERROR"
-    row = dict(case=case_id, repeat=repeat, cohort="cost_aware_pilot",
+    row = dict(case=case_id, repeat=repeat, cohort="actual_routing_pilot",
                           status=status, solver_status=solver_status,
                           complete_calls=complete_calls, solver_secs=solver_secs,
                           process_secs=process_secs, returncode=run.returncode,
@@ -86,21 +86,21 @@ for case_id, repeat in ((c, 0) for c in REPEAT_IDS):
 # never turn censored baseline time into an exact speedup.
 for case_id in REPEAT_IDS:
     group = [r for r in rows if r["case"] == case_id]
-    by_arm = {a: [] for a in ("baseline", "conditioned", "iterated")}
+    by_arm = {a: [] for a in ("baseline", "routed")}
     for row in group:
         for line in row["records"]:
-            if line.startswith("CRR_GPMC "):
+            if line.startswith("CRR_ROUTED_CALL "):
                 fields = dict(t.split("=", 1) for t in line.split() if "=" in t)
                 if fields["status"] == "complete":
-                    by_arm[fields["arm"]].append(float(fields["call_s"]))
+                    by_arm[fields["arm"]].append(float(fields["total_s"]))
     stats = {a: dict(n=len(v), median_s=statistics.median(v) if v else None,
                      min_s=min(v) if v else None, max_s=max(v) if v else None)
              for a, v in by_arm.items()}
     matched = sum(r["solver_status"] == "MATCHED" for r in group)
-    speedup = (stats["baseline"]["median_s"] / stats["iterated"]["median_s"]
-               if matched == 1 else None)
+    speedup = (stats["baseline"]["median_s"] / stats["routed"]["median_s"]
+               if matched == len(group) else None)
     print(json.dumps(dict(summary_case=case_id, matched_repeats=matched,
                           statuses=[r["solver_status"] for r in group],
-                          call_stats=stats, median_call_ratio=speedup)), flush=True)
+                          post_rr_total_stats=stats, median_total_ratio=speedup)), flush=True)
 if failed:
     raise SystemExit(1)

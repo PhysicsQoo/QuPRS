@@ -356,6 +356,147 @@ fn export_single_fibres(dir:&std::path::Path,name:&str,ps:&PathSum,scale2:u32,
     }
 }
 
+
+// Condition in native P/f/v, not only in Tseitin literals. Input
+// labels remain in the domain; every eliminated hidden pivot has a
+// unique assignment. A nonlinear selector is admitted only if the
+// pivot occurs as an isolated singleton in the chosen output row.
+fn fixed_input(mut ps:PathSum,x:u64)->PathSum{
+    for i in 0..ps.v.num_qubits{
+        let p=if x>>i&1==1{Poly::from_iter([vec![]])}else{Poly::default()};
+        ps.f.substitute_var_with_poly(i as u32,&p);
+        ps.p.substitute_var_with_poly(i as u32,&p);
+    }
+    ps
+}
+fn output_pivot(ps:&PathSum,z:u64)->Option<(PathSum,usize)>{
+    let n=ps.v.num_qubits;
+    let mut candidates=Vec::new();
+    for (i,row) in ps.f.functions.iter().enumerate(){
+        for m in row.iter().filter(|m|m.len()==1&&(m[0] as usize)>=n){
+            let y=m[0];
+            if row.iter().any(|q|q!=m&&q.contains(&y)){continue;}
+            let mut sel=row.clone();sel.remove(m);
+            if z>>i&1==1{toggle(&mut sel,vec![]);}
+            if sel.len()>8{continue;}
+            let affected=ps.p.terms.keys().filter(|m|m.contains(&y)).count();
+            let work=affected.checked_mul(1usize<<sel.len())?;
+            let boolwork=ps.f.functions.iter().flatten().filter(|m|m.contains(&y)).count()
+                .checked_mul(sel.len().max(1))?;
+            if work>32768||boolwork>32768{continue;}
+            candidates.push((work+boolwork,sel.len(),i,y,sel));
+        }
+    }
+    candidates.sort_by_key(|c|(c.0,c.1,c.2,c.3));
+    for (_,size,i,y,sel) in candidates{
+        let mut t=ps.clone();
+        t.f.substitute_var_with_poly(y,&sel);
+        t.p.substitute_var_with_poly(y,&sel);
+        assert!(t.v.path_vars.remove(&y));
+        let expect=if z>>i&1==1{Poly::from_iter([vec![]])}else{Poly::default()};
+        assert_eq!(t.f.functions[i],expect);
+        if admitted(&t){return Some((t,size));}
+    }
+    None
+}
+fn condition_and_reduce(mut ps:PathSum,x:u64,z:u64,early:bool)->(PathSum,u32,usize,usize,bool){
+    ps=fixed_input(ps,x);
+    let mut scale=0;let mut pivots=0;let mut steps=0;let mut limited=false;
+    // Interleave output equation elimination and native RR. The
+    // complete output remains enforced at export, including rows
+    // not eligible for elimination and contradictory constant rows.
+    for round in 0..=ps.v.num_qubits{
+        if early||round>0{
+            let (t,r)=reduce(ps);ps=t;scale+=r.scale2;
+            steps+=r.elim+r.hh+r.omega;limited|=r.limit;
+        }
+        if let Some((t,_))=output_pivot(&ps,z){ps=t;pivots+=1;}
+        else{
+            if !early&&round==0{
+                let (t,r)=reduce(ps);ps=t;scale+=r.scale2;
+                steps+=r.elim+r.hh+r.omega;limited|=r.limit;
+                if let Some((t,_))=output_pivot(&ps,z){ps=t;pivots+=1;continue;}
+            }
+            break;
+        }
+    }
+    assert!(admitted(&ps));
+    (ps,scale,pivots,steps,limited)
+}
+#[test]
+fn native_output_conditioned_rr_exact(){
+    use quprs::{Rational,PhaseCoeff};
+    let mut checks=0;let mut pivots=0;let mut nonlinear=0;let mut rr_steps=0;
+    // Synthetic path sums with nonlinear isolated selectors, high
+    // stable IDs and exact D64 phase. Full coefficient-vector equality
+    // for the substitutions before RR; signed coefficient norm after RR.
+    for d in [2i64,8,64]{
+        for mutant in [false,true]{
+            let mut ps=PathSum::new(2);ps.set_auto_reduce(false);
+            for _ in 0..70{let id=ps.v.get_fresh_var();assert!(ps.v.path_vars.remove(&id));}
+            let a=ps.v.get_fresh_var();let b=ps.v.get_fresh_var();
+            let c=ps.v.get_fresh_var();let y=ps.v.get_fresh_var();
+            ps.f.functions[0]=Poly::from_iter([vec![0],vec![a],vec![b,c]]);
+            ps.f.functions[1]=Poly::from_iter([vec![1],vec![b],vec![c]]);
+            for (m,w) in [(vec![a],1),(vec![b,c],-1),(vec![a,c],2)]{
+                ps.p.add_term(m,PhaseCoeff::new_constant(Rational::new(w,d)));
+            }
+            if !mutant{ps.p.add_term(vec![y],PhaseCoeff::new_constant(Rational::new(1,2)));}
+            let raw=entries(&ps).unwrap();
+            for x in 0..4u64{for z in 0..4u64{
+                let want=raw[(x*4+z) as usize];
+                let mut t=fixed_input(ps.clone(),x);
+                while let Some((next,size))=output_pivot(&t,z){
+                    t=next;pivots+=1;nonlinear+=usize::from(size>1);
+                }
+                assert_eq!(entries(&t).unwrap()[(x*4+z) as usize],want);
+                for early in [false,true]{
+                    let (t,scale,_,steps,limited)=condition_and_reduce(ps.clone(),x,z,early);
+                    assert!(!limited);rr_steps+=steps;
+                    let got=entries(&t).unwrap()[(x*4+z) as usize];
+                    let norm=|r:Root|r.into_iter().map(|v|i128::from(v)*i128::from(v)).sum::<i128>();
+                    assert_eq!(norm(got).checked_shl(scale).unwrap(),norm(want));
+                    checks+=1;
+                }
+            }}
+        }
+    }
+    assert!(pivots>0&&nonlinear>0&&rr_steps>0);
+    println!("HOARE_NATIVE_OUTPUT_CONDITIONED checks={checks} pivots={pivots} multi_term_selectors={nonlinear} rr_steps={rr_steps}");
+}
+fn export_conditioned_fibres(dir:&std::path::Path,name:&str,raw:&PathSum,residual:&PathSum,
+    raw_scale:u32,build_ns:u128,rr_ns:u128,rows:&mut String){
+    // Same predeclared probes, but run only one blind and one known
+    // positive for noancilla. No source-oracle-based search policy.
+    let probes:&[(u64,u64,&str,bool)]=if name=="vchain"{&[(0,16,"blind",false)]}
+        else{&[(0,16,"blind",false),(0,28,"oracle-control",true)]};
+    for &(x,z,kind,expected) in probes{
+        for (route,base,base_scale,base_ns,early) in [
+            ("condition-first",raw,0u32,0u128,false),
+            ("rr-first",residual,raw_scale,rr_ns,true)]{
+            let t=std::time::Instant::now();
+            let (ps,scale,pivots,steps,limited)=condition_and_reduce(base.clone(),x,z,early);
+            let cond_ns=t.elapsed().as_nanos();
+            let scale=scale+base_scale;
+            let key=format!("condition-{name}-{x}-{z}-{route}");
+            if let Some(a)=entries(&ps){
+                assert_eq!(a[(x*32+z) as usize].iter().any(|&v|v!=0),expected);
+            }
+            let t=std::time::Instant::now();
+            let plan=native_dyadic_cnf::native_dyadic_fibre(&ps,x,z,false,32768,262144);
+            let enc=t.elapsed().as_nanos();
+            let (status,vars,clauses,phase,d,primary)=if let Some((c,bits,d,primary))=plan{
+                let mut text=format!("p cnf {} {}\n",c.vars,c.clauses.len());
+                for row in &c.clauses{for l in row{text.push_str(&format!("{l} "));}text.push_str("0\n");}
+                std::fs::write(dir.join(format!("{key}.cnf")),text).unwrap();
+                ("READY",c.vars,c.clauses.len(),bits.iter().map(|l|l.to_string()).collect::<Vec<_>>().join(","),d,primary)
+            }else{("ENCODING_LIMIT_OR_UNSUPPORTED",0,0,String::new(),0,0)};
+            rows.push_str(&format!("{key}\t{name}\t{x}\t{z}\t{kind}\t{route}\t{status}\t{primary}\t{vars}\t{clauses}\t{phase}\t{d}\t{scale}\t{build_ns}\t{}\t{enc}\t{expected}\n",base_ns+cond_ns));
+            println!("HOARE_PAPER_CONDITIONED name={name} route={route} x={x} z={z} h_before={} h_after={} pivots={pivots} rr_steps={steps} scale2={scale} terms={} limited={limited} status={status} vars={vars} clauses={clauses} conditioning_ns={cond_ns}",h(base),h(&ps),terms(&ps));
+        }
+    }
+}
+
 #[test]
 fn paper_qwalk_native_source_admission(){
     let Some(dir)=std::env::var_os("HOARE_PAPER_QWALK_DIR") else{
@@ -364,6 +505,7 @@ fn paper_qwalk_native_source_admission(){
     let export=std::env::var_os("HOARE_PAPER_PROJECTED_DIR").map(std::path::PathBuf::from);
     let mut rows=String::new();
     let mut single_rows=String::new();
+    let mut conditioned_rows=String::new();
     for (name,gates,rx,expected_bad) in [("vchain",417,51,false),("noancilla",1305,183,true)]{
         let src=std::fs::read_to_string(std::path::Path::new(&dir).join(format!("{name}.qasm"))).unwrap();
         let (ops,n,rxc)=source_ops(&src);
@@ -404,7 +546,8 @@ fn paper_qwalk_native_source_admission(){
             if let Some(dir)=&export{
                 export_projected(dir,name,if specialize{"hybrid-pre"}else{"hybrid"},&out,initial_h,r.scale2,build_ns,rr_ns,expected_bad,&mut rows);
                 if specialize{export_projected(dir,name,"hybrid-pre-heap",&out,initial_h,r.scale2,build_ns,rr_ns,expected_bad,&mut rows);
-                    export_single_fibres(dir,name,&out,r.scale2,build_ns,rr_ns,&mut single_rows); }
+                    export_single_fibres(dir,name,&out,r.scale2,build_ns,rr_ns,&mut single_rows);
+                    export_conditioned_fibres(dir,name,&ps,&out,r.scale2,build_ns,rr_ns,&mut conditioned_rows); }
             }
             let mut bad=0usize;let mut checks=0usize;
             let status=if let Some(a)=entries(&out){
@@ -421,5 +564,6 @@ fn paper_qwalk_native_source_admission(){
         }
     }
     if let Some(dir)=&export{std::fs::write(dir.join("paper-projected.tsv"),rows).unwrap();
-        std::fs::write(dir.join("paper-single-fibre.tsv"),single_rows).unwrap();}
+        std::fs::write(dir.join("paper-single-fibre.tsv"),single_rows).unwrap();
+        std::fs::write(dir.join("paper-conditioned-fibre.tsv"),conditioned_rows).unwrap();}
 }

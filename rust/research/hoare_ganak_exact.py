@@ -1929,9 +1929,13 @@ def run_gpmc_pure(directory, exe, tmp, deadline):
         run_native_gse_wmc(directory,solve,deadline,long_metrics)
         long_metrics=None
         query_cap=5
-    if (directory/"paper-single-fibre.tsv").is_file():
+    if (directory/"paper-conditioned-fibre.tsv").is_file():
+        run_paper_single_fibre(directory,exe,tmp,conditioned=True)
+    elif (directory/"paper-single-fibre.tsv").is_file():
         run_paper_single_fibre(directory,exe,tmp)
-    if (directory/"paper-projected.tsv").is_file():
+    # Freeze previously accepted timeout baselines instead of repeatedly
+    # spending six additional 30s queries during conditioned-RR research.
+    if (directory/"paper-projected.tsv").is_file() and not (directory/"paper-conditioned-fibre.tsv").is_file():
         query_cap=30
         deadline=time.monotonic()+240
         long_metrics=[]
@@ -2206,15 +2210,15 @@ def single_fibre_decode(value,radix,bound,d):
         raise ValueError("packed fibre exceeds primary bound")
     return digits
 
-def run_paper_single_fibre(directory,exe,tmp):
+def run_paper_single_fibre(directory,exe,tmp,conditioned=False):
     fields="key case x z kind route status primary vars clauses phase denominator scale build_ns rr_ns encoding_ns expected".split()
-    with (directory/"paper-single-fibre.tsv").open() as f:
+    with (directory/("paper-conditioned-fibre.tsv" if conditioned else "paper-single-fibre.tsv")).open() as f:
         plans=list(csv.DictReader(f,fieldnames=fields,delimiter="\t"))
-    assert len(plans)==8
+    assert len(plans)==(6 if conditioned else 8)
     rows=[]
     # Each route gets its own equal 120 s solver-stage envelope, 30 s/query.
     # Alternate route order on successive probes, no oracle-driven stopping.
-    spent={"fixed":0.0,"affine":0.0}
+    spent=({"condition-first":0.0,"rr-first":0.0} if conditioned else {"fixed":0.0,"affine":0.0})
     for i in range(0,len(plans),2):
         pair=plans[i:i+2]
         if (i//2)%2:pair.reverse()
@@ -2235,7 +2239,7 @@ def run_paper_single_fibre(directory,exe,tmp):
                 query=pathlib.Path(tmp)/"single-fibre.cnf"
                 query.write_text(data)
                 t=time.monotonic()
-                remaining=min(30,120-spent[route])
+                remaining=min(30,(90 if conditioned else 120)-spent[route])
                 try:
                     if remaining<=0:raise TimeoutError("route budget")
                     out=profile_gpmc([str(exe),"-mode=1","-natw",str(query)],remaining,
@@ -2254,12 +2258,19 @@ def run_paper_single_fibre(directory,exe,tmp):
                 r["query_s"]=time.monotonic()-t
                 spent[route]+=r["query_s"]
             rows.append(r)
-            print("HOARE_PAPER_SINGLE_GPMC "+json.dumps(r),flush=True)
+            print(("HOARE_PAPER_CONDITIONED_GPMC " if conditioned else "HOARE_PAPER_SINGLE_GPMC ")+json.dumps(r),flush=True)
     for i in range(0,len(rows),2):
         a,b=rows[i:i+2]
         if a["digits"] is not None and b["digits"] is not None:
-            assert a["digits"]==b["digits"],(a["key"],b["key"])
-    print("HOARE_PAPER_SINGLE_GPMC_SUMMARY "+json.dumps(dict(
+            if conditioned:
+                assert any(a["coefficients"])==any(b["coefficients"]),(a["key"],b["key"])
+                # RR may alter raw phase coefficients and normalization.
+                na=sum(v*v for v in a["coefficients"])<<a["scale"]
+                nb=sum(v*v for v in b["coefficients"])<<b["scale"]
+                assert na==nb,(a["key"],b["key"],na,nb)
+            else:
+                assert a["digits"]==b["digits"],(a["key"],b["key"])
+    print(("HOARE_PAPER_CONDITIONED_GPMC_SUMMARY " if conditioned else "HOARE_PAPER_SINGLE_GPMC_SUMMARY ")+json.dumps(dict(
         records=len(rows),exact=sum(r["digits"] is not None for r in rows),
         blind_nonzero=sum(r["verdict"]=="REFUTED" and r["kind"]=="blind" for r in rows),
         oracle_control_nonzero=sum(r["verdict"]=="REFUTED" and r["kind"]=="oracle-control" for r in rows),

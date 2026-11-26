@@ -1564,7 +1564,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: PhysicsQoo/RaWMoCS
-          ref: 49c33198d66554c89f3f17167d4d1b7f2276a0ca
+          ref: 7d9df869608baa39c984641805cbc75f515b613f
           path: .rawmocs-candidate
           persist-credentials: false
       - uses: actions/checkout@v4
@@ -1590,7 +1590,7 @@ jobs:
         run: |
           set -euo pipefail
           test "$(git -C .rawmocs rev-parse HEAD)" = ef8d1ee606bed672ee9be62d189a2b3fbcc905a0
-          test "$(git -C .rawmocs-candidate rev-parse HEAD)" = 49c33198d66554c89f3f17167d4d1b7f2276a0ca
+          test "$(git -C .rawmocs-candidate rev-parse HEAD)" = 7d9df869608baa39c984641805cbc75f515b613f
           test "$(git -C .gpmc rev-parse HEAD)" = 89bbc89d0de918e7a5385740355df55765039230
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends cmake ninja-build libgmp-dev libmpfr-dev zlib1g-dev m4 make gcc pkg-config time

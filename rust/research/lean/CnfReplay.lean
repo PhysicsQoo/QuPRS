@@ -327,9 +327,24 @@ def replayWeights (n : Nat) (records : List Record) : Option (List Nat) := Id.ru
 
 def dimacsIds (n : Nat) : List Nat := (List.range n).map Nat.succ
 
+-- Every ID used in a Boolean row must belong to the declared domain.
+-- Phase source IDs are not DIMACS IDs; the original phase binding
+-- check remains responsible for their mapping.
+def rowIds : Record → List Nat
+  | .zero z => [z]
+  | .andGate z xs => z :: xs
+  | .xorGate z a b => [z,a,b]
+  | .eqGate a b => [a,b]
+  | _ => []
+
+def recordsKnown (ids : List Nat) : List Record → Bool
+  | [] => true
+  | r :: rs => inputsKnown ids (rowIds r) && recordsKnown ids rs
+
 def domainCheck (n : Nat) (rs : List Record) : Bool :=
   let ids := finalSeen (liveIds rs) rs
-  inputsKnown ids (dimacsIds n) && inputsKnown (dimacsIds n) ids
+  (inputsKnown ids (dimacsIds n) && inputsKnown (dimacsIds n) ids) &&
+    recordsKnown (dimacsIds n) rs
 
 def replayRows (n : Nat) (records : List Record) : Option (List (List Int) × List Nat) :=
   if topo (liveIds records) records && domainCheck n records then
@@ -823,9 +838,10 @@ theorem replay_domain_checked (n : Nat) (rs : List Record)
 theorem domain_membership (n : Nat) (rs : List Record)
     (h : domainCheck n rs = true) (x : Nat) :
     x ∈ finalSeen (liveIds rs) rs ↔ x ∈ dimacsIds n := by
-  have h' : (inputsKnown (finalSeen (liveIds rs) rs) (dimacsIds n) &&
-      inputsKnown (dimacsIds n) (finalSeen (liveIds rs) rs)) = true := h
-  have hs := and_true_parts h'
+  have h' : ((inputsKnown (finalSeen (liveIds rs) rs) (dimacsIds n) &&
+      inputsKnown (dimacsIds n) (finalSeen (liveIds rs) rs)) &&
+      recordsKnown (dimacsIds n) rs) = true := h
+  have hs := and_true_parts (and_true_parts h').1
   exact ⟨inputs_known_sound (dimacsIds n) (finalSeen (liveIds rs) rs) hs.2 x,
     inputs_known_sound (finalSeen (liveIds rs) rs) (dimacsIds n) hs.1 x⟩
 
@@ -1065,7 +1081,7 @@ theorem records_guard_iff (v : Nat → Bool) (rs : List Record) :
     | eqGate a b =>
       change (v a = v b ∧ (defsSem (liftVal v) rs ∧ guardTruth v rs = true)) ↔
         ((True ∧ defsSem (liftVal v) rs) ∧ ((v a == v b) && guardTruth v rs) = true)
-      cases ha : v a <;> cases hb : v b <;> simp [ha, hb]
+      cases v a <;> cases v b <;> simp
 
 -- The canonical extension satisfies the full record sequence iff its
 -- diagonal guard passes. This is not yet a WMC sum theorem.
@@ -1075,6 +1091,173 @@ theorem canonical_guard_iff (v : Nat → Bool) (seen : List Nat) (rs : List Reco
   let h := records_guard_iff (extendVal v rs) rs
   Iff.intro (fun hs => (h.mp hs).2)
     (fun hg => h.mpr ⟨extend_defs_sound v seen rs ht, hg⟩)
+
+
+-- All row IDs lie inside the accepted finite DIMACS domain.
+theorem records_known_sound (ids : List Nat) (rs : List Record)
+    (h : recordsKnown ids rs = true) :
+    ∀ r, r ∈ rs → ∀ x, x ∈ rowIds r → x ∈ ids := by
+  induction rs with
+  | nil => intro r hm; cases hm
+  | cons r rs ih =>
+    have h' : (inputsKnown ids (rowIds r) && recordsKnown ids rs) = true := h
+    have hh := and_true_parts h'
+    intro q hm x hx
+    rcases List.mem_cons.mp hm with he | hm
+    · subst q
+      exact inputs_known_sound ids (rowIds r) hh.1 x hx
+    · exact ih hh.2 q hm x hx
+
+theorem replay_record_ids (n : Nat) (rs : List Record)
+    (cs : List (List Int)) (ws : List Nat)
+    (hr : replayRows n rs = some (cs, ws)) :
+    ∀ r, r ∈ rs → ∀ x, x ∈ rowIds r → x ∈ dimacsIds n :=
+  let h : ((inputsKnown (finalSeen (liveIds rs) rs) (dimacsIds n) &&
+      inputsKnown (dimacsIds n) (finalSeen (liveIds rs) rs)) &&
+      recordsKnown (dimacsIds n) rs) = true :=
+    replay_domain_checked n rs cs ws hr
+  records_known_sound (dimacsIds n) rs (and_true_parts h).2
+
+theorem record_lift_coherent (v : Nat → Bool) (r : Record)
+    (h : ∀ x, x ∈ rowIds r → 0 < x) : recordCoherent (liftVal v) r := by
+  cases r with
+  | live s id => exact True.intro
+  | phase z xs => exact True.intro
+  | zero z => exact lift_coherent v z (h z (List.mem_cons.mpr (Or.inl rfl)))
+  | andGate z xs =>
+    exact ⟨lift_coherent v z (h z (List.mem_cons.mpr (Or.inl rfl))),
+      fun x hm => lift_coherent v x (h x (List.mem_cons.mpr (Or.inr hm)))⟩
+  | xorGate z a b =>
+    exact ⟨lift_coherent v z (h z (by simp [rowIds])),
+      lift_coherent v a (h a (by simp [rowIds])),
+      lift_coherent v b (h b (by simp [rowIds]))⟩
+  | eqGate a b =>
+    exact ⟨lift_coherent v a (h a (by simp [rowIds])),
+      lift_coherent v b (h b (by simp [rowIds]))⟩
+
+theorem accepted_lift_coherent (n : Nat) (rs : List Record)
+    (cs : List (List Int)) (ws : List Nat)
+    (hr : replayRows n rs = some (cs, ws)) (v : Nat → Bool) :
+    ∀ r, r ∈ rs → recordCoherent (liftVal v) r :=
+  fun r hm => record_lift_coherent v r
+    (fun x hx => ((dimacs_ids_iff n x).mp (replay_record_ids n rs cs ws hr r hm x hx)).1)
+
+-- Uniqueness of definition assignments does not require equality
+-- guards to pass. This is crucial for the no-model direction.
+theorem definition_agreement_step (a b : Int → Bool) (seen : List Nat) (r : Record)
+    (h : agreeOn a b seen) (hk : inputsKnown seen (gateInputs r) = true)
+    (ha : defSem a r) (hb : defSem b r) :
+    agreeOn a b (nextSeen seen r) := by
+  cases r with
+  | eqGate x y => exact h
+  | live s id => exact h
+  | phase z xs => exact h
+  | zero z => exact gate_agreement_step a b seen (.zero z) h hk ha hb
+  | andGate z xs => exact gate_agreement_step a b seen (.andGate z xs) h hk ha hb
+  | xorGate z x y => exact gate_agreement_step a b seen (.xorGate z x y) h hk ha hb
+
+theorem topological_defs_agreement (a b : Int → Bool) (seen : List Nat) (rs : List Record)
+    (ht : topo seen rs = true) (h : agreeOn a b seen)
+    (ha : defsSem a rs) (hb : defsSem b rs) :
+    agreeOn a b (finalSeen seen rs) := by
+  induction rs generalizing seen with
+  | nil => exact h
+  | cons r rs ih =>
+    have ht' : ((inputsKnown seen (gateInputs r) &&
+        (match gateOutput r with | some z => !natMem z seen | none => true)) &&
+        topo (nextSeen seen r) rs) = true := ht
+    have hh := and_true_parts ht'
+    have hs := definition_agreement_step a b seen r h (and_true_parts hh.1).1
+      (ha r (List.mem_cons.mpr (Or.inl rfl))) (hb r (List.mem_cons.mpr (Or.inl rfl)))
+    exact ih (nextSeen seen r) hh.2 hs
+      (fun q hm => ha q (List.mem_cons.mpr (Or.inr hm)))
+      (fun q hm => hb q (List.mem_cons.mpr (Or.inr hm)))
+
+theorem guard_agreement (a b : Nat → Bool) (ids : List Nat) (rs : List Record)
+    (h : agreeOn (liftVal a) (liftVal b) ids)
+    (hk : recordsKnown ids rs = true) : guardTruth a rs = guardTruth b rs := by
+  induction rs with
+  | nil => rfl
+  | cons r rs ih =>
+    have hk' : (inputsKnown ids (rowIds r) && recordsKnown ids rs) = true := hk
+    have hh := and_true_parts hk'
+    have ht := ih hh.2
+    cases r with
+    | live s id => exact ht
+    | phase z xs => exact ht
+    | zero z => exact ht
+    | andGate z xs => exact ht
+    | xorGate z x y => exact ht
+    | eqGate x y =>
+      have hx : a x = b x := h x (inputs_known_sound ids [x,y] hh.1 x (by simp))
+      have hy : a y = b y := h y (inputs_known_sound ids [x,y] hh.1 y (by simp))
+      change ((a x == a y) && guardTruth a rs) = ((b x == b y) && guardTruth b rs)
+      rw [hx, hy, ht]
+
+-- Actual parsed CNF: the constructive witness satisfies it exactly
+-- when the evaluated diagonal guard is true.
+theorem accepted_canonical_iff (gate cnf : List Nat) (n : Nat)
+    (rs : List Record) (p : ParsedCnf) (cs : List (List Int)) (ws : List Nat)
+    (hg : parseGate gate = some (n, rs)) (hp : parseCnf cnf = some p)
+    (hr : replayRows n rs = some (cs, ws)) (h : check gate cnf = true)
+    (v : Nat → Bool) :
+    satisfies p.clauses (liftVal (extendVal v rs)) ↔
+      guardTruth (extendVal v rs) rs = true :=
+  (accepted_records_sound gate cnf n rs p cs ws hg hp hr h
+    (liftVal (extendVal v rs)) (accepted_lift_coherent n rs cs ws hr (extendVal v rs))).trans
+    (canonical_guard_iff v (liveIds rs) rs (replay_rows_binding n rs cs ws hr).2)
+
+theorem accepted_model_canonical_agreement (gate cnf : List Nat) (n : Nat)
+    (rs : List Record) (p : ParsedCnf) (cs : List (List Int)) (ws : List Nat)
+    (hg : parseGate gate = some (n, rs)) (hp : parseCnf cnf = some p)
+    (hr : replayRows n rs = some (cs, ws)) (h : check gate cnf = true)
+    (v u : Nat → Bool) (hu : satisfies p.clauses (liftVal u))
+    (hl : agreeOn (liftVal u) (liftVal v) (liveIds rs)) :
+    agreeOn (liftVal u) (liftVal (extendVal v rs)) (dimacsIds n) := by
+  have ht := (replay_rows_binding n rs cs ws hr).2
+  have hs := (accepted_records_sound gate cnf n rs p cs ws hg hp hr h
+    (liftVal u) (accepted_lift_coherent n rs cs ws hr u)).mp hu
+  have hd := ((records_guard_iff u rs).mp hs).1
+  have ha := topological_defs_agreement (liftVal u) (liftVal (extendVal v rs))
+    (liveIds rs) rs ht (agree_trans _ _ _ _ hl (extend_preserves v (liveIds rs) rs ht))
+    hd (extend_defs_sound v (liveIds rs) rs ht)
+  exact fun x hx => ha x ((domain_membership n rs (replay_domain_checked n rs cs ws hr) x).mpr hx)
+
+-- Existence of a satisfying extension is equivalent to the canonical
+-- guard. Uniqueness is modulo the declared finite domain, not all Nat.
+theorem accepted_extension_exists_iff (gate cnf : List Nat) (n : Nat)
+    (rs : List Record) (p : ParsedCnf) (cs : List (List Int)) (ws : List Nat)
+    (hg : parseGate gate = some (n, rs)) (hp : parseCnf cnf = some p)
+    (hr : replayRows n rs = some (cs, ws)) (h : check gate cnf = true)
+    (v : Nat → Bool) :
+    (∃ u : Nat → Bool, agreeOn (liftVal u) (liftVal v) (liveIds rs) ∧
+      satisfies p.clauses (liftVal u)) ↔ guardTruth (extendVal v rs) rs = true := by
+  have ht := (replay_rows_binding n rs cs ws hr).2
+  constructor
+  · rintro ⟨u, hl, hu⟩
+    have ha := accepted_model_canonical_agreement gate cnf n rs p cs ws hg hp hr h v u hu hl
+    have hd : ((inputsKnown (finalSeen (liveIds rs) rs) (dimacsIds n) &&
+        inputsKnown (dimacsIds n) (finalSeen (liveIds rs) rs)) &&
+        recordsKnown (dimacsIds n) rs) = true := replay_domain_checked n rs cs ws hr
+    have he := guard_agreement u (extendVal v rs) (dimacsIds n) rs ha (and_true_parts hd).2
+    have hs := (accepted_records_sound gate cnf n rs p cs ws hg hp hr h
+      (liftVal u) (accepted_lift_coherent n rs cs ws hr u)).mp hu
+    exact he.symm.trans ((records_guard_iff u rs).mp hs).2
+  · intro hc
+    exact ⟨extendVal v rs, fun x hx => (extend_preserves v (liveIds rs) rs ht x hx).symm,
+      (accepted_canonical_iff gate cnf n rs p cs ws hg hp hr h v).mpr hc⟩
+
+theorem accepted_guard_rejects (gate cnf : List Nat) (n : Nat)
+    (rs : List Record) (p : ParsedCnf) (cs : List (List Int)) (ws : List Nat)
+    (hg : parseGate gate = some (n, rs)) (hp : parseCnf cnf = some p)
+    (hr : replayRows n rs = some (cs, ws)) (h : check gate cnf = true)
+    (v : Nat → Bool) (hf : guardTruth (extendVal v rs) rs = false) :
+    ¬ (∃ u : Nat → Bool, agreeOn (liftVal u) (liftVal v) (liveIds rs) ∧
+      satisfies p.clauses (liftVal u)) := by
+  intro he
+  have ht := (accepted_extension_exists_iff gate cnf n rs p cs ws hg hp hr h v).mp he
+  rw [hf] at ht
+  cases ht
 
 -- Localize any unexpected dependency to a definition vs theorem.
 #print axioms splitBytes
@@ -1177,6 +1360,19 @@ theorem canonical_guard_iff (v : Nat → Bool) (seen : List Nat) (rs : List Reco
 #print axioms extend_defs_sound
 #print axioms records_guard_iff
 #print axioms canonical_guard_iff
+#print axioms rowIds
+#print axioms recordsKnown
+#print axioms records_known_sound
+#print axioms replay_record_ids
+#print axioms record_lift_coherent
+#print axioms accepted_lift_coherent
+#print axioms definition_agreement_step
+#print axioms topological_defs_agreement
+#print axioms guard_agreement
+#print axioms accepted_canonical_iff
+#print axioms accepted_model_canonical_agreement
+#print axioms accepted_extension_exists_iff
+#print axioms accepted_guard_rejects
 end QuPRS.CnfReplay
 
 def main (args : List String) : IO Unit := do

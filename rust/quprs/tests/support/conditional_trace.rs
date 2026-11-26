@@ -2280,3 +2280,131 @@ fn exact_trace_source_locked_receipts(){
     assert!(passed>0&&active>0,"no nontrivial real residual certificate");
     println!("CRR_SOURCE_RECEIPT_SUMMARY cohort=4 certified={passed} nontrivial={active} selected={selected_count} not_admitted={skipped} rejected={refused} solver_calls=0");
 }
+
+
+// Direct, bounded research invocation of the *same serialized bytes*
+// whose digest is recorded. Do not change production adapter visibility,
+// global environment or solver dispatch. GNU timeout is the CI guard.
+#[cfg(test)]
+fn receipt_solve(dimacs:&str,exe:&std::path::Path,case:&str,arm:&str)
+    ->Option<(Count,String,String)>{
+    use std::process::Command;
+    use std::io::Write;
+    use std::time::{SystemTime,UNIX_EPOCH};
+    struct Temp(std::path::PathBuf);
+    impl Drop for Temp{fn drop(&mut self){let _=std::fs::remove_dir_all(&self.0);}}
+    let root=std::env::temp_dir().join(format!("crr-solver-receipt-{}-{}",std::process::id(),
+        SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()));
+    std::fs::create_dir(&root).expect("receipt directory");
+    let root=Temp(root);
+    let cnf=root.0.join("input.cnf");
+    let mut file=std::fs::OpenOptions::new().write(true).create_new(true).open(&cnf).unwrap();
+    file.write_all(dimacs.as_bytes()).unwrap();drop(file);
+    let cnf_sha=receipt_sha(&std::fs::read(&cnf).unwrap());
+    assert_eq!(cnf_sha,receipt_sha(dimacs.as_bytes()));
+    let exe_sha=receipt_sha(&std::fs::read(exe).unwrap());
+    let out=Command::new("timeout").args(["--kill-after=2s","12s"])
+        .arg(exe).args(["-mode=1","-prec=90"]).arg(&cnf).output().expect("bounded GPMC invocation");
+    assert_eq!(receipt_sha(&std::fs::read(&cnf).unwrap()),cnf_sha);
+    assert_eq!(receipt_sha(&std::fs::read(exe).unwrap()),exe_sha);
+    let stdout_sha=receipt_sha(&out.stdout);let stderr_sha=receipt_sha(&out.stderr);
+    let prefix=format!("CRR_SOLVER_INVOCATION case={case} arm={arm} cnf_sha256={cnf_sha} executable_sha256={exe_sha} stdout_sha256={stdout_sha} stderr_sha256={stderr_sha} weight_bits=256 digits=90 deadline_s=12");
+    if !out.status.success(){
+        println!("{prefix} status=incomplete exit={:?} solver_count_certified=false",out.status.code());
+        return None;
+    }
+    let stdout=std::str::from_utf8(&out.stdout).expect("UTF8 GPMC stdout");
+    let raw=quprs::precision_count::parse_stdout(stdout).expect("typed printed GPMC count");
+    println!("{prefix} status=complete raw_real={} raw_imag={} real_half_unit={} imag_half_unit={} format={:?} solver_count_certified=false",
+        raw.real,raw.imag,raw.real_half_unit,raw.imag_half_unit,raw.format_name);
+    Some((raw,cnf_sha,stdout_sha))
+}
+
+#[test]
+fn gpmc_trace_witness_source_receipts(){
+    use quprs::{check_equivalence_with_options,EquivalenceStatus,VerificationMethod,VerificationOptions};
+    use quprs::qasm::parse_qasm_str;
+    use quprs::precision_count::PrintedVerdict;
+    use num_bigint::BigInt;
+    use num_traits::Signed;
+    use std::path::Path;
+    let exe=std::path::PathBuf::from(std::env::var("QUPRS_GPMC_PATH").expect("pinned GPMC"));
+    let root=Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    // Small source-locked analytical controls. The QASM byte hashes are
+    // fixed independently of the parser and solver. HH is identity,
+    // HSH has normalized trace magnitude 1/sqrt(2), X has trace zero.
+    const HH:&str="OPENQASM 2.0;\ninclude \"qelib1.inc\";\nqreg q[1];\nh q[0];\nh q[0];\n";
+    const HSH:&str="OPENQASM 2.0;\ninclude \"qelib1.inc\";\nqreg q[1];\nh q[0];\ns q[0];\nh q[0];\n";
+    const X:&str="OPENQASM 2.0;\ninclude \"qelib1.inc\";\nqreg q[1];\nx q[0];\n";
+    const HH_SHA:&str="444ebc5f455b5d5d2d5b41ba842ce4563cce55111e4e71cb4712387544f8e9e2";
+    const HSH_SHA:&str="7a2a99a74691a0129e85bd2ab91b9bf944736b02873891c8a5bfab6cda154b4c";
+    const X_SHA:&str="6d0c49fcc92e79d6bbed4f2d7f0eb06926666988cf4c87271d8ae059f572580a";
+    let mut cases=Vec::new();
+    for (id,source,pin,want) in [("hh_source_eq",HH,HH_SHA,2i64),("hsh_source_neq",HSH,HSH_SHA,1),("x_source_neq",X,X_SHA,0)]{
+        assert_eq!(receipt_sha(source.as_bytes()),pin);
+        assert_eq!(receipt_sha(HH.as_bytes()),HH_SHA);
+        cases.push((id,source.to_string(),HH.to_string(),pin.to_string(),HH_SHA.to_string(),Some(want)));
+    }
+    for (id,file,a,b) in [
+        ("qft_16","qft_nativegates_ibm_qiskit_opt0_16.qasm","398b32262259af75fcf44ab711b77281818d0cc7","d321013120dbad7082892026e1ee7a70f9edc206"),
+        ("qpeexact_8","qpeexact_nativegates_ibm_qiskit_opt0_8.qasm","4582df5b4cefe3cc69227d29eb2894ccd1c5412a","46a2b00a19bbc769aefa77eebb14fa262fd98302"),
+    ]{
+        let (src,sa)=receipt_read(&root.join("benchmarks/MQTBench").join(file),a);
+        let (dst,sb)=receipt_read(&root.join("benchmarks/MQTBench/h,ry,rz,cx").join(file),b);
+        cases.push((id,src,dst,sa,sb,None));
+    }
+    let (mut controls,mut real_pairs,mut incomplete)=(0,0,0);
+    for (case,src,dst,src_sha,dst_sha,expected) in cases{
+        let (a,n)=parse_qasm_str(&src).expect("source parse");
+        let (b,m)=parse_qasm_str(&dst).expect("target parse");assert_eq!(n,m);
+        let r=check_equivalence_with_options(n,&a,&b,&VerificationOptions{
+            method:VerificationMethod::ReductionRules,rr_tolerance:0.0,timeout_secs:20,
+            ..VerificationOptions::default()
+        }).expect("native RR");
+        assert!(!r.solver_invoked&&!r.rr_approximate);
+        assert!(!matches!(&r.status,EquivalenceStatus::Timeout|EquivalenceStatus::MemoryOut));
+        let p=r.final_pathsum();let start=Trace::from_native(p).expect("receipt admission");
+        assert!(start.size()<=TERM_CAP);
+        let twice=(n+p.v.path_vars.len()) as i32;
+        let (end,ledger,counts)=record_guarded_ledger(&start);
+        let k=2*(counts.1+counts.2)+counts.3;
+        check_ordered_ledger(p,&start,&end,&ledger,twice,counts,k).expect("real ledger");
+        let reduced=end.encoding_view(p);
+        let (baseline,_,_)=route_encode(p);
+        let (conditioned,_,_)=route_encode(&reduced);
+        let mut results=Vec::new();
+        for (arm,mgr,m,o) in [("baseline",baseline,0,0),("certified",conditioned,counts.1+counts.2,counts.3)]{
+            let cnf=mgr.try_to_dimacs_string("gpmc").expect("solver receipt CNF");
+            if let Some((raw,cnf_sha,stdout_sha))=receipt_solve(&cnf,&exe,case,arm){
+                // Midpoint distance uses exact rational scaling and an
+                // adjusted integer exponent; no rounded sqrt2 needed.
+                let factor=Rat::from_integer(BigInt::from(1u8)<<(m+o/2));
+                let scaled_norm=(&raw.real*&raw.real+&raw.imag*&raw.imag)*&factor*&factor;
+                let normalizer=Rat::from_integer(BigInt::from(1u8)<<((twice-(o%2) as i32) as usize));
+                let trace_sq=scaled_norm/normalizer;
+                let (restored,verdict)=restore_count(raw,m,o,twice);
+                println!("CRR_SOLVER_BOUND case={case} arm={arm} source_sha256={src_sha} target_sha256={dst_sha} residual_sha256={} final_sha256={} ledger_sha256={} cnf_sha256={cnf_sha} stdout_sha256={stdout_sha} normalization_twice={twice} multiplier_squared_exponent={} trace_modulus_squared={trace_sq} verdict={verdict:?} source_semantics_certified=false cnf_semantics_certified=false solver_count_certified=false",
+                    receipt_trace(&start),receipt_trace(&end),receipt_ledger(&ledger),2*m+o);
+                if let Some(want)=expected{
+                    let truth=Rat::new(want.into(),2.into());
+                    assert!((&trace_sq-&truth).abs()<=Rat::new(1.into(),BigInt::from(10u8).pow(50)));
+                    let wanted=if want==2{PrintedVerdict::Equivalent}else{PrintedVerdict::NotEquivalent};
+                    assert_eq!(std::mem::discriminant(&verdict),std::mem::discriminant(&wanted));
+                }
+                results.push((trace_sq,restored,verdict));
+            }else{incomplete+=1;}
+        }
+        if expected.is_some(){assert_eq!(results.len(),2,"analytic control incomplete");controls+=1;}
+        if results.len()==2{
+            let (x,a,va)=&results[0];let (y,b,vb)=&results[1];
+            let tol=Rat::new(1.into(),BigInt::from(10u8).pow(50));
+            assert!((x-y).abs()<=tol);
+            assert_eq!(std::mem::discriminant(va),std::mem::discriminant(vb));
+            let scale=Rat::from_integer(BigInt::from(1u8)<<(twice as usize/2));
+            assert!(((&a.real-&b.real).abs()+(&a.imag-&b.imag).abs())/scale<=tol);
+            if expected.is_none(){real_pairs+=1;}
+        }
+    }
+    assert_eq!(controls,3);assert!(real_pairs>0,"no complete real solver receipt pair");
+    println!("CRR_SOLVER_RECEIPT_SUMMARY analytic_controls={controls} real_matched_pairs={real_pairs} incomplete_calls={incomplete} source_semantics_certified=false solver_count_certified=false");
+}

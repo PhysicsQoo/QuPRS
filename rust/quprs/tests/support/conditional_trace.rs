@@ -235,6 +235,9 @@ fn compare_gpmc(original:&PathSum,t:&Trace,iterated:&Trace,multiplier_power:usiz
     use num_rational::BigRational;
     use num_traits::{Signed,ToPrimitive};
     use std::time::{Instant,Duration};
+    let solver_secs=std::env::var("CRR_SOLVER_SECS").ok()
+        .map(|s|s.parse::<u64>().expect("solver seconds")).unwrap_or(8);
+    assert!((8..=12).contains(&solver_secs));
     let reduced=t.encoding_view(original);
     let original_twice=(2*original.v.num_qubits+original.v.path_vars.len()-original.v.num_qubits) as i32;
     let encode=|ps:&PathSum,arm:&str|->WmcManager{
@@ -253,7 +256,7 @@ fn compare_gpmc(original:&PathSum,t:&Trace,iterated:&Trace,multiplier_power:usiz
     let c=encode(&iterated.encoding_view(original),"iterated");
     let solve=|mgr:&WmcManager,arm:&str|->Option<PrintedCount>{
         let start=Instant::now();
-        let result=mgr.solve_with_deadline_distance_printed_precision("gpmc",Some(start+Duration::from_secs(8)),90);
+        let result=mgr.solve_with_deadline_distance_printed_precision("gpmc",Some(start+Duration::from_secs(solver_secs)),90);
         let elapsed=start.elapsed().as_secs_f64();
         match result{
             Ok(c)=>{

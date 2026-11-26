@@ -145,6 +145,10 @@ fn native_eq_residual_incidence() {
         println!("CRR_SKIP case={case} reason=residual_admission"); return;
     }
     conditional_trace::profile(p,&case);
+    if std::env::var_os("CRR_TRACE_ONLY").is_some(){
+        println!("CRR_SKIP case={case} reason=trace_only_expanded");
+        return;
+    }
     let start=std::time::Instant::now();
     // Types: 0 internal singleton, 1 input singleton, 2 two guards.
     let mut probes=[[0usize;3];3];

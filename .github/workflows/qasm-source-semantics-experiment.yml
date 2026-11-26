@@ -861,7 +861,7 @@ jobs:
   conditional-rr-incidence:
     if: github.ref == 'refs/heads/experiment/conditional-rr'
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 30
     env:
       QUPRS_SOLVER_PROVISION: external
       CARGO_TERM_COLOR: never

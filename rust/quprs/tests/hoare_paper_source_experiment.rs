@@ -2459,7 +2459,7 @@ fn output_quotient(ps:&PathSum,mask:u64,z:u64)->Result<OutputQuotient,&'static s
             q.rows.push((None,c));
             if assigned&&target!=c{q.impossible=true;}
         }else{
-            let &(r,rc)=groups.entry(key).or_insert((i,c));
+            let (r,rc)=*groups.entry(key).or_insert((i,c));
             q.keep|=1u64<<r;
             let flip=c^rc;
             q.rows.push((Some(r),flip));

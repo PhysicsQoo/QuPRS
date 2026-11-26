@@ -10,7 +10,7 @@ on:
       suite:
         description: Experimental evidence suite
         type: choice
-        options: [legacy, cross-family, source-admission, root-profile, factor-classes, sparse-anchor, prefix-memo, axis-profile, direct-binary, operand-profile, pool-profile, last-use-donor, masked-donor, descendant-units, inplace-scan, inplace-branch, move-components, borrowed-cache, general-cumulative, general-simulation-repair, general-native-gpmc, scope-scratch, streaming-large-general, large-root-closure, large-descendant-closure, fixed-work-descendant, large-general-candidate, long-native-candidate, default-parser-isolation, scope-scratch-fair, scope-scratch-candidate, large-root-ownership, root-ownership-port, packed-index-scratch, owned-entry-isolation, root-long-regression, reversible-index-state, reversible-canonical-boundary, historical-gap-baseline, reversible-frontier-transitions, reversible-ordered-frontier, historical-grover5, grover5-precision-audit, grover5-seven-pairs, reversible-rank-generation, reversible-single-unit-queue]
+        options: [legacy, cross-family, source-admission, root-profile, factor-classes, sparse-anchor, prefix-memo, axis-profile, direct-binary, operand-profile, pool-profile, last-use-donor, masked-donor, descendant-units, inplace-scan, inplace-branch, move-components, borrowed-cache, general-cumulative, general-simulation-repair, general-native-gpmc, scope-scratch, streaming-large-general, large-root-closure, large-descendant-closure, fixed-work-descendant, large-general-candidate, long-native-candidate, default-parser-isolation, scope-scratch-fair, scope-scratch-candidate, large-root-ownership, root-ownership-port, packed-index-scratch, owned-entry-isolation, root-long-regression, reversible-index-state, reversible-canonical-boundary, historical-gap-baseline, reversible-frontier-transitions, reversible-ordered-frontier, historical-grover5, grover5-precision-audit, grover5-seven-pairs, reversible-rank-generation, reversible-single-unit-queue, component-scoped-trail-wmc]
         default: legacy
 permissions:
   contents: read
@@ -4324,7 +4324,7 @@ jobs:
           if-no-files-found: warn
 
   reversible-single-unit-queue:
-    if: github.event_name == 'push' || inputs.suite == 'reversible-single-unit-queue'
+    if: github.event_name == 'workflow_dispatch' && inputs.suite == 'reversible-single-unit-queue'
     name: Single ranked queue / dense and sparse factorial ablation
     runs-on: ubuntu-24.04
     timeout-minutes: 8
@@ -4361,5 +4361,44 @@ jobs:
         with:
           name: rawmocs-reversible-single-unit-queue
           path: .queue-evidence/
+          include-hidden-files: true
+          if-no-files-found: warn
+
+  component-scoped-trail-wmc:
+    if: github.event_name == 'push' || inputs.suite == 'component-scoped-trail-wmc'
+    name: Component scoped trail / exact weighted search
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: PhysicsQoo/RaWMoCS
+          ref: b8a3df0a05e478410365d209d71f6fdf1b6537c4
+          path: .classes-candidate
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: .classes-candidate/crates/rawmocs-cli -> target
+          shared-key: rawmocs-general-dependencies
+          cache-workspace-crates: 'false'
+      - name: Compile and verify exact rank generation candidate
+        run: |
+          set -euo pipefail
+          test "$(git -C .classes-candidate rev-parse HEAD)" = b8a3df0a05e478410365d209d71f6fdf1b6537c4
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libgmp-dev libmpfr-dev m4 make gcc time pkg-config
+          mkdir -p .scoped-trail-evidence
+          cargo test --locked --release --manifest-path .classes-candidate/crates/rawmocs-cli/Cargo.toml 2>&1 | tee .scoped-trail-evidence/science.log
+      - name: Replay complete weighted search with explicit evidence
+        run: |
+          set -euo pipefail
+          timeout -k 2s 90s prlimit --as=3221225472 -- cargo test --locked --release --manifest-path .classes-candidate/crates/rawmocs-cli/Cargo.toml scoped_trail_ -- --nocapture 2>&1 | tee .scoped-trail-evidence/full-wmc.log
+          test "$(grep -c '^SCOPED_TRAIL_RANDOM_PASS ' .scoped-trail-evidence/full-wmc.log)" -eq 1
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: rawmocs-component-scoped-trail-wmc
+          path: .scoped-trail-evidence/
           include-hidden-files: true
           if-no-files-found: warn

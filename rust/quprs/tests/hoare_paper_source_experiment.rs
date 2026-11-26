@@ -2556,6 +2556,25 @@ struct AffineOutputBasis{keep:u64,fixed:u64,value:u64,rows:Vec<(u64,bool)>,impos
 // matrix into monomial -> output incidence masks, rather than rerunning
 // elimination or using its reconstruction/toggle routine. Checks the
 // premises of AffineOutputQuotient.lean, not basis minimality.
+// Research-only transpose of the original output ANF coefficient sets.
+// Keep the existing OR accumulation and deadline policy, but expose the
+// builder for independent membership and evaluation comparisons.
+fn build_affine_incidence(functions:&[Poly],deadline:std::time::Instant)
+    ->Result<(u64,BTreeMap<Vec<u32>,u64>),&'static str>{
+    if functions.len()>16{return Err("UNSUPPORTED");}
+    if std::time::Instant::now()>=deadline{return Err("DEADLINE");}
+    let mut incidence=BTreeMap::<Vec<u32>,u64>::new();
+    let mut constants=0u64;
+    for (i,poly) in functions.iter().enumerate(){
+        for m in poly{
+            if std::time::Instant::now()>=deadline{return Err("DEADLINE");}
+            if m.is_empty(){constants|=1u64<<i;}
+            else{*incidence.entry(m.clone()).or_default()|=1u64<<i;}
+        }
+    }
+    Ok((constants,incidence))
+}
+
 fn check_affine_output_certificate(ps:&PathSum,mask:u64,z:u64,q:&AffineOutputBasis,
     deadline:std::time::Instant)->Result<(),&'static str>{
     if std::time::Instant::now()>=deadline{return Err("DEADLINE");}
@@ -2580,17 +2599,7 @@ fn check_affine_output_certificate(ps:&PathSum,mask:u64,z:u64,q:&AffineOutputBas
         }
     }
     if contradiction!=q.impossible{return Err("CERTIFICATE_CONTRADICTION");}
-    // Each original monomial contributes exactly one bit per output.
-    // Empty monomial is handled separately as the affine offset.
-    let mut incidence=BTreeMap::<Vec<u32>,u64>::new();
-    let mut constants=0u64;
-    for (i,poly) in ps.f.functions.iter().enumerate(){
-        for m in poly{
-            if std::time::Instant::now()>=deadline{return Err("DEADLINE");}
-            if m.is_empty(){constants|=1u64<<i;}
-            else{*incidence.entry(m.clone()).or_default()|=1u64<<i;}
-        }
-    }
+    let (constants,incidence)=build_affine_incidence(&ps.f.functions,deadline)?;
     for (i,&(rel,offset)) in q.rows.iter().enumerate(){
         let expected=(constants>>i&1)!=0;
         if (((rel&constants).count_ones()%2!=0)^offset)!=expected{
@@ -2708,6 +2717,53 @@ fn native_affine_output_quotient_parity(){
     println!("HOARE_NATIVE_AFFINE_QUOTIENT queries={queries} vectors={checks} strict={strict} contradictions={contradictions} exact=true");
 }
 
+
+#[test]
+fn native_affine_incidence_reference(){
+    // All 16 assignments of four sparse variables; original row membership
+    // and direct evaluation are independent of the transposed map.
+    let ids=[17u32,131,4097,65537];
+    let keys:Vec<Vec<u32>>=(0..16u32).map(|m|
+        (0..4).filter(|&j|m>>j&1!=0).map(|j|ids[j]).collect()).collect();
+    let deadline=std::time::Instant::now()+std::time::Duration::from_secs(10);
+    let mut checks=0;
+    for seed in 0..256u32{
+        let mut rows=vec![Poly::default();16];
+        for (i,row) in rows.iter_mut().enumerate(){
+            for (j,m) in keys.iter().enumerate(){
+                let v=seed.wrapping_mul(0x9e3779b9).rotate_left(i as u32)
+                    ^ (j as u32).wrapping_mul(0x85ebca6b).rotate_left((i+j) as u32);
+                if seed!=0 && v.count_ones()%2!=0{row.insert(m.clone());}
+            }
+        }
+        let (constants,columns)=build_affine_incidence(&rows,deadline).unwrap();
+        assert!(!columns.contains_key(&Vec::new()));
+        for (j,m) in keys.iter().enumerate(){
+            let expected=rows.iter().enumerate().fold(0u64,|w,(i,row)|
+                w|(u64::from(row.contains(m))<<i));
+            let got=if j==0{constants}else{columns.get(m).copied().unwrap_or(0)};
+            assert_eq!(got,expected);
+        }
+        assert_eq!(columns.len(),keys.iter().skip(1).filter(|m|rows.iter().any(|r|r.contains(*m))).count());
+        for a in 0..16u32{
+            let active=|m:&Vec<u32>|m.iter().all(|v|{
+                let j=ids.iter().position(|x|x==v).unwrap();
+                a>>j&1!=0
+            });
+            let transposed=columns.iter().filter(|(m,_)|active(m)).fold(constants,|w,(_,c)|w^*c);
+            for (i,row) in rows.iter().enumerate(){
+                let expected=row.iter().filter(|m|active(m)).count()%2!=0;
+                assert_eq!(transposed>>i&1!=0,expected);
+                checks+=1;
+            }
+        }
+    }
+    assert_eq!(checks,65536);
+    let empty=build_affine_incidence(&[],deadline).unwrap();
+    assert_eq!(empty,(0,BTreeMap::new()));
+    assert_eq!(build_affine_incidence(&[],std::time::Instant::now()),Err("DEADLINE"));
+    println!("HOARE_NATIVE_AFFINE_INCIDENCE cases=256 checks=65536 sparse_ids=true constants=true empty=true deadline=true");
+}
 
 #[test]
 fn native_affine_word_parity_reference(){

@@ -90,6 +90,7 @@ def tableFactor {X : Type} {d : Nat} (scope : List X)
   eval := fun a => lookup (finZero d) (extract a scope) table
   support := by
     intro a b h
+    change lookup (finZero d) (extract a scope) table = lookup (finZero d) (extract b scope) table
     rw [extract_agrees scope a b h]
 
 theorem materialized_factor_sound {X : Type} [DecidableEq X] {d : Nat}
@@ -153,7 +154,7 @@ theorem checked_step_sound {X : Type} [DecidableEq X] {d : Nat}
           (restFactors x fs ++ [tableFactor scope table]) = _
         rw [product_append (cycloAlgebra d)]
         change finMul (factorProduct (finOne d) finMul a (restFactors x fs))
-          (finMul (tableFactor scope table).eval a (finOne d)) = _
+          (finMul ((tableFactor scope table).eval a) (finOne d)) = _
         rw [hv]
         have hex := contract_step_sound (cycloAlgebra d) x a fs
         rw [contractStep, product_append] at hex

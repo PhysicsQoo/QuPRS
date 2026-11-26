@@ -16,15 +16,18 @@ cases = {x["id"]: x for x in manifest["cohorts"]["table2_mqt"]["cases"]}
 failed = False
 rows = []
 import statistics
-# CRR-2C: one pass over positive/negative controls and held-out sizes.
-# Retain CRR-2B repeats in their original evidence; this is a structural pilot.
+# Fixed evaluation cohort: retain positive and negative cases, and
+# reintroduce small cases to expose false-negative screens.
 REPEAT_IDS = ("qft_16", "qft_20", "qft_22", "qft_24",
               "qpeexact_16", "qpeinexact_16", "qpeexact_20", "qpeinexact_20",
               "wstate_8", "grover-noancilla_5", "qnn_8", "vqe_8",
-              "qaoa_7", "ghz_32")
-for case_id, repeat in ((c, r) for c in REPEAT_IDS for r in range(1 if c in ("qft_22", "qft_24") else 2)):
-    solver_secs = 120 if case_id == "qft_22" else (60 if case_id == "qft_20" else 12)
-    process_secs = 280 if case_id == "qft_22" else (145 if case_id == "qft_20" else 65)
+              "qaoa_7", "ghz_32", "qwalk-noancilla_3", "qwalk-noancilla_4",
+              "wstate_4", "qpeexact_8", "qnn_4", "vqe_4", "grover-noancilla_4",
+              "graphstate_16")
+LONG = {"qft_20", "qft_22", "qft_24", "grover-noancilla_5", "qnn_8"}
+for case_id, repeat in ((c, r) for c in REPEAT_IDS for r in range(1 if c in LONG else 3)):
+    solver_secs = 60 if case_id == "qft_20" else 12
+    process_secs = 210 if case_id == "qft_20" else 65
     case = cases[case_id]
     paths = {}
     hashes = {}
@@ -63,18 +66,18 @@ for case_id, repeat in ((c, r) for c in REPEAT_IDS for r in range(1 if c in ("qf
         solver_status = "NOT_ADMITTED"
     elif not os.environ.get("CRR_GPMC_COMPARE"):
         solver_status = "NOT_REQUESTED"
-    elif len(compare) != 1 or len(calls) != 2 or len(cnfs) != 2:
+    elif len(compare) != 1 or len(calls) != 3 or len(cnfs) != 3:
         solver_status = "MISSING_EVIDENCE"
         status = "ERROR"
-    elif "status=matched " in compare[0] and complete_calls == 2:
+    elif "status=matched " in compare[0] and complete_calls == 3:
         solver_status = "MATCHED"
-    elif "status=incomplete" in compare[0] and complete_calls < 2:
+    elif "status=incomplete" in compare[0] and complete_calls < 3:
         solver_status = "INCOMPLETE"
     else:
         solver_status = "INCONSISTENT_EVIDENCE"
         status = "ERROR"
     failed |= status == "ERROR"
-    row = dict(case=case_id, repeat=repeat, cohort="actual_routing_pilot",
+    row = dict(case=case_id, repeat=repeat, cohort="alias_screen_pilot",
                           status=status, solver_status=solver_status,
                           complete_calls=complete_calls, solver_secs=solver_secs,
                           process_secs=process_secs, returncode=run.returncode,
@@ -86,7 +89,7 @@ for case_id, repeat in ((c, r) for c in REPEAT_IDS for r in range(1 if c in ("qf
 # never turn censored baseline time into an exact speedup.
 for case_id in REPEAT_IDS:
     group = [r for r in rows if r["case"] == case_id]
-    by_arm = {a: [] for a in ("baseline", "routed")}
+    by_arm = {a: [] for a in ("baseline", "routed", "screened")}
     for row in group:
         for line in row["records"]:
             if line.startswith("CRR_ROUTED_CALL "):
@@ -97,10 +100,12 @@ for case_id in REPEAT_IDS:
                      min_s=min(v) if v else None, max_s=max(v) if v else None)
              for a, v in by_arm.items()}
     matched = sum(r["solver_status"] == "MATCHED" for r in group)
-    speedup = (stats["baseline"]["median_s"] / stats["routed"]["median_s"]
+    speedup = (stats["baseline"]["median_s"] / stats["screened"]["median_s"]
                if matched == len(group) else None)
+    screen_ratio = (stats["routed"]["median_s"] / stats["screened"]["median_s"]
+                    if matched == len(group) else None)
     print(json.dumps(dict(summary_case=case_id, matched_repeats=matched,
                           statuses=[r["solver_status"] for r in group],
-                          post_rr_total_stats=stats, median_total_ratio=speedup)), flush=True)
+                          post_rr_total_stats=stats, median_total_ratio=speedup, old_route_to_screen_ratio=screen_ratio)), flush=True)
 if failed:
     raise SystemExit(1)

@@ -632,6 +632,38 @@ fn route_encode(ps:&PathSum)->(quprs::wmc::WmcManager,usize,usize){
     let h:Vec<_>=dimacs.lines().find(|l|l.starts_with("p cnf ")).expect("header").split_whitespace().collect();
     (mgr,h[2].parse().expect("vars"),h[3].parse().expect("clauses"))
 }
+// Linear-time-in-support heuristic (up to sorting small monomials).
+// Only inspect singleton equalities q=y XOR z, and never merge two
+// inputs. This is a projection of supports, NOT a rewrite or proof.
+// Duplicate projected monomials may cancel in exact phase arithmetic;
+// this proxy counts each distinct support once, without coefficients.
+fn alias_screen(t:&Trace)->(usize,usize,usize){
+    use rustc_hash::FxHashMap;
+    fn root(parent:&FxHashMap<u32,u32>,mut v:u32)->u32{
+        while let Some(&p)=parent.get(&v){v=p;}v
+    }
+    let mut pairs:Vec<_>=t.constraints.iter().filter(|q|q.len()==2&&q.iter().all(|m|m.len()==1))
+        .map(|q|{let mut v:Vec<_>=q.iter().map(|m|m[0]).collect();v.sort_unstable();(v[0],v[1])}).collect();
+    pairs.sort_unstable();
+    let mut parent=FxHashMap::default();
+    for (a,b) in pairs{
+        let a=root(&parent,a);let b=root(&parent,b);
+        let lo=a.min(b);let hi=a.max(b);
+        if lo!=hi&&hi as usize>=t.n{parent.insert(hi,lo);}
+    }
+    let projected:Poly=t.p.terms.keys().map(|m|{
+        let mut v:Vec<_>=m.iter().map(|&x|root(&parent,x)).collect();
+        v.sort_unstable();v.dedup();v
+    }).collect();
+    (parent.len(),t.cost().0,projected.iter().map(|m|1+m.len()).sum())
+}
+fn screen_accept(t:&Trace)->(bool,usize,usize,usize){
+    let (aliases,before,after)=alias_screen(t);
+    // Conservative heuristic, not a proof of no possible gain.
+    // Keep at least 5% projected incidence gain and an actual alias.
+    (aliases>0&&before>0&&after<before&&after.saturating_mul(100)<=before.saturating_mul(95),
+     aliases,before,after)
+}
 fn route_profile(ps:&PathSum,case:&str){
     use std::time::{Instant,Duration};
     use num_bigint::BigInt;
@@ -649,9 +681,10 @@ fn route_profile(ps:&PathSum,case:&str){
         println!("CRR_TRACE case={case} status=term_cap");return;
     }
     println!("CRR_TRACE case={case} status=profiled mode=routed");
-    let run=|routed:bool|{
+    let run=|arm:&str|{
+        let routed=arm!="baseline";
+        let screened=arm=="screened";
         let start=Instant::now();
-        let arm=if routed{"routed"}else{"baseline"};
         let (mut mgr,av,ac)=route_encode(ps);
         let mut vars=av;let mut clauses=ac;let mut mult=0;let mut omega=0;
         let mut selected="baseline";let mut reason="baseline_control";
@@ -660,10 +693,14 @@ fn route_profile(ps:&PathSum,case:&str){
         if routed{
             let mut t=Trace::from_native(ps).expect("admitted");
             initial_cp=t.cost().0;
+            if screened{let (admit,aliases,before,after)=screen_accept(&t);
+                println!("CRR_SCREEN case={case} admit={admit} aliases={aliases} phase_before={before} projected_phase={after}");}
             // Skip reduction when there is no internal pivot or
             // integrator. Otherwise all actual trial cost is timed.
             if t.live.len()==t.n{
                 reason="no_hidden";final_cp=initial_cp;
+            }else if screened&&!screen_accept(&t).0{
+                reason="early_screen_reject";final_cp=initial_cp;
             }else{
                 (subs,elim,hh,o,rejected)=iterate_policy(&mut t,64,true);
                 final_cp=t.cost().0;
@@ -699,15 +736,30 @@ fn route_profile(ps:&PathSum,case:&str){
             }
         }
     };
-    let (a,b)=if repeat%2==0{(run(false),run(true))}else{let b=run(true);(run(false),b)};
-    let (Some((a,va)),Some((b,vb)))=(a,b)else{
+    let arms=["baseline","routed","screened"];
+    let mut counts:[Option<(Count,quprs::precision_count::PrintedVerdict)>;3]=[None,None,None];
+    // Cyclic positions; for short cases 3 repeats cover each position.
+    for k in 0..3{
+        let idx=(repeat+k)%3;
+        counts[idx]=run(arms[idx]);
+    }
+    let [a,b,c]=counts;
+    let scale=Rat::from_integer(BigInt::from(1u8)<<(twice as usize/2));
+    let bound=Rat::new(BigInt::from(1u8),BigInt::from(10u8).pow(50));
+    let compare=|(x,vx):&(Count,quprs::precision_count::PrintedVerdict),(y,vy):&(Count,quprs::precision_count::PrintedVerdict)|{
+        let delta=((&x.real-&y.real).abs()+(&x.imag-&y.imag).abs())/&scale;
+        assert!(delta<=bound,"dispatch count mismatch {case}");
+        assert!(std::mem::discriminant(vx)==std::mem::discriminant(vy));
+        delta.to_f64().unwrap_or(f64::INFINITY)
+    };
+    if let (Some(b),Some(c))=(&b,&c){
+        println!("CRR_SCREEN_PAIR case={case} status=matched normalized_l1_delta={:.5e}",compare(b,c));
+    }else{println!("CRR_SCREEN_PAIR case={case} status=incomplete");}
+    let (Some(a),Some(b),Some(c))=(a,b,c)else{
         println!("CRR_COMPARE case={case} status=incomplete");return;
     };
-    let scale=Rat::from_integer(BigInt::from(1u8)<<(twice as usize/2));
-    let delta=((&a.real-&b.real).abs()+(&a.imag-&b.imag).abs())/scale;
-    assert!(delta<=Rat::new(BigInt::from(1u8),BigInt::from(10u8).pow(50)),"routed count mismatch {case}");
-    assert!(std::mem::discriminant(&va)==std::mem::discriminant(&vb));
-    println!("CRR_COMPARE case={case} status=matched normalized_l1_delta={:.5e} distance_midpoint_match=true",delta.to_f64().unwrap_or(f64::INFINITY));
+    let d=compare(&a,&b).max(compare(&a,&c));
+    println!("CRR_COMPARE case={case} status=matched normalized_l1_delta={d:.5e} distance_midpoint_match=true");
 }
 
 #[test]
@@ -754,4 +806,33 @@ fn gpmc_trace_witness(){
             println!("CRR_WITNESS case={name} arm={arm} expected_real={er} expected_imag={ei} expected_eq={eq} omega={o} status=matched");
         }
     }
+}
+
+
+#[test]
+fn exact_trace_alias_screen_controls(){
+    use quprs::rational::PhaseCoeff;
+    let mut ps=PathSum::new(2);ps.rr_tolerance=0.0;
+    let y=ps.v.get_fresh_var();
+    let z=ps.v.get_fresh_var();
+    // y=x0, z=x1: support coalescence after diagonal conditioning.
+    ps.f.functions[0].clear();ps.f.functions[0].insert(vec![y]);
+    ps.f.functions[1].clear();ps.f.functions[1].insert(vec![z]);
+    ps.p.add_term(vec![0,z],PhaseCoeff::HALF);
+    ps.p.add_term(vec![y,1],PhaseCoeff::HALF);
+    let t=Trace::from_native(&ps).unwrap();
+    let (admit,aliases,before,after)=screen_accept(&t);
+    assert!(admit&&aliases==2&&after<before);
+    // No pair equation: this heuristic declines, not a semantic verdict.
+    ps.f.functions[0].clear();ps.f.functions[0].insert(vec![0,y]);
+    ps.f.functions[1].clear();ps.f.functions[1].insert(vec![1,z]);
+    let t=Trace::from_native(&ps).unwrap();
+    assert!(!screen_accept(&t).0);
+    // Input-input equality must not be folded by the screen.
+    let mut ps=PathSum::new(2);ps.rr_tolerance=0.0;
+    ps.f.functions[0].clear();ps.f.functions[0].insert(vec![1]);
+    ps.p.add_term(vec![0,1],PhaseCoeff::HALF);
+    let t=Trace::from_native(&ps).unwrap();
+    assert_eq!(alias_screen(&t).0,0);
+    println!("CRR_SCREEN_ORACLE coalescence=1 nonalias_reject=1 input_input_reject=1");
 }

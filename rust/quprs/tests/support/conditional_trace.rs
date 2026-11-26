@@ -2270,6 +2270,7 @@ fn exact_trace_source_locked_receipts(){
         let input_bound=normalized_input_bound(chosen.v.path_vars.len(),weight_checks,twice,if selected{k}else{0}).unwrap();
         export_portable_gate(&format!("{case}_selected"),&portable_gate_text(&gate_receipt,v),&dimacs,false);
         export_phase_sidecar(&format!("{case}_selected"),&gate_receipt);
+        export_guard_sidecar(&format!("{case}_selected"),chosen);
         println!("CRR_GATE_RECEIPT case={case} arm=selected sha256={} gates={} equalities={}",gate_receipt_sha(&gate_receipt),gate_receipt.defs.len(),gate_receipt.equalities.len());
         println!("CRR_REAL_CNF_CERTIFICATE case={case} status=matched vars={v} clauses={c} weights={weight_checks} structural=true numerical_weight_check=true normalized_input_bound={input_bound} bound_conditional_on_reference=true solver_count_certified=false");
         let (_,lv,lc,lm,lo,ls)=lazy_prepare(p);
@@ -2397,6 +2398,7 @@ fn gpmc_trace_witness_source_receipts(){
             println!("CRR_SOLVER_CNF_CERTIFICATE case={case} arm={arm} weights={w} cnf_sha256={} structural=true numerical_weight_check=true normalized_input_bound={input_bound} bound_conditional_on_reference=true",receipt_sha(cnf.as_bytes()));
             export_portable_gate(&format!("{case}_{arm}"),&portable_gate_text(&e,actual.vars),&cnf,false);
             export_phase_sidecar(&format!("{case}_{arm}"),&e);
+            export_guard_sidecar(&format!("{case}_{arm}"),encoded);
             println!("CRR_GATE_RECEIPT case={case} arm={arm} sha256={} gates={} equalities={}",gate_receipt_sha(&e),e.defs.len(),e.equalities.len());
             let exact=if let Some(want)=expected{
                 let count=exact_serialized_wmc(&actual).unwrap();
@@ -2924,6 +2926,36 @@ fn portable_gate_text(e:&ExpectedCnf,vars:usize)->String{
     out
 }
 #[cfg(test)]
+fn export_guard_sidecar(name:&str,ps:&PathSum){
+    use std::fmt::Write as _;
+    use std::io::Write as _;
+    let Some(dir)=std::env::var_os("CRR_GATE_DIR")else{return;};
+    assert!(name.chars().all(|c|c.is_ascii_alphanumeric()||c=='_'));
+    let dir=std::path::PathBuf::from(dir).join("accept");
+    let mut text=String::from("crr-guard-v1\n");
+    for (i,row) in ps.f.functions.iter().enumerate(){
+        write!(&mut text,"row {i}").unwrap();
+        // Reverse the native iteration order to follow the final
+        // XOR output back to its prefix. No gate-derived ANF here.
+        let terms:Vec<_>=row.iter().collect();
+        for mono in terms.into_iter().rev(){
+            text.push(' ');
+            if mono.is_empty(){text.push('-');}
+            else{
+                for (j,v) in mono.iter().enumerate(){
+                    if j>0{text.push(',');}
+                    write!(&mut text,"{v}").unwrap();
+                }
+            }
+        }
+        text.push('\n');
+    }
+    let path=dir.join(format!("{name}.gate.guard"));
+    let mut f=std::fs::OpenOptions::new().create_new(true).write(true).open(path).unwrap();
+    f.write_all(text.as_bytes()).unwrap();
+    println!("CRR_PORTABLE_GUARD name={name} rows={} sha256={}",ps.f.functions.len(),receipt_sha(text.as_bytes()));
+}
+#[cfg(test)]
 fn export_phase_sidecar(name:&str,e:&ExpectedCnf){
     use std::fmt::Write as _;
     use std::io::Write as _;
@@ -2972,6 +3004,7 @@ fn exact_trace_gate_interface(){
     assert_eq!(verify_gate_receipt(&a,&e),Ok(()));
     export_portable_gate("synthetic", &portable_gate_text(&e,a.vars),&cnf,false);
     export_phase_sidecar("synthetic",&e);
+    export_guard_sidecar("synthetic",&p);
     let mut bad=e.clone();bad.defs[0].0=*e.live.values().next().unwrap();
     assert_eq!(verify_gate_receipt(&a,&bad),Err("gate output not fresh"));
     export_portable_gate("duplicate_output",&portable_gate_text(&bad,a.vars),&cnf,true);

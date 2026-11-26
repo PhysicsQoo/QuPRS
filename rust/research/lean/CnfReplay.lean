@@ -2452,6 +2452,293 @@ theorem accepted_source_phase_sum {P : Type} [Zero P] [Add P]
   selected_phase_sum_agree (sidecarCoeff interpret es) _ _ ws (dimacsIds n)
     (fun z _ hz => accepted_source_phase_bit n rs cs ws hr es hs v z hz)
 
+
+-- Source diagonal rows: x_i = XOR of monomials in the encoded
+-- residual output ANF. Terms are stored in reverse encoder order;
+-- the empty polynomial is zero and the empty monomial is one.
+abbrev GuardRow := Nat × List (List Nat)
+
+def parseGuardMono (s : Token) : Option (List Nat) :=
+  if s == [45] then some []
+  else (splitBytes 44 s).mapM parseNatToken
+
+def parseGuardRow : List Token → Option GuardRow
+  | tag :: i :: terms =>
+    if tag == [114,111,119] then do
+      let id ← parseNatToken i
+      let ms ← terms.mapM parseGuardMono
+      some (id,ms)
+    else none
+  | _ => none
+
+def parseGuard (bytes : List Nat) : Option (List GuardRow) :=
+  if ascii bytes then
+    match rows bytes with
+    | [tag] :: rest =>
+      if tag == [99,114,114,45,103,117,97,114,100,45,118,49] then
+        rest.mapM parseGuardRow
+      else none
+    | _ => none
+  else none
+
+def zeroWitness (z : Nat) : List Record → Bool
+  | [] => false
+  | .zero q :: rs => (@decide (z = q) (Nat.decEq z q)) || zeroWitness z rs
+  | _ :: rs => zeroWitness z rs
+
+def xorInputs (z : Nat) : List Record → Option (Nat × Nat)
+  | [] => none
+  | .xorGate q a b :: rs =>
+    if (@decide (z = q) (Nat.decEq z q)) then some (a,b) else xorInputs z rs
+  | _ :: rs => xorInputs z rs
+
+def monoIdOK (rs : List Record) (z : Nat) : List Nat → Bool
+  | [x] => @decide (z = x) (Nat.decEq z x)
+  | xs => andWitness z xs rs
+
+def guardMonoOK (rs : List Record) (z : Nat) (m : List Nat) : Bool :=
+  match sourceIds rs m with
+  | some ids => monoIdOK rs z ids
+  | none => false
+
+-- Each recursive step consumes one source ANF term, so this check
+-- never expands a potentially shared XOR circuit exponentially.
+def guardPolyOK (rs : List Record) : List (List Nat) → Nat → Bool
+  | [], z => zeroWitness z rs
+  | [m], z => guardMonoOK rs z m
+  | m :: q :: qs, z =>
+    match xorInputs z rs with
+    | some (a,b) => guardMonoOK rs b m && guardPolyOK rs (q :: qs) a
+    | none => false
+
+def guardRowOK (rs : List Record) (a b : Nat) (row : GuardRow) : Bool :=
+  match sourceDimacs row.1 rs with
+  | some id => (@decide (a = id) (Nat.decEq a id)) && guardPolyOK rs row.2 b
+  | none => false
+
+def guardRowsOK (all : List Record) : List Record → List GuardRow → Bool
+  | [], [] => true
+  | [], _ :: _ => false
+  | .eqGate a b :: rs, row :: rest => guardRowOK all a b row && guardRowsOK all rs rest
+  | .eqGate _ _ :: _, [] => false
+  | _ :: rs, rest => guardRowsOK all rs rest
+
+def checkGuardSidecar (gate side : List Nat) : Bool :=
+  match parseGate gate, parseGuard side with
+  | some (_,rs), some gs => guardRowsOK rs rs gs
+  | _, _ => false
+
+def anfValue (v : Nat → Bool) : List (List Nat) → Bool
+  | [] => false
+  | m :: ms => (anfValue v ms).xor (andValue (m.map v))
+
+def residualGuard (v : Nat → Bool) : List GuardRow → Bool
+  | [] => true
+  | (i,ms) :: gs => (v i == anfValue v ms) && residualGuard v gs
+
+theorem zero_witness_sound (z : Nat) (rs : List Record)
+    (h : zeroWitness z rs = true) : Record.zero z ∈ rs := by
+  induction rs with
+  | nil => cases h
+  | cons r rs ih =>
+    cases r with
+    | live s id => exact List.mem_cons.mpr (Or.inr (ih h))
+    | andGate q xs => exact List.mem_cons.mpr (Or.inr (ih h))
+    | xorGate q a b => exact List.mem_cons.mpr (Or.inr (ih h))
+    | eqGate a b => exact List.mem_cons.mpr (Or.inr (ih h))
+    | phase q xs => exact List.mem_cons.mpr (Or.inr (ih h))
+    | zero q =>
+      have hh : ((@decide (z = q) (Nat.decEq z q)) || zeroWitness z rs) = true := h
+      have hor : (@decide (z = q) (Nat.decEq z q)) = true ∨ zeroWitness z rs = true := by
+        simpa only [Bool.or_eq_true] using hh
+      rcases hor with he | ht
+      · have hz : z = q := of_decide_eq_true he
+        subst q
+        exact List.mem_cons.mpr (Or.inl rfl)
+      · exact List.mem_cons.mpr (Or.inr (ih ht))
+
+theorem xor_inputs_sound (z a b : Nat) (rs : List Record)
+    (h : xorInputs z rs = some (a,b)) : Record.xorGate z a b ∈ rs := by
+  induction rs with
+  | nil => cases h
+  | cons r rs ih =>
+    cases r with
+    | live s id => exact List.mem_cons.mpr (Or.inr (ih h))
+    | zero q => exact List.mem_cons.mpr (Or.inr (ih h))
+    | andGate q xs => exact List.mem_cons.mpr (Or.inr (ih h))
+    | eqGate x y => exact List.mem_cons.mpr (Or.inr (ih h))
+    | phase q xs => exact List.mem_cons.mpr (Or.inr (ih h))
+    | xorGate q x y =>
+      change (if (@decide (z = q) (Nat.decEq z q)) then some (x,y) else xorInputs z rs) =
+        some (a,b) at h
+      cases he : (@decide (z = q) (Nat.decEq z q)) with
+      | false =>
+        have ht : xorInputs z rs = some (a,b) := by simpa [he] using h
+        exact List.mem_cons.mpr (Or.inr (ih ht))
+      | true =>
+        have hz : z = q := of_decide_eq_true he
+        have hp : (x,y) = (a,b) := Option.some.inj (by simpa [he] using h)
+        have hx : x = a := congrArg Prod.fst hp
+        have hy : y = b := congrArg Prod.snd hp
+        subst q
+        subst x
+        subst y
+        exact List.mem_cons.mpr (Or.inl rfl)
+
+theorem mono_id_sound (rs : List Record) (u : Nat → Bool) (z : Nat)
+    (ids : List Nat) (hd : defsSem (liftVal u) rs)
+    (h : monoIdOK rs z ids = true) : u z = andValue (ids.map u) := by
+  cases ids with
+  | nil =>
+    exact hd (.andGate z []) (and_witness_sound z [] rs h)
+  | cons x xs =>
+    cases xs with
+    | nil =>
+      have he : z = x := of_decide_eq_true h
+      subst z
+      cases u x <;> rfl
+    | cons y ys =>
+      exact hd (.andGate z (x :: y :: ys)) (and_witness_sound z (x :: y :: ys) rs h)
+
+theorem guard_mono_sound (rs : List Record) (v u : Nat → Bool)
+    (ha : agreeOn (liftVal v) (liftVal u) (liveIds rs))
+    (hd : defsSem (liftVal u) rs) (z : Nat) (m : List Nat)
+    (h : guardMonoOK rs z m = true) : u z = andValue (m.map (sourceVal v rs)) := by
+  unfold guardMonoOK at h
+  cases hm : sourceIds rs m with
+  | none => rw [hm] at h; cases h
+  | some ids =>
+    rw [hm] at h
+    exact (mono_id_sound rs u z ids hd h).trans
+      (congrArg andValue (mapped_source_values rs m ids v u ha hm))
+
+theorem guard_poly_sound (rs : List Record) (v u : Nat → Bool)
+    (ha : agreeOn (liftVal v) (liftVal u) (liveIds rs))
+    (hd : defsSem (liftVal u) rs) (ms : List (List Nat)) (z : Nat)
+    (h : guardPolyOK rs ms z = true) : u z = anfValue (sourceVal v rs) ms := by
+  induction ms generalizing z with
+  | nil => exact hd (.zero z) (zero_witness_sound z rs h)
+  | cons m ms ih =>
+    cases ms with
+    | nil =>
+      have hm := guard_mono_sound rs v u ha hd z m h
+      change u z = (false : Bool).xor (andValue (m.map (sourceVal v rs)))
+      rw [hm]
+      cases andValue (m.map (sourceVal v rs)) <;> rfl
+    | cons q qs =>
+      change (match xorInputs z rs with
+        | some (a,b) => guardMonoOK rs b m && guardPolyOK rs (q :: qs) a
+        | none => false) = true at h
+      cases hx : xorInputs z rs with
+      | none => rw [hx] at h; cases h
+      | some pair =>
+        rcases pair with ⟨a,b⟩
+        rw [hx] at h
+        have hh := and_true_parts h
+        have hm := guard_mono_sound rs v u ha hd b m hh.1
+        have ht := ih a hh.2
+        have hz := hd (.xorGate z a b) (xor_inputs_sound z a b rs hx)
+        change u z = (u a).xor (u b) at hz
+        change u z = (anfValue (sourceVal v rs) (q :: qs)).xor
+          (andValue (m.map (sourceVal v rs)))
+        rw [hz, hm, ht]
+
+theorem guard_row_sound (rs : List Record) (v u : Nat → Bool)
+    (ha : agreeOn (liftVal v) (liftVal u) (liveIds rs))
+    (hd : defsSem (liftVal u) rs) (a b : Nat) (row : GuardRow)
+    (h : guardRowOK rs a b row = true) :
+    (u a == u b) = (sourceVal v rs row.1 == anfValue (sourceVal v rs) row.2) := by
+  unfold guardRowOK at h
+  cases hm : sourceDimacs row.1 rs with
+  | none => rw [hm] at h; cases h
+  | some id =>
+    rw [hm] at h
+    have hh := and_true_parts h
+    have he : a = id := of_decide_eq_true hh.1
+    have hv : v id = u id := ha id (source_dimacs_live row.1 id rs hm)
+    have hb := guard_poly_sound rs v u ha hd row.2 b hh.2
+    unfold sourceVal
+    rw [hm, he, hv, hb]
+
+theorem guard_rows_sound (all rs : List Record) (v u : Nat → Bool)
+    (ha : agreeOn (liftVal v) (liftVal u) (liveIds all))
+    (hd : defsSem (liftVal u) all) (gs : List GuardRow)
+    (h : guardRowsOK all rs gs = true) :
+    guardTruth u rs = residualGuard (sourceVal v all) gs := by
+  induction rs generalizing gs with
+  | nil =>
+    cases gs with
+    | nil => rfl
+    | cons g gs => cases h
+  | cons r rs ih =>
+    cases r with
+    | live s id => exact ih gs h
+    | zero z => exact ih gs h
+    | andGate z xs => exact ih gs h
+    | xorGate z a b => exact ih gs h
+    | phase z xs => exact ih gs h
+    | eqGate a b =>
+      cases gs with
+      | nil => cases h
+      | cons g gs =>
+        have hh := and_true_parts (show
+          (guardRowOK all a b g && guardRowsOK all rs gs) = true from h)
+        have hr := guard_row_sound all v u ha hd a b g hh.1
+        have ht := ih gs hh.2
+        change ((u a == u b) && guardTruth u rs) =
+          ((sourceVal v all g.1 == anfValue (sourceVal v all) g.2) &&
+            residualGuard (sourceVal v all) gs)
+        rw [hr, ht]
+
+theorem accepted_residual_guard (n : Nat) (rs : List Record)
+    (cs : List (List Int)) (ws : List Nat) (hr : replayRows n rs = some (cs, ws))
+    (gs : List GuardRow) (hg : guardRowsOK rs rs gs = true) (v : Nat → Bool) :
+    guardTruth (extendVal v rs) rs = residualGuard (sourceVal v rs) gs :=
+  let ht := (replay_rows_binding n rs cs ws hr).2
+  guard_rows_sound rs rs v (extendVal v rs)
+    (extend_preserves v (liveIds rs) rs ht)
+    (extend_defs_sound v (liveIds rs) rs ht) gs hg
+
+-- Compose the two checked source sidecars with ideal phase weights.
+-- The actual serialized-weight approximation remains a separate
+-- numerical obligation, and source provenance is not inferred here.
+theorem accepted_constrained_phase_sum {P A : Type} [Zero P] [Add P]
+    [Zero A] [Add A] [One A] [Mul A]
+    (zl : ∀ a : A, 0+a=a) (zr : ∀ a : A, a+0=a)
+    (shuffle : ∀ a b c d : A, (a+b)+(c+d) = (a+c)+(b+d))
+    (ol : ∀ a : A, 1*a=a)
+    (gate cnf : List Nat) (n : Nat) (rs : List Record) (p : ParsedCnf)
+    (cs : List (List Int)) (ws : List Nat)
+    (hg : parseGate gate = some (n, rs)) (hp : parseCnf cnf = some p)
+    (hr : replayRows n rs = some (cs, ws)) (h : check gate cnf = true)
+    (es : List PhaseEntry) (hs : phaseSidecarOK rs es = true)
+    (gs : List GuardRow) (hgs : guardRowsOK rs rs gs = true)
+    (interpret : DecimalValue → DecimalValue → P)
+    (ex : P → A) (ez : ex 0 = 1) (ea : ∀ p q : P, ex (p+q) = ex p * ex q)
+    (weight : Int → A)
+    (hn : ∀ z, z ∈ dimacsIds n → weight (-pos z) = 1)
+    (hu : ∀ z, z ∈ dimacsIds n → natMem z ws = false → weight (pos z) = 1)
+    (hw : ∀ z, z ∈ dimacsIds n → natMem z ws = true →
+      weight (pos z) = ex (sidecarCoeff interpret es z)) :
+    totalWmc n p (fun bits => literalProduct weight (decodeBits bits) (dimacsIds n)) =
+      sumBits (liveIds rs).length (fun xs =>
+        let v := decodeLive (liveIds rs) xs
+        if residualGuard (sourceVal v rs) gs then
+          ex (selectedPhaseSum (sidecarCoeff interpret es)
+            (sourcePhaseBit rs es v) ws (dimacsIds n)) else 0) := by
+  have ht := accepted_total_phase_sum zl zr shuffle ol gate cnf n rs p cs ws
+    hg hp hr h ex ez ea (sidecarCoeff interpret es) weight hn hu hw
+  apply ht.trans
+  apply sum_bits_congr
+  intro xs _
+  let v := decodeLive (liveIds rs) xs
+  change (if guardTruth (extendVal v rs) rs then
+    ex (selectedPhaseSum (sidecarCoeff interpret es) (extendVal v rs) ws (dimacsIds n)) else 0) =
+    (if residualGuard (sourceVal v rs) gs then
+      ex (selectedPhaseSum (sidecarCoeff interpret es) (sourcePhaseBit rs es v) ws (dimacsIds n)) else 0)
+  rw [accepted_residual_guard n rs cs ws hr gs hgs v,
+    accepted_source_phase_sum n rs cs ws hr es hs interpret v]
+
 -- Localize any unexpected dependency to a definition vs theorem.
 #print axioms splitBytes
 #print axioms digits
@@ -2659,6 +2946,28 @@ theorem accepted_source_phase_sum {P : Type} [Zero P] [Add P]
 #print axioms accepted_source_phase_bit
 #print axioms selected_phase_sum_agree
 #print axioms accepted_source_phase_sum
+#print axioms parseGuardMono
+#print axioms parseGuardRow
+#print axioms parseGuard
+#print axioms zeroWitness
+#print axioms xorInputs
+#print axioms monoIdOK
+#print axioms guardMonoOK
+#print axioms guardPolyOK
+#print axioms guardRowOK
+#print axioms guardRowsOK
+#print axioms checkGuardSidecar
+#print axioms anfValue
+#print axioms residualGuard
+#print axioms zero_witness_sound
+#print axioms xor_inputs_sound
+#print axioms mono_id_sound
+#print axioms guard_mono_sound
+#print axioms guard_poly_sound
+#print axioms guard_row_sound
+#print axioms guard_rows_sound
+#print axioms accepted_residual_guard
+#print axioms accepted_constrained_phase_sum
 end QuPRS.CnfReplay
 
 def main (args : List String) : IO Unit := do
@@ -2743,6 +3052,18 @@ def main (args : List String) : IO Unit := do
       QuPRS.CnfReplay.checkPhaseSidecar sampleGate [99,114,114,45,112,104,97,115,101,45,118,49,10,99,111,101,102,32,50,32,49,32,50,32,48,32,49,32,48,10,99,111,101,102,32,50,32,49,32,50,32,48,32,49,32,48,10] then
     throw (IO.userError "phase sidecar regression")
   IO.println "CRR_LEAN_PHASE_SIDECAR_PASS controls=7"
+  let guardGate : List Nat := [99,114,114,45,103,97,116,101,45,118,49,32,52,10,108,105,118,101,32,48,32,49,10,108,105,118,101,32,49,32,50,10,97,110,100,32,51,32,49,32,50,10,120,111,114,32,52,32,51,32,50,10,101,113,32,49,32,52,10]
+  let guardSample : List Nat := [99,114,114,45,103,117,97,114,100,45,118,49,10,114,111,119,32,48,32,49,32,48,44,49,10]
+  if !(QuPRS.CnfReplay.checkGuardSidecar guardGate guardSample) ||
+      QuPRS.CnfReplay.checkGuardSidecar guardGate [99,114,114,45,103,117,97,114,100,45,118,49,10] ||
+      QuPRS.CnfReplay.checkGuardSidecar guardGate [99,114,114,45,103,117,97,114,100,45,118,49,10,114,111,119,32,49,32,49,32,48,44,49,10] ||
+      QuPRS.CnfReplay.checkGuardSidecar guardGate [99,114,114,45,103,117,97,114,100,45,118,49,10,114,111,119,32,48,32,49,32,48,44,57,10] ||
+      QuPRS.CnfReplay.checkGuardSidecar guardGate [99,114,114,45,103,117,97,114,100,45,118,49,10,114,111,119,32,48,32,48,44,49,32,49,10] ||
+      QuPRS.CnfReplay.checkGuardSidecar guardGate [99,114,114,45,103,117,97,114,100,45,118,49,10,114,111,119,32,48,32,49,32,48,44,49,10,114,111,119,32,48,32,49,32,48,44,49,10] ||
+      QuPRS.CnfReplay.parseGuardMono [45] != some [] ||
+      QuPRS.CnfReplay.parseGuardMono [49,44,50] != some [1,2] then
+    throw (IO.userError "residual guard sidecar regression")
+  IO.println "CRR_LEAN_GUARD_SIDECAR_PASS controls=8"
   let mode :: paths := args | throw (IO.userError "usage: CnfReplay accept|reject files")
   if (mode != "accept" && mode != "reject") || paths.isEmpty then
     throw (IO.userError "bad replay mode or empty cohort")
@@ -2759,5 +3080,10 @@ def main (args : List String) : IO Unit := do
           (side.data.toList.map UInt8.toNat)) then
         throw (IO.userError s!"phase sidecar rejected {path}")
       IO.println s!"CRR_LEAN_PORTABLE_PHASE path={path} matched=true"
+      let guard ← IO.FS.readBinFile (path ++ ".guard")
+      if !(QuPRS.CnfReplay.checkGuardSidecar (gate.data.toList.map UInt8.toNat)
+          (guard.data.toList.map UInt8.toNat)) then
+        throw (IO.userError s!"guard sidecar rejected {path}")
+      IO.println s!"CRR_LEAN_PORTABLE_GUARD path={path} matched=true"
     IO.println s!"CRR_LEAN_PORTABLE_GATE mode={mode} path={path} matched=true"
   IO.println s!"CRR_LEAN_PORTABLE_SUMMARY mode={mode} count={paths.length}"

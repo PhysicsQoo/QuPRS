@@ -715,6 +715,42 @@ fn screen_accept(t:&Trace)->(bool,usize,usize,usize){
     (aliases>0&&before>0&&after<before&&after.saturating_mul(100)<=before.saturating_mul(95),
      aliases,before,after)
 }
+// Exact dimension accounting for the CURRENT native encode_trace
+// topology, not an alternative encoding and not a WMC result.
+// All phase monomials introduce a literal; output ANF uses one
+// auxiliary for constant/AND terms and one per XOR link. No sharing.
+// The admitted PathSum contains all input and referenced variables.
+fn trace_cnf_dimensions(ps:&PathSum)->(usize,usize){
+    let mut vars=ps.v.path_vars.len()+ps.p.terms.len();
+    let mut clauses:usize=ps.p.terms.keys().map(|m|m.len()+1).sum();
+    for f in &ps.f.functions{
+        clauses+=2; // equality to input
+        if f.is_empty(){vars+=1;clauses+=1;continue;}
+        for m in f{
+            if m.len()!=1{vars+=1;clauses+=m.len()+1;}
+        }
+        let xor=f.len()-1;
+        vars+=xor;clauses+=4*xor;
+    }
+    (vars,clauses)
+}
+// The cost comparison is exact for the locked encoder topology;
+// verify the chosen header against actual serialization before use.
+// Never materialize a placeholder or low precision solver problem.
+fn lazy_prepare(ps:&PathSum)->(quprs::wmc::WmcManager,usize,usize,usize,usize,bool){
+    let (av,ac)=trace_cnf_dimensions(ps);
+    if let Some((p,m,o))=benchmark_candidate(ps,true){
+        let (bv,bc)=trace_cnf_dimensions(&p);
+        if bv<=av&&bc<=ac&&(bv<av||bc<ac){
+            let (mgr,v,c)=route_encode(&p);
+            assert_eq!((v,c),(bv,bc),"candidate dimension drift");
+            return (mgr,v,c,m,o,true);
+        }
+    }
+    let (mgr,v,c)=route_encode(ps);
+    assert_eq!((v,c),(av,ac),"baseline dimension drift");
+    (mgr,v,c,0,0,false)
+}
 fn route_profile(ps:&PathSum,case:&str){
     use std::time::{Instant,Duration};
     use num_bigint::BigInt;
@@ -737,6 +773,28 @@ fn route_profile(ps:&PathSum,case:&str){
         let screened=arm=="screened"||arm=="batched";
         let batched=arm=="batched";
         let start=Instant::now();
+        // Lazy arm uses the same pre-screen and batched candidate as
+        // the eager arm, but only encodes the selected problem.
+        if arm=="lazy"{
+            let (av,ac)=trace_cnf_dimensions(ps);
+            let (mgr,vars,clauses,mult,omega,chosen)=lazy_prepare(ps);
+            let selected=if chosen{"conditioned"}else{"baseline"};
+            let prepare=start.elapsed().as_secs_f64();
+            println!("CRR_DISPATCH case={case} arm={arm} selected={selected} reason=dimension_gate vars={vars} clauses={clauses} baseline_vars={av} baseline_clauses={ac} prepare_s={prepare}");
+            let begin=Instant::now();
+            let result=mgr.solve_with_deadline_distance_printed_precision("gpmc",Some(begin+Duration::from_secs(secs)),90);
+            let call=begin.elapsed().as_secs_f64();
+            return match result{
+                Ok(c)=>{
+                    let (c,v)=restore_count(c,mult,omega,twice);
+                    println!("CRR_ROUTED_CALL case={case} arm={arm} status=complete selected={selected} call_s={call} total_s={} real={} imag={} normalization_twice={twice}",start.elapsed().as_secs_f64(),c.real,c.imag);
+                    Some((c,v))
+                }
+                Err(e)=>{
+                    println!("CRR_ROUTED_CALL case={case} arm={arm} status=incomplete selected={selected} call_s={call} total_s={} error={e:#}",start.elapsed().as_secs_f64());None
+                }
+            };
+        }
         let (mut mgr,av,ac)=route_encode(ps);
         let mut vars=av;let mut clauses=ac;let mut mult=0;let mut omega=0;
         let mut selected="baseline";let mut reason="baseline_control";
@@ -796,7 +854,7 @@ fn route_profile(ps:&PathSum,case:&str){
             }
         }
     };
-    let arms=["baseline","screened","batched"];
+    let arms=["baseline","batched","lazy"];
     let mut counts:[Option<(Count,quprs::precision_count::PrintedVerdict)>;3]=[None,None,None];
     // Cyclic positions; for short cases 3 repeats cover each position.
     for k in 0..3{
@@ -813,8 +871,8 @@ fn route_profile(ps:&PathSum,case:&str){
         delta.to_f64().unwrap_or(f64::INFINITY)
     };
     if let (Some(b),Some(c))=(&b,&c){
-        println!("CRR_BATCH_PAIR case={case} status=matched normalized_l1_delta={:.5e}",compare(b,c));
-    }else{println!("CRR_SCREEN_PAIR case={case} status=incomplete");}
+        println!("CRR_LAZY_PAIR case={case} status=matched normalized_l1_delta={:.5e}",compare(b,c));
+    }else{println!("CRR_LAZY_PAIR case={case} status=incomplete");}
     let (Some(a),Some(b),Some(c))=(a,b,c)else{
         println!("CRR_COMPARE case={case} status=incomplete");return;
     };
@@ -977,7 +1035,8 @@ pub(super) fn benchmark_candidate(ps:&PathSum,batched:bool)->Option<(PathSum,usi
 }
 #[allow(dead_code)]
 pub(super) fn benchmark_prepare(ps:&PathSum,variant:usize)->(quprs::wmc::WmcManager,usize,usize,usize,usize,bool){
-    assert!(variant<=2);
+    assert!(variant<=3);
+    if variant==3{return lazy_prepare(ps);}
     let (baseline,av,ac)=route_encode(ps);
     if variant!=0{
         if let Some((p,m,o))=benchmark_candidate(ps,variant==2){
@@ -986,4 +1045,39 @@ pub(super) fn benchmark_prepare(ps:&PathSum,variant:usize)->(quprs::wmc::WmcMana
         }
     }
     (baseline,av,ac,0,0,false)
+}
+
+
+#[test]
+fn exact_trace_cnf_dimensions(){
+    use quprs::rational::{PhaseCoeff,Rational};
+    let mut seed=73u64;
+    let mut next=||{seed=seed.wrapping_mul(6364136223846793005).wrapping_add(1);seed>>32};
+    let mut checks=0;
+    for k in 0..128{
+        let mut ps=PathSum::new(3);ps.rr_tolerance=0.0;
+        for _ in 0..4{ps.v.get_fresh_var();}
+        // Mix empty ANFs, constant and singleton output monomials,
+        // arbitrary multi-AND/XOR, phase constant and free variables.
+        for f in &mut ps.f.functions{f.clear();}
+        for mask in 0u32..64{
+            let m:Vec<_>=(0..6).filter(|i|mask>>i&1!=0).collect();
+            if next()%11==0{ps.p.add_term(m.clone(),PhaseCoeff::new_constant(Rational::new((next()%7+1) as i64,8)));}
+            for i in 0..3{if next()%13==0{ps.f.functions[i].insert(m.clone());}}
+        }
+        if k%4==0{ps.f.functions[0].clear();}
+        if k%4==1{ps.f.functions[0].clear();ps.f.functions[0].insert(vec![]);}
+        if k%4==2{ps.f.functions[0].clear();ps.f.functions[0].insert(vec![3]);}
+        let (_,v,c)=route_encode(&ps);assert_eq!(trace_cnf_dimensions(&ps),(v,c));checks+=1;
+        let mut t=Trace::from_native(&ps).unwrap();
+        let _=batch_then_iterate(&mut t);
+        let view=t.encoding_view(&ps);
+        let (_,v,c)=route_encode(&view);assert_eq!(trace_cnf_dimensions(&view),(v,c));checks+=1;
+        // Both routes must choose the same dimensions, multipliers
+        // and fallback. The selected manager alone is fully weighted.
+        let (_,a,b,m,o,z)=benchmark_prepare(&ps,2);
+        let (_,x,y,n,p,w)=lazy_prepare(&ps);
+        assert_eq!((a,b,m,o,z),(x,y,n,p,w));
+    }
+    println!("CRR_DIMENSION_ORACLE models=128 header_checks={checks} dispatch_checks=128");
 }

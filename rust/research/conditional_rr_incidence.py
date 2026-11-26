@@ -25,7 +25,7 @@ REPEAT_IDS = ("qft_16", "qft_20", "qft_22", "qft_24",
               "wstate_4", "qpeexact_8", "qnn_4", "vqe_4", "grover-noancilla_4",
               "graphstate_16")
 LONG = {"qft_20", "qft_22", "qft_24", "grover-noancilla_5", "qnn_8"}
-for case_id, repeat in ((c, r) for c in REPEAT_IDS for r in range(1 if c in LONG else 3)):
+for case_id, repeat in ((c, 0) for c in REPEAT_IDS):
     solver_secs = 60 if case_id == "qft_20" else 12
     process_secs = 210 if case_id == "qft_20" else 65
     case = cases[case_id]
@@ -77,7 +77,7 @@ for case_id, repeat in ((c, r) for c in REPEAT_IDS for r in range(1 if c in LONG
         solver_status = "INCONSISTENT_EVIDENCE"
         status = "ERROR"
     failed |= status == "ERROR"
-    row = dict(case=case_id, repeat=repeat, cohort="batch_alias_pilot",
+    row = dict(case=case_id, repeat=repeat, cohort="lazy_weight_pilot",
                           status=status, solver_status=solver_status,
                           complete_calls=complete_calls, solver_secs=solver_secs,
                           process_secs=process_secs, returncode=run.returncode,
@@ -89,7 +89,7 @@ for case_id, repeat in ((c, r) for c in REPEAT_IDS for r in range(1 if c in LONG
 # never turn censored baseline time into an exact speedup.
 for case_id in REPEAT_IDS:
     group = [r for r in rows if r["case"] == case_id]
-    by_arm = {a: [] for a in ("baseline", "screened", "batched")}
+    by_arm = {a: [] for a in ("baseline", "batched", "lazy")}
     for row in group:
         for line in row["records"]:
             if line.startswith("CRR_ROUTED_CALL "):
@@ -100,12 +100,12 @@ for case_id in REPEAT_IDS:
                      min_s=min(v) if v else None, max_s=max(v) if v else None)
              for a, v in by_arm.items()}
     matched = sum(r["solver_status"] == "MATCHED" for r in group)
-    speedup = (stats["baseline"]["median_s"] / stats["batched"]["median_s"]
+    speedup = (stats["baseline"]["median_s"] / stats["lazy"]["median_s"]
                if matched == len(group) else None)
-    screen_ratio = (stats["screened"]["median_s"] / stats["batched"]["median_s"]
+    screen_ratio = (stats["batched"]["median_s"] / stats["lazy"]["median_s"]
                     if matched == len(group) else None)
     print(json.dumps(dict(summary_case=case_id, matched_repeats=matched,
                           statuses=[r["solver_status"] for r in group],
-                          post_rr_total_stats=stats, median_total_ratio=speedup, screen_to_batch_ratio=screen_ratio)), flush=True)
+                          post_rr_total_stats=stats, median_total_ratio=speedup, batch_to_lazy_ratio=screen_ratio)), flush=True)
 if failed:
     raise SystemExit(1)

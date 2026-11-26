@@ -47,6 +47,8 @@ fn main(){
             _=>(av,ac,0,0,false),
         };
         assert_eq!((cv,cc,cm,co,ca),expected,"CRR-2F structure drift {name}");
+        let (_,dv,dc,dm,do_,da)=conditional_trace::benchmark_prepare(p,3);
+        assert_eq!((dv,dc,dm,do_,da),(cv,cc,cm,co,ca),"lazy preparation drift {name}");
         eprintln!("CRR_CODSPEED_FIXTURE case={name} original_vars={av} original_clauses={ac} selected_vars={cv} selected_clauses={cc} multiplier_power={cm} omega={co} selected={ca}");
     }
     divan::main();
@@ -66,3 +68,6 @@ fn crr_prepare_sequential(case:&str){divan::black_box(conditional_trace::benchma
 
 #[divan::bench(args = ["qft_16", "qft_20", "qft_24", "qpeexact_20", "qwalk-noancilla_4", "wstate_8", "vqe_8", "qnn_8"])]
 fn crr_prepare_batched(case:&str){divan::black_box(conditional_trace::benchmark_prepare(divan::black_box(fixture(case)),2));}
+
+#[divan::bench(args = ["qft_16", "qft_20", "qft_24", "qpeexact_20", "qwalk-noancilla_4", "wstate_8", "vqe_8", "qnn_8"])]
+fn crr_prepare_lazy(case:&str){divan::black_box(conditional_trace::benchmark_prepare(divan::black_box(fixture(case)),3));}

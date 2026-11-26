@@ -3006,10 +3006,13 @@ theorem ledger_free_arithmetic (f q o : Nat) :
 
 theorem ledger_hh_arithmetic (f q o : Nat) :
     2 * (f+(q+1))+o = 2*(f+q)+o+2 := by
-  simp only [Nat.mul_add, Nat.add_assoc, Nat.add_left_comm, Nat.add_comm]
+  rw [Nat.add_comm q 1, ← Nat.add_assoc f 1 q]
+  exact ledger_free_arithmetic f q o
 
+-- Use the Nat-specific constructive recursion from Init.Prelude,
+-- not generic LawfulBEq instance resolution.
 theorem ledger_kind_eq (k j : Nat) (h : (k == j) = true) : k = j :=
-  eq_of_beq h
+  Nat.eq_of_beq_eq_true h
 
 theorem ledger_exponent_5 (s : LedgerStep) (hc : (!s.commit) = false)
     (hk : (s.kind == 5) = true) : ledgerStepExponent s = 1 := by

@@ -9127,5 +9127,168 @@ mod constrained_predicate_overlap {
         assert_eq!(models,800);
         println!("HOARE_ADAPTIVE_PHASE_PERIOD models={models} directions={directions} linear={linear} constant={constant} valuation_rounds={val_rounds} valuation_rows={val_rows} valuation_peak={val_peak} valuation_ns={val_ns} bitplane_ns={bit_ns} adaptive_ns={adapt_ns} large_n=48 large_rank=24 large_ns={large_ns} budget_rejects=2 invalid_rejects=2 fallback=1");
     }
+
+    // Domain as fixed-zero coordinates, not a truth mask over 2^n labels.
+    // This removes the two-qubit global-CNF test frontend's domain limit.
+    fn scaling_labels(free:u64,n:usize)->Vec<u64>{
+        let b:Vec<u64>=(0..n).filter(|&i|free>>i&1!=0).map(|i|1u64<<i).collect();
+        (0..1u64<<b.len()).map(|x|combine(&b,x)).collect()
+    }
+    fn scaling_dense_frame(f:&FlatFrame)->(Vec<Vec<Root>>,usize){
+        let mut basis=f.kernel.clone();
+        for &v in &f.support{if coordinates(&basis,v).is_none(){basis.push(v);}}
+        assert_eq!(basis.len(),f.support.len());
+        let h=f.kernel.len();
+        let logical=&basis[h..];
+        let mut cols=Vec::new();
+        for x in 0..1u64<<logical.len(){
+            let off=f.off^combine(logical,x);
+            let mut col=vec![[0;4];1usize<<f.n];
+            for y in 0..1u64<<h{
+                let z=off^combine(&f.kernel,y);
+                assert_eq!(col[z as usize],[0;4]);
+                col[z as usize]=root(eval(&f.q,z) as usize);
+            }
+            cols.push(col);
+        }
+        (cols,h)
+    }
+    // Independent exact Gram oracle using gate-by-gate columns, without
+    // the structural theorem or its phase-period calculation.
+    fn scaling_gram(a:&[Vec<Root>],ah:usize,b:&[Vec<Root>],bh:usize)->bool{
+        let den=1i64<<(ah+bh);
+        for x in a{
+            let mut sum=[0;4];
+            for z in b{
+                let ov=x.iter().zip(z).fold([0;4],|s,(&u,&v)|add(s,rus_mul(u,rus_conj(v))));
+                sum=add(sum,norm(ov));
+            }
+            if sum!=[den,0,0,0]{return false;}
+        }
+        true
+    }
+    #[test]
+    fn hoare_affine_frame_end_to_end_scaling(){
+        let mut cases=0;let mut admitted=0;let mut rejected=0;
+        let mut proved=0;let mut refuted=0;let mut split=0;
+        let mut residual_exact=0;let mut residual_unknown=0;
+        for n in [4usize,6,8,10,12]{
+            let h=n/2-1;
+            let logical=n-2;let extra=n-1;
+            let afree=1u64<<logical;
+            let common=vec![G::CZ(0,logical),G::T(h-1),G::CX(0,h)];
+            let alabels=scaling_labels(afree,n);
+            for kind in ["relaxed","support-negative","phase-negative","hh-fallback"]{
+                // A prepares h coherent bits and one free logical label.
+                // B permits an extra output label and, except in the phase
+                // negative case, makes bit0 a free label instead of a
+                // coherent bit. This permits an intermediate of rank4,
+                // smaller than the safe space of rank8.
+                let mut ga=Vec::new();
+                if kind=="hh-fallback"{ga.extend([G::H(h),G::H(h)]);}
+                ga.extend((0..h).map(G::H));ga.push(G::T(0));ga.extend(common.clone());
+                let phase_negative=kind=="phase-negative";
+                let bfree=afree|(1u64<<extra)|if phase_negative{0}else{1};
+                let mut gb=Vec::new();
+                if kind=="support-negative"{gb.push(G::X(h));}
+                gb.extend((if phase_negative{0}else{1}..h).map(G::H));
+                gb.extend(common.clone());
+                let suffix=inverse_ops(&gb);
+                let mut full=ga.clone();full.extend(suffix);
+                let b_labels=scaling_labels(bfree,n);
+                let ah=ga.iter().filter(|g|matches!(g,G::H(_))).count();
+                let bh=gb.iter().filter(|g|matches!(g,G::H(_))).count();
+                let pre=super::Cube{mask:((1u64<<n)-1)&!afree,value:0};
+                let post=super::Cube{mask:((1u64<<n)-1)&!bfree,value:0};
+
+                // Direct circuit simulation is a separate, independent
+                // oracle; expected truth is never used for route selection.
+                let t=std::time::Instant::now();
+                let truth=alabels.iter().all(|&x|super::dense(n,&full,x,post));
+                let dense_full_ns=t.elapsed().as_nanos();
+                assert_eq!(truth,matches!(kind,"relaxed"|"hh-fallback"));
+                let t=std::time::Instant::now();
+                let acols:Vec<_>=alabels.iter().map(|&x|dense_state(n,&ga,x)).collect();
+                let bcols:Vec<_>=b_labels.iter().map(|&x|dense_state(n,&gb,x)).collect();
+                assert_eq!(scaling_gram(&acols,ah,&bcols,bh),truth);
+                let dense_gram_ns=t.elapsed().as_nanos();
+
+                // Existing bounded exact residual checker (not RR-first WMC).
+                let t=std::time::Instant::now();
+                let (residual,_)=super::verify(n,&full,Some(pre),post,1<<18);
+                let residual_ns=t.elapsed().as_nanos();
+                match residual{
+                    super::Answer::Proved=>{assert!(truth);residual_exact+=1;}
+                    super::Answer::Refuted(_)=>{assert!(!truth);residual_exact+=1;}
+                    super::Answer::Unknown=>{residual_unknown+=1;}
+                }
+
+                let start=std::time::Instant::now();
+                let t=std::time::Instant::now();
+                let a=native(n,&ga).unwrap();let b=native(n,&gb).unwrap();
+                let build_ns=t.elapsed().as_nanos();
+                let t=std::time::Instant::now();
+                let af=admit_flat(&a,afree);let bf=admit_flat(&b,bfree);
+                let admission_ns=t.elapsed().as_nanos();
+                let mut include_ns=0;let mut discovery_ns=0;let mut synthesis_ns=0;
+                let mut replay_ns=0;let mut oracle_replay_ns=0;
+                let mut candidate_rank=0;let mut safe_rank=0;let mut period_rank=0;
+                let mut route="unsupported";
+                let verdict;
+                if let (Some(af),Some(bf))=(af,bf){
+                    admitted+=1;
+                    let t=std::time::Instant::now();
+                    verdict=flat_include(&af,&bf);
+                    include_ns=t.elapsed().as_nanos();
+                    assert_eq!(verdict,Some(truth));
+                    safe_rank=1usize<<(bf.support.len()-bf.kernel.len());
+                    if verdict==Some(true){
+                        proved+=1;
+                        let t=std::time::Instant::now();
+                        let mut d=af.q.clone();plus(&mut d,&bf.q,7);
+                        let p=restrict_phase(&d,af.off,&af.support,n);
+                        let k:Vec<u64>=af.kernel.iter().map(|&v|coordinates(&af.support,v).unwrap()).collect();
+                        let (hh,r)=adaptive_periods(&p,af.support.len(),k,2_000_000,100_000,false).unwrap();
+                        route=r;
+                        discovery_ns=t.elapsed().as_nanos();
+                        let t=std::time::Instant::now();
+                        let cf=FlatFrame{n,off:af.off,support:af.support.clone(),
+                            kernel:hh.iter().map(|&v|combine(&af.support,v)).collect(),q:bf.q.clone()};
+                        period_rank=cf.kernel.len();
+                        candidate_rank=1usize<<(cf.support.len()-cf.kernel.len());
+                        synthesis_ns=t.elapsed().as_nanos();
+                        let t=std::time::Instant::now();
+                        assert_eq!(flat_include(&af,&cf),Some(true));
+                        assert_eq!(flat_include(&cf,&bf),Some(true));
+                        replay_ns=t.elapsed().as_nanos();
+                        assert_eq!((candidate_rank,safe_rank),(4,8));
+                        split+=1;
+                        let online_ns=start.elapsed().as_nanos();
+                        // Independent validation is accounted separately
+                        // from the structural online path, not hidden.
+                        let t=std::time::Instant::now();
+                        let (ccols,ch)=scaling_dense_frame(&cf);
+                        assert!(scaling_gram(&acols,ah,&ccols,ch));
+                        assert!(scaling_gram(&ccols,ch,&bcols,bh));
+                        oracle_replay_ns=t.elapsed().as_nanos();
+                        println!("HOARE_FRAME_SCALING n={n} kind={kind} verdict=PROVED route={route} a_h={ah} b_h={bh} candidate_rank={candidate_rank} safe_rank={safe_rank} period_rank={period_rank} build_ns={build_ns} admission_ns={admission_ns} include_ns={include_ns} discovery_ns={discovery_ns} synthesis_ns={synthesis_ns} replay_ns={replay_ns} online_ns={online_ns} oracle_replay_ns={oracle_replay_ns} dense_full_ns={dense_full_ns} dense_gram_ns={dense_gram_ns} residual_ns={residual_ns}");
+                    }else{
+                        refuted+=1;route="structural";
+                    }
+                }else{
+                    rejected+=1;verdict=None;
+                    assert_eq!(kind,"hh-fallback");
+                }
+                if verdict!=Some(true){
+                    let online_ns=start.elapsed().as_nanos();
+                    println!("HOARE_FRAME_SCALING n={n} kind={kind} verdict={verdict:?} route={route} a_h={ah} b_h={bh} candidate_rank={candidate_rank} safe_rank={safe_rank} period_rank={period_rank} build_ns={build_ns} admission_ns={admission_ns} include_ns={include_ns} discovery_ns={discovery_ns} synthesis_ns={synthesis_ns} replay_ns={replay_ns} online_ns={online_ns} oracle_replay_ns={oracle_replay_ns} dense_full_ns={dense_full_ns} dense_gram_ns={dense_gram_ns} residual_ns={residual_ns}");
+                }
+                cases+=1;
+            }
+        }
+        assert_eq!((cases,admitted,rejected,proved,refuted,split),(20,15,5,5,10,5));
+        assert_eq!(residual_exact+residual_unknown,cases);
+        println!("HOARE_FRAME_SCALING_SUMMARY cases={cases} admitted={admitted} rejected={rejected} proved={proved} refuted={refuted} split={split} residual_exact={residual_exact} residual_unknown={residual_unknown}");
+    }
 }
 

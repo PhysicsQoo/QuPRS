@@ -8013,9 +8013,19 @@ fn partition_export(dir:&std::path::Path){
 // Constrained-predicate research only. Native exact Clifford+T snapshots,
 // shared Tseitin gates, independent dense gate oracle. No production API.
 mod constrained_predicate_overlap {
-    use super::{G, Symbolic, Root, native, dense_state, add, root, rus_mul, rus_conj, affine_solve};
+    use super::{G, Symbolic, Root, native, dense_state, add, root, shift, affine_solve};
     use super::native_dyadic_cnf::{Cnf, Lit, ONE, ZERO};
     use std::collections::BTreeMap;
+
+    fn rus_mul(a:Root,b:Root)->Root{
+        let mut r=[0;4];
+        for (j,v) in b.into_iter().enumerate(){
+            let t=shift(a,j);
+            for i in 0..4{r[i]+=t[i]*v;}
+        }
+        r
+    }
+    fn rus_conj(a:Root)->Root{[a[0],-a[3],-a[2],-a[1]]}
 
     // With all primary bits fixed, propagate the actual clauses. Every
     // accepted assignment must determine every auxiliary, including phases.
@@ -8239,12 +8249,12 @@ mod constrained_predicate_overlap {
         let mut checks=0;let mut terms=0;
         for (n,ops) in &fixtures{
             let s=native(*n,ops).unwrap();
-            let input_mask=(1u64<<n)-1;
-            let p:Poly=s.phase.iter().filter(|(m,_)|**m&input_mask==0).map(|(&m,&k)|(m>>n,k)).collect();
+            let input_mask=(1u64<<*n)-1;
+            let p:Poly=s.phase.iter().filter(|(m,_)|**m&input_mask==0).map(|(&m,&k)|(m>>*n,k)).collect();
             let mut cols=vec![0u64;s.h];let mut off=0u64;
             for (j,f) in s.output.iter().enumerate(){
                 for &m in f{if m&input_mask!=0{continue;}
-                    let u=m>>n;
+                    let u=m>>*n;
                     if u==0{off|=1<<j;}else{
                         assert_eq!(u.count_ones(),1);cols[u.trailing_zeros() as usize]|=1<<j;
                     }
@@ -8259,7 +8269,7 @@ mod constrained_predicate_overlap {
             }).collect();
             assert_eq!(subst(&q,&forward),p,"symbolic phase descent");
             let dense=dense_state(*n,ops,0);
-            let mut reconstructed=vec![[0;4];1<<n];
+            let mut reconstructed=vec![[0;4];1<<*n];
             for y in 0..1u64<<s.h{
                 let (z,k)=super::path(&s,0,y);
                 assert_eq!(usize::from(eval(&q,z)),k);

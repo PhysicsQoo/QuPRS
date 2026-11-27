@@ -9,7 +9,7 @@ on:
       suite:
         description: Bounded Frontier admission suite
         type: choice
-        options: [frontier-release-quality, frontier-vqe16-gpmc-scout, v020-cross-family-scout, v020-pinned-integration, v020-planner-diagnosis, v020-width-transfer, v020-rust-integration, v020-final-admission]
+        options: [frontier-release-quality, frontier-vqe16-gpmc-scout, v020-cross-family-scout, v020-pinned-integration, v020-planner-diagnosis, v020-width-transfer, v020-rust-integration, v020-final-admission, v020-frontier-holdout]
         default: frontier-release-quality
 permissions:
   contents: read
@@ -1126,7 +1126,7 @@ jobs:
 
 
   v020-router-replay:
-    if: github.event_name == 'push' || inputs.suite == 'v020-final-admission'
+    if: github.event_name == 'workflow_dispatch' && inputs.suite == 'v020-final-admission'
     name: v0.2.0 original-CNF router replay / ${{ matrix.case }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
@@ -1267,7 +1267,7 @@ jobs:
           if-no-files-found: warn
 
   v020-release-verifier-preview:
-    if: github.event_name == 'push' || inputs.suite == 'v020-final-admission'
+    if: github.event_name == 'workflow_dispatch' && inputs.suite == 'v020-final-admission'
     name: v0.2.0 release receipt policy preview (read only)
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -1327,5 +1327,252 @@ jobs:
         with:
           name: rawmocs-v020-release-policy-preview
           path: .receipt-evidence/
+          include-hidden-files: true
+          if-no-files-found: warn
+
+  v020-frontier-holdout:
+    if: github.event_name == 'push' || inputs.suite == 'v020-frontier-holdout'
+    name: v0.2.0 source-locked Frontier holdout / ${{ matrix.case }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - case: vqe8_native
+            source: benchmarks/MQTBench/qiskit-2.6.1-opt0/h,ry,rz,cx/vqe_nativegates_ibm_qiskit_opt0_8.qasm
+            blob: dbb9a29b9e2f223e7aa08b2d49564f4e817ee8c4
+          - case: qnn8_native
+            source: benchmarks/MQTBench/qiskit-2.6.1-opt0/h,ry,rz,cx/qnn_nativegates_ibm_qiskit_opt0_8.qasm
+            blob: 113c6ad4d559b7f2d8f72104780ce76859bd42de
+          - case: qwalk4_native
+            source: benchmarks/MQTBench/qiskit-2.6.1-opt0/h,ry,rz,cx/qwalk-noancilla_nativegates_ibm_qiskit_opt0_4.qasm
+            blob: f878245eda3be47a3d8b0baff46e81a57a909698
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: PhysicsQoo/RaWMoCS
+          ref: 0b8538be510718e7c8d79a79875681628b73f9be
+          path: .classes-candidate
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: PhysicsQoo/QuPRS
+          ref: 0b28736651b3740ed3b201edd2efdef3da541e0d
+          path: .upstream/quprs
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            .classes-candidate/crates/rawmocs-cli -> target
+            .upstream/quprs/rust -> target
+          shared-key: rawmocs-auto-fallback-scout
+          cache-workspace-crates: 'false'
+      - name: Build pinned exporter and native solvers
+        env:
+          SOURCE: ${{ matrix.source }}
+          BLOB: ${{ matrix.blob }}
+        run: |
+          set -euo pipefail
+          test "$(git -C .classes-candidate rev-parse HEAD)" = 0b8538be510718e7c8d79a79875681628b73f9be
+          test "$(git -C .upstream/quprs rev-parse HEAD)" = 0b28736651b3740ed3b201edd2efdef3da541e0d
+          test "$(git -C .upstream/quprs rev-parse "HEAD:$SOURCE")" = "$BLOB"
+          test -f /etc/apt/sources.list.d/ubuntu.sources
+          sudo apt-get -o Dir::Etc::sourcelist=/etc/apt/sources.list.d/ubuntu.sources -o Dir::Etc::sourceparts=- -o APT::Get::List-Cleanup=0 update
+          sudo apt-get -o Dir::Etc::sourcelist=/etc/apt/sources.list.d/ubuntu.sources -o Dir::Etc::sourceparts=- install -y --no-install-recommends cmake ninja-build libgmp-dev libmpfr-dev zlib1g-dev m4 make gcc time pkg-config
+          mkdir -p .frontier-positive-evidence
+          repro=.classes-candidate/crates/rawmocs-cli/tools/repro
+          test "$(git -C .classes-candidate hash-object crates/rawmocs-cli/tools/repro/quprs_long_tail_source_bridge.rs)" = fc32f4e8b0a2f34386b86e08ddf147469275c245
+          cp "$repro/quprs_long_tail_source_bridge.rs" .upstream/quprs/rust/quprs/examples/
+          cargo build --locked --release --no-default-features --manifest-path .upstream/quprs/rust/Cargo.toml -p quprs --example quprs_long_tail_source_bridge
+          cargo build --locked --release --manifest-path .classes-candidate/crates/rawmocs-cli/Cargo.toml
+      - name: Scout only validated frontier; witness genuine positive completions
+        id: scout
+        env:
+          CASE: ${{ matrix.case }}
+          SOURCE: ${{ matrix.source }}
+          BLOB: ${{ matrix.blob }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib,json,os,re,subprocess,sys,time
+          from fractions import Fraction
+          from pathlib import Path
+          root=Path(".frontier-positive-evidence").resolve()
+          q=Path(".upstream/quprs").resolve()
+          cli=Path(".classes-candidate/crates/rawmocs-cli").resolve()
+          sys.path.insert(0,str(cli/"tools"))
+          from release_transfer import check_count
+          from release_native_paired import parse
+          case=os.environ["CASE"];rel=os.environ["SOURCE"];label="extended_"+case
+          binary=cli/"target/release/rawmocs"
+          def sha(p):return hashlib.sha256(p.read_bytes()).hexdigest()
+          report={"case":case,"source_path":rel,"qasm_blob":os.environ["BLOB"],"qasm_sha256":sha(q/rel),"quprs_sha":"0b28736651b3740ed3b201edd2efdef3da541e0d","rawmocs_sha":"0b8538be510718e7c8d79a79875681628b73f9be","binary_sha256":sha(binary),"digits":130,"bits":432,"target":100,"status":"IN_PROGRESS","rows":{}}
+          def finish(status):
+              report["status"]=status
+              (root/"report.json").write_text(json.dumps(report,indent=2)+"\n")
+              print("FRONTIER_POSITIVE_SCOUT_REPORT",json.dumps(report),flush=True)
+          def bounded(cmd,seconds,tag):
+              start=time.monotonic_ns()
+              p=subprocess.run(["timeout","-k","2s",str(seconds),"prlimit","--as=3221225472","--",*map(str,cmd)],capture_output=True,text=True,timeout=seconds+7)
+              (root/f"{tag}.stdout").write_text(p.stdout)
+              (root/f"{tag}.stderr").write_text(p.stderr)
+              return p,(time.monotonic_ns()-start)/1e9
+          exporter=q/"rust/target/release/examples/quprs_long_tail_source_bridge"
+          p,t=bounded([exporter,label,q,root,rel],30,"export")
+          if p.returncode:
+              report["export"]={"exit":p.returncode,"wall_s":t}
+              finish("EXPORT_NOT_ADMITTED");sys.exit(0)
+          cnf=root/(label+"-gpmc.cnf")
+          assert (root/(label+".qasm")).read_bytes()==(q/rel).read_bytes()
+          expected=sha(cnf);report["cnf_sha256"]=expected
+          header=cnf.open().readline().split();assert header[:2]==["p","cnf"] and len(header)==4
+          report["variables"],report["clauses"]=map(int,header[2:])
+          p,t=bounded([binary,"--digits","130","--solver","auto-frontier","--timeout-ms","13000",cnf],15,"frontier")
+          stop=re.findall(r"^PREJOIN_FRONTIER_STOP steps=(\d+) remaining=(\d+) reason=exact local bit cap$",p.stderr,re.M)
+          row={"exit":p.returncode,"wall_s":t,"stop":stop,"fallback_reasons":re.findall(r"^RAWMOCS_FALLBACK reason=(.+)$",p.stderr,re.M)}
+          report["rows"]["frontier"]=row
+          assert sha(cnf)==expected
+          if p.returncode:
+              assert not p.stdout
+              finish("FRONTIER_NOT_COMPLETE");sys.exit(0)
+          row.update(parse(p.stdout,"rawmocs"))
+          route,=re.findall(r"^RAWMOCS_COMPLETE route=([a-z-]+) digits=130 bits=432 ",p.stderr,re.M)
+          row["route"]=route
+          if not stop or route!="prejoin" or row["fallback_reasons"]:
+              finish("NO_POSITIVE_FRONTIER_ROUTE");sys.exit(0)
+          ref=None
+          for name in ("original_exact_prejoin.py","original_fixed_interval.py"):
+              p,t=bounded([sys.executable,cli/"tools/repro"/name,cnf,expected],45,name)
+              report.setdefault("oracle_attempts",[]).append({"name":name,"exit":p.returncode,"wall_s":t})
+              if p.returncode:continue
+              c=json.loads(p.stdout)
+              if name=="original_fixed_interval.py":
+                  assert "FIXED_INTERVAL_SELF_TEST PASS" in p.stderr
+                  c["status"]="INDEPENDENT_FIXED_INTERVAL_COMPLETE"
+              if c.get("status") not in ("INDEPENDENT_INTERVAL_COMPLETE","INDEPENDENT_FIXED_INTERVAL_COMPLETE"):continue
+              assert c["source_sha256"]==expected and c["bits"]==550 and type(c["sat"]) is bool
+              assert c["width"]<=19 and c["work"]<=40000000 and c["peak"]<=2000000
+              for key in ("real","imag"):
+                  a,b=map(Fraction,c[key]);assert a<=b
+              ref=c;break
+          if ref is None:
+              finish("POSITIVE_FRONTIER_UNWITNESSED");sys.exit(0)
+          row["witness_upper"]=check_count(row,ref,100)
+          (root/"independent-reference.json").write_text(json.dumps(ref,indent=2)+"\n")
+          report["witness_sha256"]=sha(root/"independent-reference.json")
+          assert sha(cnf)==expected
+          finish("POSITIVE_FRONTIER_WITNESSED")
+          with open(os.environ["GITHUB_OUTPUT"],"a") as out:out.write("qualified=true\n")
+          PY
+      - uses: actions/checkout@v4
+        if: steps.scout.outputs.qualified == 'true'
+        with:
+          repository: PhysicsQoo/GPMC
+          ref: 89bbc89d0de918e7a5385740355df55765039230
+          path: .gpmc
+          submodules: recursive
+          persist-credentials: false
+      - name: Screen GPMC only after witnessed Frontier completion
+        id: gpmc-scout
+        if: steps.scout.outputs.qualified == 'true'
+        run: |
+          set -euo pipefail
+          test "$(git -C .gpmc rev-parse HEAD)" = 89bbc89d0de918e7a5385740355df55765039230
+          cmake -S .gpmc -B .gpmc/build -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake --build .gpmc/build --target gpmc-bin --parallel 2
+          python3 - <<'PY'
+          import hashlib,json,re,subprocess,sys,time
+          from pathlib import Path
+          root=Path(".frontier-positive-evidence").resolve()
+          cli=Path(".classes-candidate/crates/rawmocs-cli").resolve()
+          sys.path.insert(0,str(cli/"tools"))
+          from release_transfer import check_count
+          from release_native_paired import parse
+          report=json.loads((root/"report.json").read_text())
+          cnf,=root.glob("*-gpmc.cnf")
+          refpath=root/"independent-reference.json"
+          sha=lambda p:hashlib.sha256(p.read_bytes()).hexdigest()
+          assert sha(cnf)==report["cnf_sha256"] and sha(refpath)==report["witness_sha256"]
+          ref=json.loads(refpath.read_text())
+          binary=Path(".gpmc/build/gpmc").resolve()
+          report["gpmc_sha"]="89bbc89d0de918e7a5385740355df55765039230"
+          report["gpmc_binary_sha256"]=sha(binary)
+          start=time.monotonic_ns()
+          p=subprocess.run(["timeout","-k","2s","120s","prlimit","--as=3221225472","--",str(binary),"-mode=1","-prec=130",str(cnf)],capture_output=True,text=True,timeout=127)
+          row={"exit":p.returncode,"wall_s":(time.monotonic_ns()-start)/1e9}
+          (root/"gpmc.stdout").write_text(p.stdout)
+          (root/"gpmc.stderr").write_text(p.stderr)
+          report["rows"]["gpmc"]=row
+          if p.returncode:
+              report["status"]="GPMC_CENSORED" if p.returncode in (124,137) else "GPMC_EXECUTION_ERROR"
+          else:
+              assert re.findall(r"^c o precision (\d+)\s*$",p.stdout,re.M)==["130"]
+              row.update(parse(p.stdout,"gpmc"))
+              row["witness_upper"]=check_count(row,ref,100)
+              report["status"]="LONG_GPMC_AND_FRONTIER_WITNESSED" if row["wall_s"]>=10 else "SHORT_GPMC_AND_FRONTIER_WITNESSED"
+          assert sha(cnf)==report["cnf_sha256"] and sha(refpath)==report["witness_sha256"]
+          (root/"report.json").write_text(json.dumps(report,indent=2)+"\n")
+          print("V020_CROSS_FAMILY_SCOUT_REPORT",json.dumps(report),flush=True)
+          if report["status"]=="LONG_GPMC_AND_FRONTIER_WITNESSED":
+              with open(os.environ["GITHUB_OUTPUT"],"a") as out:out.write("long=true\n")
+          PY
+      - uses: actions/checkout@v4
+        if: steps.gpmc-scout.outputs.long == 'true'
+        with:
+          repository: PhysicsQoo/RaWMoCS
+          ref: b3d02b2720c2fae5231c0ed5cf44950164a5780d
+          path: .rawmocs-baseline
+          persist-credentials: false
+      - name: Screen released baseline only for witnessed long GPMC cases
+        if: steps.gpmc-scout.outputs.long == 'true'
+        run: |
+          set -euo pipefail
+          test "$(git -C .rawmocs-baseline rev-parse HEAD)" = b3d02b2720c2fae5231c0ed5cf44950164a5780d
+          cargo build --locked --release --manifest-path .rawmocs-baseline/crates/rawmocs-cli/Cargo.toml
+          python3 - <<'PY'
+          import hashlib,json,re,subprocess,sys,time
+          from pathlib import Path
+          root=Path(".frontier-positive-evidence").resolve()
+          cli=Path(".classes-candidate/crates/rawmocs-cli").resolve()
+          sys.path.insert(0,str(cli/"tools"))
+          from release_transfer import check_count
+          from release_native_paired import parse
+          report=json.loads((root/"report.json").read_text())
+          assert report["status"]=="LONG_GPMC_AND_FRONTIER_WITNESSED"
+          cnf,=root.glob("*-gpmc.cnf")
+          witness=root/"independent-reference.json"
+          sha=lambda p:hashlib.sha256(p.read_bytes()).hexdigest()
+          assert sha(cnf)==report["cnf_sha256"] and sha(witness)==report["witness_sha256"]
+          ref=json.loads(witness.read_text())
+          binary=Path(".rawmocs-baseline/crates/rawmocs-cli/target/release/rawmocs").resolve()
+          report["baseline_revision"]="b3d02b2720c2fae5231c0ed5cf44950164a5780d"
+          report["baseline_binary_sha256"]=sha(binary)
+          start=time.monotonic_ns()
+          p=subprocess.run(["timeout","-k","2s","120s","prlimit","--as=3221225472","--",str(binary),"--digits","130","--timeout-ms","118000",str(cnf)],capture_output=True,text=True,timeout=127)
+          row={"exit":p.returncode,"wall_s":(time.monotonic_ns()-start)/1e9}
+          (root/"baseline.stdout").write_text(p.stdout)
+          (root/"baseline.stderr").write_text(p.stderr)
+          report["rows"]["baseline"]=row
+          if p.returncode:
+              assert not p.stdout
+              report["status"]="BASELINE_CENSORED_OR_ERROR"
+          else:
+              row.update(parse(p.stdout,"rawmocs"))
+              row["witness_upper"]=check_count(row,ref,100)
+              row["route"],=re.findall(r"^RAWMOCS_COMPLETE route=([a-z-]+) digits=130 bits=432 ",p.stderr,re.M)
+              report["status"]="LONG_HOLDOUT_PAIRED_TRIAL_CANDIDATE" if row["wall_s"]>=2*report["rows"]["frontier"]["wall_s"] else "LONG_HOLDOUT_BELOW_TARGET_SINGLE_SCOUT"
+          assert sha(cnf)==report["cnf_sha256"] and sha(witness)==report["witness_sha256"]
+          (root/"report.json").write_text(json.dumps(report,indent=2)+"\n")
+          print("V020_HOLDOUT_FINAL",json.dumps(report),flush=True)
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: rawmocs-v020-holdout-${{ matrix.case }}
+          path: .frontier-positive-evidence/
           include-hidden-files: true
           if-no-files-found: warn

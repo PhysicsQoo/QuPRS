@@ -1123,6 +1123,12 @@ mod exact_property_cnf {
     #[derive(Default,Debug)]
     struct RrStats { elim:usize, hh:usize, omega:usize, input_pivot_rejected:usize, scale2:u32 }
     fn compact(ps:&PathSum,n:usize)->Option<Symbolic>{
+        compact_shape(ps,n,n)
+    }
+    // Explicit output shape for rectangular RR receipts only. Existing
+    // square encoder and reducer callers retain their original contract.
+    fn compact_shape(ps:&PathSum,n:usize,q:usize)->Option<Symbolic>{
+        if ps.v.num_qubits!=n{return None;}
         if ps.rr_approximate||ps.rr_tolerance!=0.0||!ps.v.continuous_vars.is_empty(){return None;}
         let live=&ps.v.path_vars;
         if (0..n).any(|i|!live.contains(&(i as u32))){return None;}
@@ -1135,7 +1141,7 @@ mod exact_property_cnf {
             Some(out)
         };
         let output=ps.f.functions.iter().map(|p|p.iter().map(|m|mask(m)).collect::<Option<BTreeSet<_>>>()).collect::<Option<Vec<_>>>()?;
-        if output.len()!=n{return None;}
+        if output.len()!=q{return None;}
         let mut phase=BTreeMap::new();
         for (m,c) in &ps.p.terms{
             if c.radians.is_some()||!c.symbols.is_empty(){return None;}
@@ -1278,7 +1284,10 @@ mod exact_property_cnf {
         Some(next)
     }
     fn guarded_native_step(ps:&PathSum,n:usize,g:&NativeGuardFrame)->Option<GuardedStep>{
-        let s=compact(ps,n)?;
+        guarded_native_step_shape(ps,n,n,g)
+    }
+    fn guarded_native_step_shape(ps:&PathSum,n:usize,q:usize,g:&NativeGuardFrame)->Option<GuardedStep>{
+        let s=compact_shape(ps,n,q)?;
         g.compact_factors(ps)?;
         let ids=native_ids(ps)?;
         let mut candidates:Vec<_>=ps.get_reducible_vars().into_iter().filter(|&y|
@@ -1302,7 +1311,7 @@ mod exact_property_cnf {
                     GuardedRule::Hh=>trial.try_reduce_hh(&[y]),
                 };
                 if !ok{continue;}
-                compact(&trial,n)?;
+                compact_shape(&trial,n,q)?;
                 let mut removed:Vec<_>=ps.v.path_vars.difference(&trial.v.path_vars).copied().collect();
                 removed.sort_unstable();expected.sort_unstable();
                 if removed!=expected||!trial.v.path_vars.is_subset(&ps.v.path_vars){return None;}
@@ -1404,7 +1413,10 @@ mod exact_property_cnf {
         output:Vec<Anf>, extra:Anf, conjuncts:Vec<Anf>,
     }
     fn guarded_snapshot(ps:&PathSum,n:usize,g:&NativeGuardFrame)->Option<GuardedSnapshot>{
-        let s=compact(ps,n)?;
+        guarded_snapshot_shape(ps,n,n,g)
+    }
+    fn guarded_snapshot_shape(ps:&PathSum,n:usize,q:usize,g:&NativeGuardFrame)->Option<GuardedSnapshot>{
+        let s=compact_shape(ps,n,q)?;
         g.compact_factors(ps)?;
         Some(GuardedSnapshot{n,ids:native_ids(ps)?,phase:s.phase,output:s.output,extra:g.extra.clone(),conjuncts:g.conjuncts.clone()})
     }
@@ -1415,7 +1427,10 @@ mod exact_property_cnf {
         section:Vec<(u32,Anf)>,
     }
     fn guarded_receipt(ps:&PathSum,n:usize,g:&NativeGuardFrame,step:&GuardedStep)->Option<GuardedReceipt>{
-        Some(GuardedReceipt{before:guarded_snapshot(ps,n,g)?,after:guarded_snapshot(&step.ps,n,&step.guard)?,
+        guarded_receipt_shape(ps,n,n,g,step)
+    }
+    fn guarded_receipt_shape(ps:&PathSum,n:usize,q:usize,g:&NativeGuardFrame,step:&GuardedStep)->Option<GuardedReceipt>{
+        Some(GuardedReceipt{before:guarded_snapshot_shape(ps,n,q,g)?,after:guarded_snapshot_shape(&step.ps,n,q,&step.guard)?,
             rule:step.rule,removed:step.removed.clone(),scale2:step.scale2,section:step.section.clone()})
     }
     // Replay recomputes the original RR transition and guard substitution;

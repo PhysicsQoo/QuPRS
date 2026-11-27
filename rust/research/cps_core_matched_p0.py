@@ -55,6 +55,10 @@ def worker(binary,solver,folder,mode):
     if affine:
         assert len(affine)==1,affine
         row["affine_interface"]=affine[0]
+    pre_rr=[l.removeprefix("CPS_PRECOMPOSE_RR ") for l in p.stdout.splitlines() if l.startswith("CPS_PRECOMPOSE_RR ")]
+    if pre_rr:
+        assert len(pre_rr)==1 and not mode.startswith("wmc"),pre_rr
+        row["precompose_rr"]=pre_rr[0]
     if status=="READY":
         base=(folder/"base.cnf").read_text()
         packed,radix,bound=single_fibre_pack(base,list(map(int,phase.split(","))),primary)

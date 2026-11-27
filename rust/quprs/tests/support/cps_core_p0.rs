@@ -549,10 +549,16 @@ struct CoreRrReceipt {
 }
 impl CpsCore {
     fn rr_step(&self)->Option<(Self,CoreRrReceipt)>{
-        if !self.valid()||self.n()!=self.q(){return None;}
-        let step=guarded_native_step(&self.ps,self.n(),&self.guard)?;
+        if self.n()!=self.q(){return None;}
+        self.rr_step_shape()
+    }
+    // Scoped rectangular pre-composition lane. Same native RR and
+    // guard substitution, phase budget and exact receipt fields.
+    fn rr_step_shape(&self)->Option<(Self,CoreRrReceipt)>{
+        if !self.valid(){return None;}
+        let step=guarded_native_step_shape(&self.ps,self.n(),self.q(),&self.guard)?;
         if !core_rr_phase_admitted(self.ps.p.terms.len(),step.ps.p.terms.len()){return None;}
-        let native=guarded_receipt(&self.ps,self.n(),&self.guard,&step)?;
+        let native=guarded_receipt_shape(&self.ps,self.n(),self.q(),&self.guard,&step)?;
         let decrement=i32::try_from(native.scale2).ok()?;
         let after_k=self.k.checked_sub(decrement)?;
         let next=Self::from_frame(step.ps,step.guard,after_k)?;
@@ -561,14 +567,54 @@ impl CpsCore {
         Some((next,receipt))
     }
     fn replay_rr(&self,receipts:&[CoreRrReceipt])->Option<Self>{
-        if !self.valid()||self.n()!=self.q()||receipts.len()>32{return None;}
+        if self.n()!=self.q(){return None;}
+        self.replay_rr_shape(receipts)
+    }
+    fn replay_rr_shape(&self,receipts:&[CoreRrReceipt])->Option<Self>{
+        if !self.valid()||receipts.len()>32{return None;}
         let mut c=self.clone();
         for supplied in receipts{
-            let (next,actual)=c.rr_step()?;
+            let (next,actual)=c.rr_step_shape()?;
             if &actual!=supplied{return None;}
             c=next;
         }
         Some(c)
+    }
+}
+// Alpha-renaming only after receipt replay: close stable-ID holes
+// without changing any variable role, guard, phase or scale.
+impl CpsCore{
+    fn dense_ids(&self)->Option<Self>{
+        if !self.valid(){return None;}
+        let mut ps=PathSum::new(self.n());ps.set_auto_reduce(false);
+        let mut map=BTreeMap::new();
+        for &old in &self.guard.ids{
+            let v=if (old as usize)<self.n(){old}else{ps.v.get_fresh_var()};
+            map.insert(old,v);
+        }
+        let (p,f)=core_rename(&self.ps,&map)?;
+        ps.p=p;ps.f=f;
+        let gs=self.guard.factors().map(|g|core_rename_anf(g,&map)).collect::<Option<Vec<_>>>()?;
+        Self::from_factors(ps,gs,self.k)
+    }
+    fn precompose_affine_rr(&self,b:&Self)->Result<(Self,usize,usize,Vec<CoreRrReceipt>,usize),String>{
+        let mut a=self.clone();let mut receipts=Vec::new();
+        let mut last="no-admitted-step".to_owned();
+        for _ in 0..16{
+            let Some((next,r))=a.rr_step_shape() else{break;};
+            receipts.push(r);a=next;
+            let dense=a.dense_ids().ok_or("dense-ids")?;
+            if !core_label_support(&dense,b){return Err("label-certificate-after-rr".into());}
+            match dense.then_adjoint_affine(b){
+                Ok((c,rank,pins))=>{
+                    let replay=self.replay_rr_shape(&receipts).ok_or("pre-rr-replay")?;
+                    if replay.k!=a.k||guarded_snapshot_shape(&replay.ps,replay.n(),replay.q(),&replay.guard)!=guarded_snapshot_shape(&a.ps,a.n(),a.q(),&a.guard){return Err("pre-rr-replay-mismatch".into());}
+                    return Ok((c,rank,pins,receipts,dense.guard.ids.len()));
+                },
+                Err(e)=>{last=e;if !last.contains("affine-live-cap"){break;}}
+            }
+        }
+        Err(format!("pre-rr steps={} live={} last={last}",receipts.len(),a.guard.ids.len()))
     }
 }
 fn core_rr_equal(a:&CpsCore,b:&CpsCore){
@@ -628,6 +674,24 @@ fn hoare_cps_core_guarded_rr(){
     let mut rect=PathSum::new(1);rect.f=quprs::pathsum::BooleanState::new(0);
     let rect=CpsCore::canonical(rect,Anf::from([0])).unwrap();
     assert!(rect.rr_step().is_none());assert!(rect.replay_rr(&[]).is_none());
+    // A rectangular map with two original H gates, and an additional
+    // constant output, exercises the real HH on non-square signatures.
+    let mut ps=PathSum::new(1);ps.set_auto_reduce(false);
+    G::H(0).apply(&mut ps,false);G::H(0).apply(&mut ps,false);
+    let old=ps.f.functions[0].clone();
+    ps.f=quprs::pathsum::BooleanState::new(2);
+    ps.f.functions[0]=old;ps.f.functions[1]=CoreBool::new();
+    let a=CpsCore::canonical(ps,Anf::from([0])).unwrap();
+    let (next,r)=a.rr_step_shape().unwrap();
+    assert_eq!((next.n(),next.q()),(1,2));
+    core_rr_equal(&a,&next);
+    let replay=a.replay_rr_shape(&[r.clone()]).unwrap();core_rr_equal(&a,&replay);
+    let dense=next.dense_ids().unwrap();assert_eq!(dense.k,next.k);
+    assert_eq!(dense.ps.v.next_id as usize,dense.guard.ids.len());
+    core_rr_equal(&a,&dense);
+    let mut bad=r;bad.after_k+=1;
+    assert!(a.replay_rr_shape(&[bad]).is_none());
+    println!("CPS_RECTANGULAR_RR matrix=PASS replay=PASS dense_ids=PASS scale_mutant=REJECTED");
     let (mut traces,mut steps,mut elim,mut hh,mut omega,mut multi,mut blocked_count,mut mutants,mut negative)=(0,0,0,0,0,0,0,0,0);
     for start in initial{
         let mut c=start.clone();let mut receipts=Vec::new();
@@ -1272,7 +1336,20 @@ fn hoare_cps_core_matched_worker(){
                         println!("CPS_AFFINE_INTERFACE rank={rank} pins={pins} lhs_live={} rhs_live={} result_live={} k={}",ua.guard.ids.len(),b.guard.ids.len(),v.guard.ids.len(),v.k);
                         v
                     },
-                    Err(e)=>{println!("CPS_COMPOSITION_DETAIL {detail}; affine {e}");return None;}
+                    Err(e)=>{
+                        // Pure WMC must not silently acquire an RR pass.
+                        if policy=="wmc"||!e.contains("affine-live-cap"){
+                            println!("CPS_COMPOSITION_DETAIL {detail}; affine {e}");return None;
+                        }
+                        match ua.precompose_affine_rr(&b){
+                            Ok((v,rank,pins,rs,live))=>{
+                                println!("CPS_PRECOMPOSE_RR steps={} lhs_before={} lhs_after={live} scale_before={} scale_after={} replay=PASS",rs.len(),ua.guard.ids.len(),ua.k,rs.last().unwrap().after_k);
+                                println!("CPS_AFFINE_INTERFACE rank={rank} pins={pins} lhs_live={live} rhs_live={} result_live={} k={}",b.guard.ids.len(),v.guard.ids.len(),v.k);
+                                v
+                            },
+                            Err(pre)=>{println!("CPS_COMPOSITION_DETAIL {detail}; affine {e}; {pre}");return None;}
+                        }
+                    }
                 }
             }
         };

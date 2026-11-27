@@ -102,6 +102,7 @@ jobs:
           timeout 60s "$(cat evidence/property_hoare_experiment.path)" --exact exact_property_cnf::hoare_cps_core_guarded_rr --nocapture | tee evidence/cps-core-rr.log
           grep -F 'CPS_CORE_RR traces=' evidence/cps-core-rr.log
           grep -F 'CPS_RR_PHASE_ADMISSION=PASS legacy512=PASS wide_non_growth=PASS' evidence/cps-core-rr.log
+          grep -F 'CPS_RECTANGULAR_RR matrix=PASS replay=PASS dense_ids=PASS scale_mutant=REJECTED' evidence/cps-core-rr.log
           timeout 30s "$(cat evidence/property_hoare_experiment.path)" --exact exact_property_cnf::hoare_cps_core_factored_guard --nocapture | tee evidence/cps-core-factored-guard.log
           grep -F 'CPS_CORE_FACTORED_GUARD matrix=PASS native_rr=PASS replay_mutant=REJECTED wmc_plan=PASS' evidence/cps-core-factored-guard.log
           CPS_CORE_WMC_DIR="$PWD/evidence/cps-core-wmc" timeout 60s "$(cat evidence/property_hoare_experiment.path)" --exact exact_property_cnf::hoare_cps_core_wmc_export --nocapture | tee evidence/cps-core-wmc-export.log

@@ -110,7 +110,7 @@ for ci,(case,hashes) in enumerate(BLOBS.items()):
         mandatory=["autoq"]
         if family=="BV":
             mandatory.extend(m for m in MODES if m!="autoq")
-        if case=="Grover/04":
+        if case in ("Grover/04","Grover/05"):
             mandatory.extend(("wmc","hybrid","wmc-dag","hybrid-dag"))
         if case=="MOGrover/04":
             mandatory.append("hybrid")

@@ -1352,7 +1352,8 @@ jobs:
           git rev-parse HEAD
           echo 'CRR_CORE_BRANCH_PREFLIGHT=PASS native_tests=NOT_RUN'
 
-  cpr-native-builder-i1b:
+
+  cpr-native-extraction-i2a:
     if: github.ref == 'refs/heads/experiment/cost-aware-pathsum'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
@@ -1371,30 +1372,25 @@ jobs:
           key: cpr-c3-main
       - name: Install native prerequisites
         run: sudo apt-get update && sudo apt-get install -y cmake pkg-config libgmp-dev libmpfr-dev zlib1g-dev
-      - name: Stream and frozen heavy construction with no solver
+      - name: Native raw and extracted count normalization
         run: |
           set -euo pipefail
           mkdir -p evidence
           git rev-parse HEAD | tee evidence/source-head.txt
-          git diff --exit-code a77e5a417bf77b3cf597803f7d99bde555bbb9b0 HEAD -- rust/quprs/src ':!rust/quprs/src/lib.rs' ':!rust/quprs/src/strategy.rs' ':!rust/quprs/src/cpr.rs' rust/quprs/examples rust/quprs/tests rust/Cargo.lock benchmarks/rust_core docs/development/paper-corpus-manifest.json
-          git diff a77e5a417bf77b3cf597803f7d99bde555bbb9b0 HEAD -- rust/quprs/src | tee evidence/builder-diff.patch
-          sha256sum rust/quprs/src/{lib,strategy,cpr,reduction,wmc}.rs rust/Cargo.lock > evidence/source-sha256.txt
-          PYTHONPATH=rust/research python3 - <<'PY' | tee evidence/corpus-lock.log
-          import hashlib
-          from cpr_hh_n5c import entries
-          from pathlib import Path
-          for name,variant,n,source,target in entries():
-              for entry in (source,target):
-                  data=Path(entry["path"]).read_bytes()
-                  assert hashlib.sha1(f"blob {len(data)}\0".encode()+data).hexdigest()==entry["git_blob_sha1"]
-                  print(name,variant,entry["path"],hashlib.sha256(data).hexdigest())
-          PY
-          cargo test --release --locked --manifest-path rust/Cargo.toml -p quprs --lib cpr::tests:: -- --nocapture --test-threads=1 | tee evidence/builder.log
-          grep -E '^(test cpr::tests::i1b_stream_and_fail_closed \.\.\. )?CPR_I1B_STREAM_GATE no_lift=4 prefix_elim=blocked continuation_elim=blocked deadline=blocked$' evidence/builder.log
-          grep -E '^(test cpr::tests::i1b_frozen_heavy_construction \.\.\. )?CPR_I1B_HEAVY_GATE cases=5 shape_parity=true$' evidence/builder.log
+          git diff --exit-code e46dee7e53cfbe765605cbf7df80fafed4ebaa1b HEAD -- rust/quprs/src ':!rust/quprs/src/lib.rs' ':!rust/quprs/src/cpr.rs' rust/quprs/examples rust/quprs/tests rust/Cargo.lock benchmarks/rust_core docs/development/paper-corpus-manifest.json
+          sha256sum rust/quprs/src/{lib,cpr,strategy,reduction,wmc}.rs rust/Cargo.lock > evidence/source-sha256.txt
+          tmp="$(mktemp -d)"
+          python3 scripts/install_gpmc_release.py --dest "$tmp/gpmc" | tee evidence/gpmc-release.json
+          sha256sum "$tmp/gpmc" | tee evidence/gpmc-sha256.txt
+          export QUPRS_GPMC_PATH="$tmp/gpmc"
+          cargo test --release --locked --manifest-path rust/Cargo.toml -p quprs --lib cpr_native_extraction_tests:: -- --nocapture | tee evidence/extract.log
+          grep -E '^(test cpr_native_extraction_tests::i2a_extraction_uses_original_native_handoff \.\.\. )?CPR_I2A_GATE cases=6 raw_extracted_native_parity=true$' evidence/extract.log
+          cargo test --release --locked --manifest-path rust/Cargo.toml -p quprs --lib cpr_native_handoff_tests:: -- --nocapture | tee evidence/handoff.log
+          cargo test --release --locked --manifest-path rust/Cargo.toml -p quprs --lib exact_global_phase_verdict_tests:: -- --nocapture | tee evidence/phase.log
+          cargo test --release --locked --manifest-path rust/Cargo.toml -p quprs --lib verification_options_contract_tests:: -- --nocapture | tee evidence/options.log
           find evidence -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > evidence/SHA256SUMS
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: cpr-native-builder-i1b
+          name: cpr-native-extraction-i2a
           path: evidence/

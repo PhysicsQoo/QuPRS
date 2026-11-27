@@ -23,7 +23,7 @@ fn guard(ps:&PathSum)->Result<(),BuildStop>{
     if ps.rr_approximate||ps.rr_tolerance!=0.0{return Err(BuildStop::Approximate);}
     Ok(())
 }
-fn lift_output(ps:&mut PathSum,q:usize)->(u32,u32){
+pub(super) fn lift_output(ps:&mut PathSum,q:usize)->(u32,u32){
     let old=ps.f.functions[q].clone();
     let u=ps.v.get_fresh_var();let z=ps.v.get_fresh_var();
     let mut cross=vec![u,z];cross.sort_unstable();
@@ -260,4 +260,33 @@ mod tests{
         }
         println!("CPR_I1B_HEAVY_GATE cases=5 shape_parity=true");
     }
+}
+
+
+// Trusted lift provenance only. Extraction does not create a new
+// operator representation; the constraints belong to the terminal count.
+pub(super) fn extract_terminal(ps:&PathSum,pairs:&[(u32,u32)])
+    ->anyhow::Result<Option<(PathSum,Vec<Vec<Monomial>>)>>{
+    guard(ps).map_err(|e|anyhow::anyhow!("CPR residual rejected: {e:?}"))?;
+    let mut view=ps.clone();
+    let mut rows:Vec<Vec<Monomial>>=Vec::new();
+    for &(_,z) in pairs{
+        if !view.v.path_vars.contains(&z)||!view.get_reducible_vars().contains(&z)||
+            rows.iter().flatten().any(|m|m.contains(&z)){continue;}
+        let support:Vec<_>=view.p.terms.iter().filter(|(m,_)|m.contains(&z))
+            .map(|(m,c)|(m.clone(),c.clone())).collect();
+        if support.is_empty()||support.iter().any(|(_,c)|!c.is_pure_half()){continue;}
+        let mut row=Anf::default();
+        for (m,_) in &support{
+            let t:Monomial=m.iter().copied().filter(|&v|v!=z).collect();
+            if !row.remove(&t){row.insert(t);}
+        }
+        for (m,_) in support{view.p.terms.remove(&m);}
+        anyhow::ensure!(view.v.path_vars.remove(&z),"CPR absent integrator");
+        let mut row:Vec<_>=row.into_iter().collect();row.sort_unstable();
+        anyhow::ensure!(row.iter().flatten().all(|v|view.v.path_vars.contains(v)),"CPR dangling guard");
+        rows.push(row);
+    }
+    anyhow::ensure!(ps.v.path_vars.len()==view.v.path_vars.len()+rows.len(),"CPR extraction cardinality");
+    if rows.is_empty(){Ok(None)}else{Ok(Some((view,rows)))}
 }

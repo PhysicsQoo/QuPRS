@@ -2119,6 +2119,61 @@ fn sparse_hh_admission_probe(c:&CpsCore<SparseGuardFrame>){
     println!("CPS_CORE8_HH_ADMISSION candidates={} native_hits={native_hits} first_abort={first_abort:?} first_admitted={first_admitted:?} counts={counts:?}",candidates.len());
 }
 
+// Guard-only cofactor count on the surviving guard support. All CNF
+// auxiliaries are deterministic; each survivor assignment contributes one
+// of four (G0,G1) bins. This is not a quantum norm or a reduction receipt.
+fn sparse_guard_cofactor_plan(c:&CpsCore<SparseGuardFrame>,y:u32)->Option<(Cnf,[Lit;2],usize)>{
+    if !c.shared_valid()||(y as usize)<c.n(){return None;}
+    let mut support:BTreeSet<u32>=c.guard.factors.iter().flat_map(|g|g.iter()).flat_map(|m|m.ids().iter().copied()).collect();
+    if !support.remove(&y){return None;}
+    let primary=support.len();
+    if primary>1024{return None;}
+    let base:BTreeMap<u32,Lit>=support.iter().enumerate().map(|(i,&v)|(v,i as Lit+2)).collect();
+    let mut f=FactorPilot{c:Cnf::new(primary),gates:BTreeMap::new(),polys:BTreeMap::new(),work:0};
+    // Explicit unique-extension aliases preserve even unused primary bits.
+    for &v in base.values(){let a=f.c.fresh();f.c.clauses.extend([vec![-a,v],vec![a,-v]]);}
+    let mut cache=BTreeMap::new();let mut pair=[ONE;2];
+    for (i,fix) in [ZERO,ONE].into_iter().enumerate(){
+        let mut map=base.clone();map.insert(y,fix);
+        let bits:Vec<_>=map.values().copied().collect();
+        for g in &c.guard.factors{
+            let v=sparse_factor_anf(&mut f,g,&map,&mut cache,&bits)?;
+            pair[i]=f.gate(false,pair[i],v)?;
+        }
+    }
+    if !f.bounded(){return None;}
+    Some((f.c,pair,primary))
+}
+fn sparse_guard_cofactor_export(c:&CpsCore<SparseGuardFrame>,dir:&std::path::Path){
+    std::fs::create_dir(dir).unwrap();
+    let mut manifest=String::from("key\tprimary\tvars\tclauses\tphase\n");
+    let mut emit=|key:&str,plan:Option<(Cnf,[Lit;2],usize)>|{
+        if let Some((cnf,bits,p))=plan{
+            let mut data=format!("p cnf {} {}\n",cnf.vars,cnf.clauses.len());
+            for row in &cnf.clauses{for l in row{data.push_str(&format!("{l} "));}data.push_str("0\n");}
+            std::fs::write(dir.join(format!("{key}.cnf")),data).unwrap();
+            manifest.push_str(&format!("{key}\t{p}\t{}\t{}\t{},{}\n",cnf.vars,cnf.clauses.len(),bits[0],bits[1]));
+        }else{manifest.push_str(&format!("{key}\t-\t-\t-\t-\n"));}
+    };
+    // G(y,a,b)=a XOR ay XOR by. G0=a, G1=b: four bins each 1.
+    let mut ps=PathSum::new(2);ps.set_auto_reduce(false);let y=ps.v.get_fresh_var();
+    let g=SparseAnf::from([SparseMono::new(vec![0]).unwrap(),SparseMono::new(vec![0,y]).unwrap(),SparseMono::new(vec![1,y]).unwrap()]);
+    let smoke=CpsCore::<SparseGuardFrame>::shared_from_parts(ps,vec![g],1).unwrap();
+    emit("smoke",sparse_guard_cofactor_plan(&smoke,y));
+    let support:BTreeSet<u32>=c.guard.factors.iter().flat_map(|g|g.iter()).flat_map(|m|m.ids().iter().copied()).collect();
+    let mut ids:Vec<_>=c.ps.get_reducible_vars().into_iter().filter(|&v|(v as usize)>=c.n()&&support.contains(&v)).collect();ids.sort_unstable();
+    let mut hits=0;
+    for y in ids{
+        let mut trial=c.ps.clone();
+        if !trial.try_reduce_elim(&[y]){continue;}
+        // Only genuine absent P/f variables satisfy the multiplicity lemma.
+        assert!(c.ps.p.terms.keys().all(|m|!m.contains(&y))&&c.ps.f.functions.iter().all(|f|f.iter().all(|m|!m.contains(&y))));
+        hits+=1;emit(&format!("y{y}"),sparse_guard_cofactor_plan(c,y));
+    }
+    std::fs::write(dir.join("manifest.tsv"),manifest).unwrap();
+    println!("CPS_CORE8_ELIM_EXPORT candidates={hits}");
+}
+
 #[test]
 fn hoare_cps_sparse_guard_section(){
     // Nontrivial section y = x XOR z, with y used in phase/output and
@@ -2175,6 +2230,9 @@ fn hoare_cps_sparse_source_admission(){
             sparse_reducibility_probe(&c,"initial");
             sparse_reducibility_probe(&residual,"residual");
             sparse_hh_admission_probe(&residual);
+            if let Some(dir)=std::env::var_os("CPS_CORE8_ELIM_DIR"){
+                sparse_guard_cofactor_export(&residual,&std::path::PathBuf::from(dir));
+            }
             // Explore at most eight unique sections, each followed by the
             // original guarded RR and checked replay. Diagnostic only.
             let mut pilot=residual.clone();let mut sections=0usize;let mut native_steps=0usize;

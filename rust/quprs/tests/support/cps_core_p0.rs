@@ -597,6 +597,31 @@ impl CpsCore{
         let gs=self.guard.factors().map(|g|core_rename_anf(g,&map)).collect::<Option<Vec<_>>>()?;
         Self::from_factors(ps,gs,self.k)
     }
+    // Only invoked after whole-UA precomposition failed the live budget.
+    // Reuse the same original native rules at earlier gate boundaries.
+    // Stop rewriting as soon as the requested live saving is achieved.
+    fn prefix_rr(&self,ops:&[G],target:usize)->Result<(Self,Vec<(usize,CoreRrReceipt)>,usize),String>{
+        if target==0||target>16||ops.len()>256{return Err("prefix-budget".into());}
+        let mut a=self.clone();
+        let mut receipts=Vec::new();
+        let mut removed=0usize;
+        let mut boundaries=0usize;
+        for (i,g) in ops.iter().enumerate(){
+            a=a.then_circuit_diagnostic(std::slice::from_ref(g)).map_err(|e|format!("prefix gate_index={i} {e}"))?;
+            if !matches!(g,G::H(_))||removed>=target||receipts.len()>=16{continue;}
+            boundaries+=1;
+            while removed<target&&receipts.len()<16{
+                let Some((next,r))=a.rr_step_shape() else{break;};
+                let replay=a.replay_rr_shape(std::slice::from_ref(&r)).ok_or("prefix-replay")?;
+                if replay.k!=next.k||guarded_snapshot_shape(&replay.ps,replay.n(),replay.q(),&replay.guard)!=guarded_snapshot_shape(&next.ps,next.n(),next.q(),&next.guard){return Err("prefix-replay-mismatch".into());}
+                removed+=a.guard.ids.len()-next.guard.ids.len();
+                receipts.push((i,r));a=next;
+            }
+        }
+        if removed<target{return Err(format!("prefix-insufficient target={target} removed={removed} steps={} boundaries={boundaries} live={}",receipts.len(),a.guard.ids.len()));}
+        let dense=a.dense_ids().ok_or("prefix-dense-ids")?;
+        Ok((dense,receipts,boundaries))
+    }
     fn precompose_affine_rr(&self,b:&Self)->Result<(Self,usize,usize,Vec<CoreRrReceipt>,usize),String>{
         let mut a=self.clone();let mut receipts=Vec::new();
         let mut last="no-admitted-step".to_owned();
@@ -692,6 +717,20 @@ fn hoare_cps_core_guarded_rr(){
     let mut bad=r;bad.after_k+=1;
     assert!(a.replay_rr_shape(&[bad]).is_none());
     println!("CPS_RECTANGULAR_RR matrix=PASS replay=PASS dense_ids=PASS scale_mutant=REJECTED");
+    // Gate-boundary replay must preserve the complete later circuit,
+    // not merely the reduced prefix. Include a rectangular output.
+    let mut start=PathSum::new(1);start.set_auto_reduce(false);
+    start.f=quprs::pathsum::BooleanState::new(2);
+    start.f.functions[0]=CoreBool::from_iter([vec![0]]);
+    start.f.functions[1]=CoreBool::default();
+    let start=CpsCore::canonical(start,Anf::from([0])).unwrap();
+    let ops=[G::H(0),G::H(0),G::CX(0,1),G::H(1),G::H(1),G::Z(0)];
+    let raw=start.then_circuit_diagnostic(&ops).unwrap();
+    let (prefix,rs,_)=start.prefix_rr(&ops,2).unwrap();
+    assert!(!rs.is_empty()&&raw.guard.ids.len()-prefix.guard.ids.len()>=2);
+    core_rr_equal(&raw,&prefix);
+    assert!(start.prefix_rr(&[G::H(0)],2).is_err());
+    println!("CPS_PREFIX_RR full_matrix=PASS replay=PASS insufficient=REJECTED");
     let (mut traces,mut steps,mut elim,mut hh,mut omega,mut multi,mut blocked_count,mut mutants,mut negative)=(0,0,0,0,0,0,0,0,0);
     for start in initial{
         let mut c=start.clone();let mut receipts=Vec::new();
@@ -1347,7 +1386,31 @@ fn hoare_cps_core_matched_worker(){
                                 println!("CPS_AFFINE_INTERFACE rank={rank} pins={pins} lhs_live={live} rhs_live={} result_live={} k={}",b.guard.ids.len(),v.guard.ids.len(),v.k);
                                 v
                             },
-                            Err(pre)=>{println!("CPS_COMPOSITION_DETAIL {detail}; affine {e}; {pre}");return None;}
+                            Err(pre)=>{
+                                // Last bounded RR reuse experiment: earlier
+                                // H boundaries. No change to Pure WMC arms.
+                                let Some(required)=e.split_whitespace().find_map(|x|x.strip_prefix("required=").and_then(|v|v.parse::<usize>().ok())) else{
+                                    println!("CPS_COMPOSITION_DETAIL {detail}; affine {e}; {pre}");return None;
+                                };
+                                let target=required.saturating_sub(63);
+                                match a.prefix_rr(&ops,target){
+                                    Ok((prefix,rs,boundaries))=>{
+                                        if !core_label_support(&prefix,&b){
+                                            println!("CPS_COMPOSITION_DETAIL {detail}; affine {e}; {pre}; prefix-label");return None;
+                                        }
+                                        match prefix.then_adjoint_affine(&b){
+                                            Ok((v,rank,pins))=>{
+                                                std::fs::write(dir.join("prefix-rr.txt"),format!("{rs:?}")).ok()?;
+                                                println!("CPS_PREFIX_INTERFACE steps={} boundaries={boundaries} lhs_before={} lhs_after={} scale_before={} scale_after={} replay=PASS",rs.len(),ua.guard.ids.len(),prefix.guard.ids.len(),ua.k,prefix.k);
+                                                println!("CPS_AFFINE_INTERFACE rank={rank} pins={pins} lhs_live={} rhs_live={} result_live={} k={}",prefix.guard.ids.len(),b.guard.ids.len(),v.guard.ids.len(),v.k);
+                                                v
+                                            },
+                                            Err(f)=>{println!("CPS_COMPOSITION_DETAIL {detail}; affine {e}; {pre}; prefix-affine {f}");return None;}
+                                        }
+                                    },
+                                    Err(f)=>{println!("CPS_COMPOSITION_DETAIL {detail}; affine {e}; {pre}; {f}");return None;}
+                                }
+                            }
                         }
                     }
                 }

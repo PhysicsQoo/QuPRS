@@ -59,6 +59,10 @@ def worker(binary,solver,folder,mode):
     if pre_rr:
         assert len(pre_rr)==1 and not mode.startswith("wmc"),pre_rr
         row["precompose_rr"]=pre_rr[0]
+    prefix=[l.removeprefix("CPS_PREFIX_INTERFACE ") for l in p.stdout.splitlines() if l.startswith("CPS_PREFIX_INTERFACE ")]
+    if prefix:
+        assert len(prefix)==1 and not mode.startswith("wmc"),prefix
+        row.update(prefix_rr=prefix[0],prefix_receipt_sha256=sha(folder/"prefix-rr.txt"))
     if status=="READY":
         base=(folder/"base.cnf").read_text()
         packed,radix,bound=single_fibre_pack(base,list(map(int,phase.split(","))),primary)

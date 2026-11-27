@@ -24,6 +24,7 @@ on:
       - rust/research/cpr_admission_a3.py
       - rust/research/cpr_admission_a4.py
       - rust/research/cpr_admission_a4b.py
+      - rust/research/cpr_admission_a4c.py
       - rust/research/cpr_admission_a4b_manifest.json
       - rust/quprs/tests/cpr_public_hybrid.rs
       - rust/research/conditional_rr_incidence.py
@@ -1340,7 +1341,7 @@ jobs:
           git rev-parse HEAD
           echo 'CRR_CORE_BRANCH_PREFLIGHT=PASS native_tests=NOT_RUN'
 
-  cpr-admission-a4b:
+  cpr-admission-a4c:
     if: github.ref == 'refs/heads/experiment/cost-aware-pathsum'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
@@ -1352,31 +1353,89 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: b398f07d6845efc23540549ccbfec717c27b1722
+          path: pinned-main
+          persist-credentials: false
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: 'rust -> target'
+          workspaces: |
+            rust -> target
+            pinned-main/rust -> target
           key: cpr-c3-main
       - name: Install native prerequisites
         run: sudo apt-get update && sudo apt-get install -y cmake pkg-config libgmp-dev libmpfr-dev zlib1g-dev
-      - name: Frozen trigger coverage census (no solver)
+      - name: Final census-selected rejection acceptance
         run: |
           set -euo pipefail
           mkdir -p evidence
           git rev-parse HEAD | tee evidence/source-head.txt
-          git diff --exit-code db625ff3ba560ff3d7ce4b8ef162acb125ec4d0a HEAD -- rust/quprs/src rust/quprs/tests/support/conditional_trace.rs rust/quprs/examples rust/research/cpr_admission_a2.py rust/research/cpr_admission_a3.py rust/research/cpr_admission_a4.py docs/development/paper-corpus-manifest.json
-          git diff db625ff3ba560ff3d7ce4b8ef162acb125ec4d0a HEAD -- rust/quprs/tests/support/conditional_stitch.rs | tee evidence/coverage-diff.patch
-          sha256sum rust/research/cpr_admission_a4b.py rust/research/cpr_admission_a4b_manifest.json rust/quprs/tests/support/conditional_stitch.rs rust/Cargo.lock > evidence/source-sha256.txt
-          cargo build --release --locked --manifest-path rust/Cargo.toml -p quprs --example cpr_native_runner --message-format=json > evidence/build.jsonl
-          export CPR_BIN_CPR="$(python3 -c 'import json; r=[json.loads(l) for l in open("evidence/build.jsonl")]; p=[x["executable"] for x in r if x.get("reason")=="compiler-artifact" and x.get("target",{}).get("name")=="cpr_native_runner" and x.get("executable")]; assert len(p)==1,p; print(p[0])')"
+          git -C pinned-main rev-parse HEAD | tee evidence/main-head.txt
+          test "$(cat evidence/main-head.txt)" = "b398f07d6845efc23540549ccbfec717c27b1722"
+          git diff --exit-code d3c2ad004569e09880598e92f3ccef4d806f4bac HEAD -- rust/quprs rust/research/cpr_rr_first.py rust/research/cpr_admission_a2.py rust/research/cpr_admission_a4.py rust/research/cpr_admission_a4b_manifest.json docs/development/paper-corpus-manifest.json
+          git diff --exit-code 09073ddb9bf2a540ea502dff7a4268c43d88e81a HEAD -- rust/quprs/src rust/quprs/tests/support/conditional_trace.rs rust/quprs/examples
+          git diff 09073ddb9bf2a540ea502dff7a4268c43d88e81a HEAD -- rust/quprs/tests/support/conditional_stitch.rs | tee evidence/approved-coverage-only-diff.patch
+          git cat-file -e ff3c6bbfadc83997b302f2486b99487e819ee9ee^{commit}
+          git diff ff3c6bbfadc83997b302f2486b99487e819ee9ee HEAD -- rust/quprs/tests/support/conditional_trace.rs | tee evidence/rr-first-diff.patch
+          git diff ff3c6bbfadc83997b302f2486b99487e819ee9ee HEAD -- rust/quprs/tests/support/conditional_stitch.rs | tee evidence/rr-hot-path-diff.patch
+          test "$(git rev-parse ff3c6bbfadc83997b302f2486b99487e819ee9ee:rust/quprs/tests/support/conditional_stitch.rs)" = "f98bd48d711c1d7bed70982699db4d8061b664e1"
+          test "$(git rev-parse HEAD:rust/quprs/src/wmc.rs)" = "584b889dafa9b5f428bed31627883f76238f276b"
+          test "$(git rev-parse HEAD:rust/research/cpr_router_acceptance.py)" = "7053f0f60c2dc0adc0763677c004f7b609ca3fba"
+          test "$(git rev-parse HEAD:rust/research/conditional_rr_source_ball.py)" = "681783d4fd4f072bc4f596d54da33924883e25d4"
+          test "$(git rev-parse HEAD:rust/research/conditional_rr_tensor_source.py)" = "f6a9372c0bbe147e96eeb7446f2875819f68be77"
+          test "$(git rev-parse HEAD:docs/development/paper-corpus-manifest.json)" = "cdfb2cf1a88b1ae7c026f331463ba5588b453622"
+          printf '%s\n' 'C2_BASE_STITCH_UNCHANGED_SOLVER_ORACLE_MANIFEST_PASS 57cd6677a99114e2acf8b541294ccf4a982a0bdf' | tee evidence/frozen-policy.txt
+          sha256sum rust/research/cpr_admission_a4b_manifest.json rust/research/cpr_admission_a4c.py rust/research/cpr_rr_first_prior_pairs.json rust/quprs/examples/cpr_native_public.rs rust/quprs/examples/cpr_native_runner.rs rust/quprs/tests/conditional_rr_experiment.rs rust/quprs/tests/support/conditional_stitch.rs rust/quprs/tests/support/conditional_trace.rs rust/research/cpr_rr_first.py rust/quprs/tests/cpr_public_hybrid.rs rust/quprs/src/wmc.rs pinned-main/rust/quprs/src/lib.rs pinned-main/rust/quprs/src/wmc.rs rust/Cargo.lock pinned-main/rust/Cargo.lock > evidence/source-sha256.txt
+          rustc -Vv > evidence/rustc.txt
+          lscpu > evidence/cpu.txt
+          tmp="$(mktemp -d)"
+          trap 'rm -rf "$tmp"' EXIT
+          python3 scripts/install_gpmc_release.py --dest "$tmp/gpmc" | tee evidence/gpmc-release.json
+          sha256sum "$tmp/gpmc" | tee evidence/gpmc-sha256.txt
+          export QUPRS_GPMC_PATH="$tmp/gpmc"
+          test ! -e pinned-main/rust/quprs/tests/cpr_public_hybrid.rs
+          cp rust/quprs/tests/cpr_public_hybrid.rs pinned-main/rust/quprs/tests/cpr_public_hybrid.rs
+          build_test() {
+            local manifest="$1" name="$2" dest="$3"
+            cargo test --release --locked --manifest-path "$manifest" -p quprs --test "$name" --no-run --message-format=json > "$dest"
+            python3 -c 'import json,sys; rows=[json.loads(l) for l in open(sys.argv[1])]; p=[r["executable"] for r in rows if r.get("reason")=="compiler-artifact" and r.get("target",{}).get("name")==sys.argv[2] and r.get("executable")]; assert len(p)==1,p; print(p[0])' "$dest" "$name"
+          }
+          control_bin="$(build_test rust/Cargo.toml conditional_rr_experiment evidence/controls-build.jsonl)"
+          mkdir -p pinned-main/rust/quprs/examples
+          cp rust/quprs/examples/cpr_native_public.rs pinned-main/rust/quprs/examples/cpr_native_public.rs
+          build_example() {
+            local manifest="$1" name="$2" dest="$3"
+            cargo build --release --locked --manifest-path "$manifest" -p quprs --example "$name" --message-format=json > "$dest"
+            python3 -c 'import json,sys; rows=[json.loads(l) for l in open(sys.argv[1])]; p=[r["executable"] for r in rows if r.get("reason")=="compiler-artifact" and r.get("target",{}).get("name")==sys.argv[2] and r.get("executable")]; assert len(p)==1,p; print(p[0])' "$dest" "$name"
+          }
+          export CPR_BIN_MAIN="$(build_example pinned-main/rust/Cargo.toml cpr_native_public evidence/main-build.jsonl)"
+          export CPR_BIN_CPR="$(build_example rust/Cargo.toml cpr_native_runner evidence/cpr-build.jsonl)"
+          export CPR_BIN_FROZEN="$CPR_BIN_CPR"
+          size "$CPR_BIN_MAIN" "$CPR_BIN_CPR" "$control_bin" | tee evidence/binary-size.txt
+          test "$(git -C pinned-main diff --name-only)" = ""
+          "$control_bin" conditional_trace::cpr_router_controls --exact --nocapture | tee evidence/controls.log
+          grep -Fx 'CPR_ROUTER_CONTROLS_PASS' evidence/controls.log
+          "$control_bin" conditional_trace::cpr_rr_first_controls --exact --nocapture | tee evidence/rr-controls.log
+          grep -Fx 'CPR_RR_FIRST_CONTROLS_PASS' evidence/rr-controls.log
+          "$control_bin" conditional_stitch::cpr_a2_controls --exact --nocapture | tee evidence/a2-controls.log
+          grep -Fx 'CPR_A2_CONTROLS_PASS' evidence/a2-controls.log
           set +e
-          timeout --kill-after=5s 900s python3 rust/research/cpr_admission_a4b.py 2>&1 | tee evidence/coverage.log
-          rc=${PIPESTATUS[0]}
+          timeout --kill-after=5s 480s python3 rust/research/cpr_admission_a4c.py 2>&1 | tee evidence/matched.log
+          cohort_status=${PIPESTATUS[0]}
+          set -e
+          python3 -m venv "$tmp/reference-venv"
+          "$tmp/reference-venv/bin/pip" install --disable-pip-version-check python-flint==0.9.0
+          set +e
+          CRR_GENERIC_LOG=evidence/matched.log CRR_BALL_BITS=2048 timeout --kill-after=5s 480s "$tmp/reference-venv/bin/python" rust/research/cpr_admission_a4c.py 2>&1 | tee evidence/source-parity.log
+          source_status=${PIPESTATUS[0]}
           set -e
           find evidence -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > evidence/SHA256SUMS
-          test "$rc" = 0
+          test "$cohort_status" = 0
+          test "$source_status" = 0
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: cpr-admission-a4b
+          name: cpr-admission-a4c
           path: evidence/

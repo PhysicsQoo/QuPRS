@@ -9,7 +9,7 @@ on:
       suite:
         description: Bounded Frontier admission suite
         type: choice
-        options: [frontier-release-quality, frontier-vqe16-gpmc-scout, v020-cross-family-scout, v020-pinned-integration, v020-planner-diagnosis, v020-width-transfer, v020-rust-integration]
+        options: [frontier-release-quality, frontier-vqe16-gpmc-scout, v020-cross-family-scout, v020-pinned-integration, v020-planner-diagnosis, v020-width-transfer, v020-rust-integration, v020-final-admission]
         default: frontier-release-quality
 permissions:
   contents: read
@@ -1005,7 +1005,7 @@ jobs:
 
 
   v020-rust-integration:
-    if: github.event_name == 'push' || inputs.suite == 'v020-rust-integration'
+    if: github.event_name == 'workflow_dispatch' && inputs.suite == 'v020-rust-integration'
     name: v0.2.0 pinned Rust FFI integration
     runs-on: ubuntu-24.04
     timeout-minutes: 15
@@ -1121,5 +1121,211 @@ jobs:
           path: |
             .v020-rust-evidence/
             !.v020-rust-evidence/wheels/
+          include-hidden-files: true
+          if-no-files-found: warn
+
+
+  v020-router-replay:
+    if: github.event_name == 'push' || inputs.suite == 'v020-final-admission'
+    name: v0.2.0 original-CNF router replay / ${{ matrix.case }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - case: vqe8
+            artifact: 15137702152
+            zip_sha: 99b1071ae6747a2708b209a7dc90601f766842afb787cbafe3c2a1e1d6b5852f
+            cnf_sha: 55938d577be87d91dd520b7002de7ec886c6035405e5400f6f80392a385562ee
+          - case: feynman_hwb6
+            artifact: 15137692305
+            zip_sha: 370b740877f12635bcd542efbabe65ac90189bed6ef47031a9bfe11c3b2c7b55
+            cnf_sha: e0381c270963e0715273530e48f159dc05b1cd96c9b85a556741a72a4289471d
+          - case: feynman_mod_mult_55
+            artifact: 15138656271
+            zip_sha: eef087d7370ad901056028457635c89eac4f6eede07f8b8818b06861e642ffdd
+            cnf_sha: f8c76d883923363a7fcb5e32d6c6d8914f8443af3582fbe3d2e1d9c0b99c35b7
+          - case: qaoa11_native
+            artifact: 15163386446
+            zip_sha: 60e9e24a2ca2a613f777c4fbb2fe5a5fc5d6e0c48af6f5d7eb4d8b8415cf5760
+            cnf_sha: 9590aa1e585eaafae3bed6a9d6e7fbc96f914388d0b3524d567876185329af25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: PhysicsQoo/RaWMoCS
+          ref: 0b8538be510718e7c8d79a79875681628b73f9be
+          path: .router-candidate
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        if: matrix.case == 'vqe8'
+        with:
+          pattern: rawmocs-quprs-planner-gen-vqe8
+          run-id: 45734596083
+          github-token: ${{ github.token }}
+          path: .router-source
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: .router-candidate/crates/rawmocs-cli -> target
+          shared-key: rawmocs-general-dependencies
+          cache-workspace-crates: 'false'
+      - name: Recover previous independent witness and exact original CNF
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CASE: ${{ matrix.case }}
+          ARTIFACT: ${{ matrix.artifact }}
+          ZIP_SHA: ${{ matrix.zip_sha }}
+        run: |
+          set -euo pipefail
+          test "$(git -C .router-candidate rev-parse HEAD)" = 0b8538be510718e7c8d79a79875681628b73f9be
+          mkdir -p .router-witness .router-source .router-evidence
+          zip="$RUNNER_TEMP/router-witness.zip"
+          gh api "repos/PhysicsQoo/QuPRS/actions/artifacts/$ARTIFACT/zip" > "$zip"
+          echo "$ZIP_SHA  $zip" | sha256sum -c -
+          unzip -q "$zip" -d .router-witness
+          if [[ "$CASE" == feynman_* ]]; then
+            zip="$RUNNER_TEMP/historical-trail.zip"
+            gh api repos/PhysicsQoo/RaWMoCS/actions/artifacts/14234415131/zip > "$zip"
+            echo "5f91528c376448c537e4ff08e26e9bb38b81bb7574c3596c8b0f8f3a50a632f4  $zip" | sha256sum -c -
+            unzip -q "$zip" -d .router-source
+          fi
+          sudo apt-get -o Dir::Etc::sourcelist=/etc/apt/sources.list.d/ubuntu.sources -o Dir::Etc::sourceparts=- -o APT::Get::List-Cleanup=0 update
+          sudo apt-get -o Dir::Etc::sourcelist=/etc/apt/sources.list.d/ubuntu.sources -o Dir::Etc::sourceparts=- install -y --no-install-recommends libgmp-dev libmpfr-dev m4 make gcc pkg-config
+          cargo build --locked --release --manifest-path .router-candidate/crates/rawmocs-cli/Cargo.toml
+      - name: Original-source route and fail-closed replay
+        env:
+          CASE: ${{ matrix.case }}
+          CNF_SHA: ${{ matrix.cnf_sha }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib,json,os,re,subprocess,sys
+          from pathlib import Path
+          root=Path(".router-evidence").resolve()
+          tools=Path(".router-candidate/crates/rawmocs-cli/tools").resolve()
+          sys.path.insert(0,str(tools))
+          from release_transfer import check_count
+          from release_native_paired import parse
+          case=os.environ["CASE"]; expected=os.environ["CNF_SHA"]
+          qa=case=="qaoa11_native"
+          base=Path(".router-witness") if qa else Path(".router-source")
+          name="extended_qaoa11_native-gpmc.cnf" if qa else "gpmc-capture.cnf" if case=="vqe8" else case+"-gpmc.cnf"
+          cnf,=base.rglob(name)
+          witness,=Path(".router-witness").rglob("independent-reference.json")
+          def digest(p):return hashlib.sha256(p.read_bytes()).hexdigest()
+          assert digest(cnf)==expected
+          if qa:assert digest(witness)=="77017d899f861ce422c7ee264e64cfa2ab2ada1c43ef30b738ee615116828094"
+          ref=json.loads(witness.read_text())
+          assert ref["source_sha256"]==expected and ref["bits"]==550
+          assert ref["status"] in ("INDEPENDENT_INTERVAL_COMPLETE","INDEPENDENT_FIXED_INTERVAL_COMPLETE")
+          assert ref["width"]<=19 and ref["work"]<=40000000 and ref["peak"]<=2000000
+          if ref["status"]=="INDEPENDENT_FIXED_INTERVAL_COMPLETE":assert ref["order_policy"] in ("fill-reverse","degree-reverse")
+          binary=Path(".router-candidate/crates/rawmocs-cli/target/release/rawmocs").resolve()
+          report={"case":case,"candidate":"0b8538be510718e7c8d79a79875681628b73f9be","source_sha256":expected,"witness_sha256":digest(witness),"binary_sha256":digest(binary),"status":"IN_PROGRESS","rows":{}}
+          def save():(root/"report.json").write_text(json.dumps(report,indent=2)+"\n")
+          save()
+          def run(label,mode,ms):
+              args=[str(binary),"--digits","130","--timeout-ms",str(ms)]
+              if mode:args.extend(["--solver",mode])
+              p=subprocess.run(["timeout","-k","2s","22s","prlimit","--as=3221225472","--",*args,str(cnf.resolve())],capture_output=True,text=True,timeout=26)
+              (root/(label+".stdout")).write_text(p.stdout);(root/(label+".stderr")).write_text(p.stderr)
+              row={"exit":p.returncode,"fallback":re.findall(r"^RAWMOCS_FALLBACK reason=(.+)$",p.stderr,re.M),"stop":re.findall(r"^PREJOIN_FRONTIER_STOP .+$",p.stderr,re.M)}
+              report["rows"][label]=row;save()
+              return p,row
+          routes={"default":"general" if qa else "prejoin","auto":"general" if qa else "prejoin","auto-frontier":"prejoin","auto-separator":"general-separator" if qa else "prejoin","general":"general","general-separator":"general-separator"}
+          for mode,route in routes.items():
+              p,row=run(mode,None if mode=="default" else mode,20000)
+              assert p.returncode==0,(mode,p.stderr[-2000:])
+              m,=re.findall(r"^RAWMOCS_COMPLETE route=([a-z-]+) digits=130 bits=432 ",p.stderr,re.M)
+              assert m==route,(mode,m,route)
+              row["route"]=m;row.update(parse(p.stdout,"rawmocs"));row["witness_upper"]=check_count(row,ref,100)
+              if qa and mode in ("default","auto","auto-separator"):assert row["fallback"]==["exact local bit cap"],row
+              else:assert not row["fallback"],row
+              if qa and mode=="auto-frontier":assert len(row["stop"])==1 and "reason=exact local bit cap" in row["stop"][0],row
+              if route=="general-separator":
+                  stats,=re.findall(r"^RAWMOCS_SEPARATOR_COMPLETE checks=(\d+) overrides=(\d+)$",p.stderr,re.M)
+                  row["checks"],row["overrides"]=map(int,stats)
+              else:assert "RAWMOCS_SEPARATOR_COMPLETE" not in p.stderr
+              save()
+          assert (root/"default.stdout").read_bytes()==(root/"auto.stdout").read_bytes()
+          p,row=run("deadline","auto-frontier",0)
+          assert p.returncode==4 and not p.stdout and "RAWMOCS_FAILURE kind=TIMEOUT" in p.stderr
+          if qa:
+              p,row=run("explicit-prejoin-reject","prejoin",20000)
+              assert p.returncode==6 and not p.stdout and "exact local bit cap" in p.stderr and not row["fallback"]
+          assert digest(cnf)==expected and digest(witness)==report["witness_sha256"]
+          report["status"]="ROUTER_WITNESS_REPLAY_PASS";save()
+          print("V020_ROUTER_REPLAY_PASS",json.dumps({"case":case,"rows":{k:{x:v.get(x) for x in ("exit","route","fallback","stop","checks","overrides")} for k,v in report["rows"].items()}}),flush=True)
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: rawmocs-v020-router-${{ matrix.case }}
+          path: .router-evidence/
+          include-hidden-files: true
+          if-no-files-found: warn
+
+  v020-release-verifier-preview:
+    if: github.event_name == 'push' || inputs.suite == 'v020-final-admission'
+    name: v0.2.0 release receipt policy preview (read only)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: PhysicsQoo/RaWMoCS
+          ref: 0b8538be510718e7c8d79a79875681628b73f9be
+          path: .release-candidate
+          persist-credentials: false
+      - name: Test versioned quadruple receipt policy in disposable checkout
+        run: |
+          set -euo pipefail
+          test "$(git -C .release-candidate rev-parse HEAD)" = 0b8538be510718e7c8d79a79875681628b73f9be
+          mkdir -p .receipt-evidence
+          python3 .release-candidate/scripts/test_release_source.py 2>&1 | tee .receipt-evidence/legacy.log
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path(".release-candidate/scripts/release_source.py")
+          s=p.read_text()
+          old='            required_steps = {"Seven order-rotated same-precision native triples"}'
+          assert s.count(old)==1
+          s=s.replace(old,'            required_steps = {"Seven order-rotated same-precision native quadruples" if tuple(map(int, r["version"].split("."))) >= (0, 2, 0) else "Seven order-rotated same-precision native triples"}')
+          p.write_text(s)
+          PY
+          git -C .release-candidate diff --check
+          git -C .release-candidate diff -- scripts/release_source.py > .receipt-evidence/verifier.patch
+          python3 .release-candidate/scripts/test_release_source.py 2>&1 | tee .receipt-evidence/legacy-after.log
+          PYTHONPATH=.release-candidate/scripts python3 - <<'PY' | tee .receipt-evidence/v020-policy.log
+          from copy import deepcopy
+          from test_release_source import fixture
+          from release_source import verify_run
+          req,run,jobs=fixture("0.2.0")
+          def reject(req,run,jobs):
+              try:verify_run(req,run,jobs,"science")
+              except ValueError:return
+              raise AssertionError("unqualified receipt admitted")
+          reject(req,run,jobs)
+          for j in jobs["jobs"]:
+              for s in j["steps"]:
+                  if s["name"]=="Seven order-rotated same-precision native triples":
+                      s["name"]="Seven order-rotated same-precision native quadruples"
+          verify_run(req,run,jobs,"science")
+          run2={**run,"event":"pull_request"}
+          reject(req,run2,jobs)
+          reject(req,{**run,"head_branch":"candidate/v020-frontier-convergence"},jobs)
+          reject(req,{**run,"head_sha":"b"*40},jobs)
+          bad=deepcopy(jobs)
+          for j in bad["jobs"]:
+              for s in j["steps"]:
+                  if s["name"]=="Seven order-rotated same-precision native quadruples":s["conclusion"]="skipped"
+          reject(req,run,bad)
+          print("V020_RELEASE_RECEIPT_PREVIEW_PASS")
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: rawmocs-v020-release-policy-preview
+          path: .receipt-evidence/
           include-hidden-files: true
           if-no-files-found: warn

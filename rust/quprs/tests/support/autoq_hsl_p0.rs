@@ -1083,6 +1083,49 @@ fn aq_orbit_original_eq(s:&Symbolic,ops:&[G],aa:&[AqState],bb:&[AqState],
     Some(pairs[0])
 }
 
+
+// Opt-in experimental policy, not a reduction rule. Every accepted prefix
+// uses the original guarded_native_step and its existing scale ledger.
+// Reject a growing trial atomically; preserve the original symbolic fast paths.
+fn aq_rr_cost(s:&Symbolic)->(usize,usize){
+    let terms=s.phase.len()+s.output.iter().map(|p|p.len()).sum::<usize>();
+    let incidence=s.phase.keys().map(|m|m.count_ones() as usize).sum::<usize>()+
+        s.output.iter().flat_map(|p|p.iter()).map(|m|m.count_ones() as usize).sum::<usize>();
+    (terms,incidence)
+}
+fn aq_bounded_rr(mut ps:PathSum,n:usize,h0:usize,deadline:std::time::Instant)->Option<(Symbolic,usize)>{
+    use std::io::Write;
+    let mut current=compact(&ps,n)?;
+    let mut guard=NativeGuardFrame::new(&ps,Anf::from([0]))?;
+    let mut k=h0;let mut accepted=0usize;
+    let started=std::time::Instant::now();
+    // The 256-term cap follows reduce_existing. 8 steps and 10ms are
+    // experimental policy caps, not a proof of an interruptible step.
+    let soft=deadline.min(started+std::time::Duration::from_millis(10));
+    let mut reason="step-cap";
+    for _ in 0..8{
+        let (terms,incidence)=aq_rr_cost(&current);
+        if current.h<=1 {reason="terminal-or-one-path";break;}
+        if terms>256 {reason="term-cap";break;}
+        if std::time::Instant::now()>=soft {reason="soft-budget";break;}
+        let t=std::time::Instant::now();
+        let Some(step)=guarded_native_step(&ps,n,&guard) else{reason="no-step";break;};
+        let Some(next)=compact(&step.ps,n) else{reason="compact-reject";break;};
+        let (next_terms,next_incidence)=aq_rr_cost(&next);
+        let valid=next.h<current.h&&next_terms<=terms&&next_incidence<=incidence
+            &&step.guard.compact(&step.ps)==Some(Anf::from([0]));
+        let next_k=k.checked_sub(step.scale2 as usize);
+        let commit=valid&&next_k.is_some()&&std::time::Instant::now()<soft;
+        println!("AQ_CPS_POLICY_STEP commit={commit} h_before={} h_after={} terms_before={terms} terms_after={next_terms} incidence_before={incidence} incidence_after={next_incidence} ns={}",current.h,next.h,t.elapsed().as_nanos());
+        let _=std::io::stdout().flush();
+        if !commit {reason="trial-rejected";break;}
+        k=next_k?;ps=step.ps;guard=step.guard;current=next;accepted+=1;
+    }
+    println!("AQ_CPS_POLICY accepted={accepted} reason={reason} h={} k={k} ns={}",current.h,started.elapsed().as_nanos());
+    let _=std::io::stdout().flush();
+    Some((current,k))
+}
+
 #[test]
 fn hoare_autoq_c3_arm(){
     let Ok(case)=std::env::var("AQ_C3_CASE") else{return;};
@@ -1119,7 +1162,8 @@ fn hoare_autoq_c3_arm(){
         for g in &ops{g.apply(&mut ps,false);}
         let h0=ops.iter().filter(|g|matches!(g,G::H(_))).count();
         println!("AQ_CPS_STAGE stage=build-end ns={}",build_start.elapsed().as_nanos());std::io::stdout().flush().ok()?;
-        let (s,k)=if mode=="wmc"||mode=="raw-factor"||mode.starts_with("orbit-"){(compact(&ps,n)?,h0)}else{
+        let policy=mode=="orbit-factor"&&std::env::var("AQ_CPS_RR_POLICY").ok().as_deref()==Some("bounded");
+        let (s,k)=if policy{aq_bounded_rr(ps,n,h0,deadline)?}else if mode=="wmc"||mode=="raw-factor"||mode.starts_with("orbit-"){(compact(&ps,n)?,h0)}else{
             println!("AQ_CPS_STAGE stage=rr-start");std::io::stdout().flush().ok()?;
             let rr_start=std::time::Instant::now();
             let (p,frame,scale,steps)=native_rr_checkpoint(ps,n)?;

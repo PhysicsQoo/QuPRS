@@ -15,7 +15,7 @@ type CoreBool = rustc_hash::FxHashSet<Vec<u32>>;
 const CORE_TERMS:usize=256;
 // Bounded phase-only admission experiment: MOGrover04 reached 258
 // phase terms with max output 27. Keep Boolean and guard caps unchanged.
-const CORE_PHASE_TERMS:usize=512;
+const CORE_PHASE_TERMS:usize=1024; // bounded MO05 pilot: observed 748 terms
 fn core_bit(v:u32)->Option<u64>{if v<63{Some(1u64<<v)}else{None}}
 fn core_mask(m:&[u32])->Option<u64>{
     m.iter().try_fold(0u64,|a,&v|Some(a|core_bit(v)?))
@@ -30,6 +30,19 @@ fn core_phase8(c:&quprs::PhaseCoeff)->Option<u8>{
 }
 fn core_terms_ok(ps:&PathSum)->bool{
     ps.p.terms.len()<=CORE_PHASE_TERMS&&ps.f.functions.iter().all(|p|p.len()<=CORE_TERMS)
+}
+// Keep the same conjunction and existing per-factor bound. Only used
+// on factor-count overflow; never expand a successful original layout.
+fn core_pack_guard_factors(factors:Vec<Anf>)->Vec<Anf>{
+    if factors.len()<=32{return factors;}
+    let mut packed=Vec::new();
+    let mut acc=Anf::from([0]);
+    for g in factors{
+        if let Some(next)=mul_anf(&acc,&g){acc=next;}
+        else{packed.push(acc);acc=g;}
+    }
+    packed.push(acc);
+    packed
 }
 fn core_anf(p:&CoreBool)->Option<Anf>{
     p.iter().map(|m|core_mask(m)).collect()
@@ -186,25 +199,34 @@ impl CpsCore{
     // Old free inputs become bound; fresh free outputs are never
     // captured by the old input/path IDs. Keep k, not k+n.
     fn adjoint(&self)->Option<Self>{
-        if !self.valid(){return None;}
+        self.adjoint_diagnostic().ok()
+    }
+    fn adjoint_diagnostic(&self)->Result<Self,String>{
+        if !self.valid(){return Err("invalid-input".into());}
         let mut ps=PathSum::new(self.q());ps.set_auto_reduce(false);
         let mut map=BTreeMap::new();
         for &old in &self.guard.ids{
-            let id=ps.v.get_fresh_var();core_bit(id)?;map.insert(old,id);
+            if ps.v.next_id>=63{return Err(format!("stable-id-cap next_id={} source_live={} q={}",ps.v.next_id,self.guard.ids.len(),self.q()));}
+            let id=ps.v.get_fresh_var();map.insert(old,id);
         }
-        let (p,f)=core_rename(&self.ps,&map)?;
-        let mut factors=self.guard.factors().map(|g|core_rename_anf(g,&map)).collect::<Option<Vec<_>>>()?;
+        let (p,f)=core_rename(&self.ps,&map).ok_or("native-rename")?;
+        let mut factors=self.guard.factors().map(|g|core_rename_anf(g,&map)).collect::<Option<Vec<_>>>().ok_or("guard-rename")?;
         for (j,out) in f.functions.iter().enumerate(){
             // equality = 1 XOR f_j XOR z_j
-            let mut eq=core_anf(out)?;xor_insert(&mut eq,0);xor_insert(&mut eq,core_bit(j as u32)?);
+            let mut eq=core_anf(out).ok_or("output-mask")?;xor_insert(&mut eq,0);xor_insert(&mut eq,core_bit(j as u32).ok_or("output-id")?);
             factors.push(eq);
         }
+        let raw=factors.len();
+        let factors=core_pack_guard_factors(factors);
+        let packed=factors.len();
+        let terms=factors.iter().map(|g|g.len()).sum::<usize>();
+        let max=factors.iter().map(|g|g.len()).max().unwrap_or(0);
         for (m,c) in p.terms{ps.p.add_term(m,c*(-1));}
         ps.f=quprs::pathsum::BooleanState::new(self.n());
         for (i,out) in ps.f.functions.iter_mut().enumerate(){
-            out.clear();out.insert(vec![*map.get(&(i as u32))?]);
+            out.clear();out.insert(vec![*map.get(&(i as u32)).ok_or("input-map")?]);
         }
-        Self::from_factors(ps,factors,self.k)
+        Self::from_factors(ps,factors,self.k).ok_or_else(||format!("result-invariant raw_factors={raw} packed_factors={packed} terms={terms} max_factor={max} source_live={} q={}",self.guard.ids.len(),self.q()))
     }
 }
 
@@ -1088,7 +1110,9 @@ fn hoare_cps_core_matched_worker(){
             Ok(v)=>v,Err(detail)=>{println!("CPS_COMPOSITION_DETAIL {detail}");return None;}
         };
         stage="label-certificate";if !core_label_support(&ua,&b){return None;}
-        stage="adjoint";let bd=b.adjoint()?;
+        stage="adjoint";let bd=match b.adjoint_diagnostic(){
+            Ok(v)=>v,Err(detail)=>{println!("CPS_COMPOSITION_DETAIL {detail}");return None;}
+        };
         stage="composition";let mut c=match ua.then_diagnostic(&bd){
             Ok(v)=>v,Err(detail)=>{println!("CPS_COMPOSITION_DETAIL {detail}");return None;}
         };
@@ -1257,6 +1281,8 @@ fn hoare_cps_core_heldout_predicates(){
             assert_eq!(c.n(),n);assert_eq!(c.k,k as i32);
             assert_eq!(c.guard.ids.len(),n+k);
             assert!(!c.guard.conjuncts.is_empty());
+            let adj=c.adjoint_diagnostic().expect("held-out adjoint");
+            assert_eq!((adj.n(),adj.q(),adj.k),(c.q(),c.n(),c.k));
             let label=(1u64<<n)-1;
             // Both coefficient classes; verify all counter values,
             // including forbidden ones. Padding is zero here.
@@ -1289,7 +1315,23 @@ fn hoare_cps_core_heldout_predicates(){
                 let phase=c.ps.p.terms.iter().filter(|(m,_)|on(m)).map(|(_,p)|core_phase8(p).unwrap() as usize).sum::<usize>()%8;
                 let negative=if u==0{variant!="source"}else{variant!="global"};
                 assert_eq!(phase,if negative{4}else{0});
+                // The original source IDs are contiguous, and adjoint
+                // allocates their images after its fresh formal inputs.
+                let za=z|(a<<c.q());
+                assert!(adj.guard.factors().all(|g|eval(g,za)));
+                for j in 0..c.q(){
+                    assert!(!adj.guard.factors().all(|g|eval(g,za^(1u64<<j))));
+                }
+                let adj_on=|m:&Vec<u32>|m.iter().all(|&id|za&(1u64<<id)!=0);
+                let x_back=adj.ps.f.functions.iter().enumerate().fold(0u64,|v,(j,p)|v|(((p.iter().filter(|m|adj_on(m)).count()%2) as u64)<<j));
+                let adj_phase=adj.ps.p.terms.iter().filter(|(m,_)|adj_on(m)).map(|(_,p)|core_phase8(p).unwrap() as usize).sum::<usize>()%8;
+                assert_eq!(x_back,x);assert_eq!((phase+adj_phase)%8,0);
+                // A forbidden source padding assignment remains forbidden
+                // under adjoint, even with the correct output equality.
+                let padding=n+width+r;
+                if padding<n+k{assert!(!adj.guard.factors().all(|g|eval(g,za|(1u64<<(c.q()+padding)))));}
             }}
+            println!("CPS_HELDOUT_ADJOINT family={family} width={width} variant={variant} source_factors={} raw_factors={} retained_factors={} k={}",c.guard.factors().count(),c.guard.factors().count()+c.q(),adj.guard.factors().count(),adj.k);
             println!("CPS_HELDOUT_PREDICATE family={family} width={width} variant={variant} h={k} factors={} terms={} counter_checks={} materialized_columns=0",c.guard.factors().count(),c.guard.factors().map(|g|g.len()).sum::<usize>(),2*(1usize<<r));
             predicates+=1;
         }

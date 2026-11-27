@@ -176,6 +176,7 @@ jobs:
           export LD_LIBRARY_PATH="$src:$src/build/lib:$src/build/cli:${LD_LIBRARY_PATH:-}"
           CPS_CORE_SOURCE_DIR="$src" timeout 90s "$(cat evidence/release-bin.path)" --exact exact_property_cnf::hoare_cps_core_heldout_predicates --nocapture | tee evidence/cps-core-heldout-predicates.log
           grep -F 'CPS_HELDOUT_PREDICATE_SUMMARY predicates=12' evidence/cps-core-heldout-predicates.log
+          test "$(grep -c '^CPS_HELDOUT_ADJOINT ' evidence/cps-core-heldout-predicates.log)" -eq 12
           timeout 580s python3 rust/research/cps_core_heldout_p0.py "$(cat evidence/release-bin.path)" "$RUNNER_TEMP/cps-gpmc" "$src/build/cli/autoq" "$src" evidence/cps-core-heldout | tee evidence/cps-core-heldout.log
           # Preserve admitted BV04/05, Grover04 and MOGrover04 Hybrid verdicts;
           # preserve query-ready receipts on outer timeout and diagnose 05 admission.

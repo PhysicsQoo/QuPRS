@@ -290,3 +290,83 @@ pub(super) fn extract_terminal(ps:&PathSum,pairs:&[(u32,u32)])
     anyhow::ensure!(ps.v.path_vars.len()==view.v.path_vars.len()+rows.len(),"CPR extraction cardinality");
     if rows.is_empty(){Ok(None)}else{Ok(Some((view,rows)))}
 }
+
+// Frozen N5c bounded Raw/All structure router.
+#[derive(Debug,PartialEq,Eq)]
+struct CprGraph { width:usize, weighted:usize, weighted_degree:usize }
+
+fn cpr_graph(cnf:&str, deadline:std::time::Instant)->Option<CprGraph>{
+    use std::collections::BTreeSet;
+    let mut lines=cnf.lines();
+    let header:Vec<_>=lines.next()?.split_whitespace().collect();
+    if header.len()!=4||header[0]!="p"||header[1]!="cnf"{return None;}
+    let n:usize=header[2].parse().ok()?;
+    let clauses:usize=header[3].parse().ok()?;
+    if n>4096||clauses>65536{return None;}
+    let mut adj=vec![BTreeSet::<usize>::new();n+1];
+    let mut weights=BTreeSet::new();
+    let mut edges=0usize;let mut seen=0usize;
+    const CAP:usize=250_000;
+    for line in lines{
+        if std::time::Instant::now()>=deadline{return None;}
+        let t:Vec<_>=line.split_whitespace().collect();
+        if t.is_empty(){continue;}
+        if t[0]=="c"{
+            if t.starts_with(&["c","p","weight"]){
+                if t.len()!=7||t[6]!="0"{return None;}
+                let v=t[3].parse::<i32>().ok()?.unsigned_abs() as usize;
+                if v==0||v>n{return None;}
+                weights.insert(v);
+            }
+            continue;
+        }
+        if t.last()!=Some(&"0"){return None;}
+        seen+=1;
+        let mut vs=BTreeSet::new();
+        for lit in &t[..t.len()-1]{
+            let v=lit.parse::<i32>().ok()?.unsigned_abs() as usize;
+            if v==0||v>n{return None;}vs.insert(v);
+        }
+        let vs:Vec<_>=vs.into_iter().collect();
+        if edges.saturating_add(vs.len().saturating_mul(vs.len().saturating_sub(1))/2)>CAP{return None;}
+        for (i,&v) in vs.iter().enumerate(){
+            for &u in &vs[i+1..]{
+                if adj[v].insert(u){adj[u].insert(v);edges+=1;}
+            }
+        }
+    }
+    if seen!=clauses{return None;}
+    let weighted=weights.len();
+    let weighted_degree=weights.iter().map(|&v|adj[v].len()).sum();
+    let mut queue:BTreeSet<_>=(1..=n).map(|v|(adj[v].len(),v)).collect();
+    let mut width=0;
+    while let Some((d,v))=queue.pop_first(){
+        if std::time::Instant::now()>=deadline||edges.saturating_add(d.saturating_mul(d.saturating_sub(1))/2)>CAP{return None;}
+        width=width.max(d);
+        let ns:Vec<_>=adj[v].iter().copied().collect();
+        for &u in &ns{
+            if !queue.remove(&(adj[u].len(),u)){return None;}
+            adj[u].remove(&v);
+        }
+        adj[v].clear();edges-=d;
+        for (i,&u) in ns.iter().enumerate(){
+            for &z in &ns[i+1..]{
+                if adj[u].insert(z){adj[z].insert(u);edges+=1;}
+            }
+        }
+        for &u in &ns{queue.insert((adj[u].len(),u));}
+    }
+    Some(CprGraph{width,weighted,weighted_degree})
+}
+fn cpr_extract_choice(raw:Option<&CprGraph>, ext:Option<&CprGraph>)->bool{
+    match (raw,ext){
+        (Some(r),Some(e))=>e.width<=r.width&&e.weighted<r.weighted&&e.weighted_degree<r.weighted_degree,
+        _=>false
+    }
+}
+
+pub(super) fn choose_extracted(raw:&str,ext:&str,deadline:Instant)->bool{
+    let r=cpr_graph(raw,deadline);
+    let e=cpr_graph(ext,deadline);
+    cpr_extract_choice(r.as_ref(),e.as_ref())
+}

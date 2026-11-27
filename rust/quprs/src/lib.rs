@@ -653,7 +653,7 @@ fn check_equivalence_with_distance_mode(
         ps_miter, num_qubits, gates1.len(), gates2.len(), method, strategy,
         tool_name, wmc_phase_tolerance, rr_tolerance, eps,
         gpmc_precision_digits, global_start, pathsum_start, deadline,
-        stage_session.as_ref(), None,
+        stage_session.as_ref(), None, false,
     )
 }
 
@@ -680,6 +680,7 @@ fn finish_native_verification(
     deadline: Option<Instant>,
     stage_session: Option<&diagnostics::Session>,
     cpr_pairs: Option<&[(u32,u32)]>,
+    cpr_route: bool,
 ) -> Result<EquivalenceCheckResult> {
     let mut status = EquivalenceStatus::Unknown;
     let mut rr_approximate = false;
@@ -754,38 +755,46 @@ fn finish_native_verification(
 
         let _wmc_scope = diagnostics::span("wmc_total");
         let wmc_start = Instant::now();
-        // The extracted view is terminal, not the returned PathSum.
-        let extracted = match cpr_pairs {
-            Some(pairs) if !pairs.is_empty() => cpr::extract_terminal(&ps_miter,pairs)?,
-            _ => None,
-        };
-        let (view,rows)=match &extracted {
-            Some((view,rows)) => (view,rows.as_slice()),
-            None => (&ps_miter,&[][..]),
-        };
-        let mut wmc_mgr = WmcManager::new(view);
-        // High-precision source weights are selected only for GPMC's
-        // projective-distance mode. All other modes retain their fast path.
+        // Both arms use precisely the native input-weight precision.
         #[cfg(feature="high-precision-gpmc")]
-        if tool_name == "gpmc" {
-            // Unweighted CNFs have no phase input to approximate. In
-            // particular, retain exact identity proofs for arbitrarily tight
-            // distance requests without asking MPFR for unused precision.
-            let bits = if ps_miter.p.terms.is_empty() {
-                96
-            } else {
-                crate::precise_weight::bits_for_distance(
-                    eps, ps_miter.p.terms.len(),
-                )?
-            };
-            wmc_mgr.enable_precise_gpmc_weights(bits);
-        }
-
-        {
-            let _encode_scope = diagnostics::span("cnf_encode");
-            if rows.is_empty(){wmc_mgr.encode_trace(view)?;}
-            else{wmc_mgr.encode_trace_with_zero_constraints(view,rows)?;}
-        }
+        let bits = if tool_name == "gpmc" {
+            Some(if ps_miter.p.terms.is_empty(){96}else{
+                crate::precise_weight::bits_for_distance(eps,ps_miter.p.terms.len())?
+            })
+        }else{None};
+        let encode=|view:&PathSum,rows:&[Vec<crate::pathsum::Monomial>]|->Result<WmcManager>{
+            let mut mgr=WmcManager::new(view);
+            #[cfg(feature="high-precision-gpmc")]
+            if let Some(bits)=bits{mgr.enable_precise_gpmc_weights(bits);}
+            let _scope=diagnostics::span("cnf_encode");
+            if rows.is_empty(){mgr.encode_trace(view)?;}else{mgr.encode_trace_with_zero_constraints(view,rows)?;}
+            Ok(mgr)
+        };
+        let mut prepared=None;
+        let mut removed=0usize;
+        let wmc_mgr=if let Some(pairs)=cpr_pairs.filter(|p|!p.is_empty()){
+            let route_start=Instant::now();
+            if let Some((view,rows))=cpr::extract_terminal(&ps_miter,pairs)?{
+                if cpr_route{
+                    let raw=encode(&ps_miter,&[])?;
+                    let ext=encode(&view,&rows)?;
+                    let serial_start=Instant::now();
+                    let raw_cnf=raw.try_to_dimacs_string(tool_name)?;
+                    let ext_cnf=ext.try_to_dimacs_string(tool_name)?;
+                    to_dimacs_time=Some(serial_start.elapsed().as_secs_f64());
+                    let graph_deadline=route_start+std::time::Duration::from_millis(250);
+                    let graph_deadline=deadline.map_or(graph_deadline,|d|d.min(graph_deadline));
+                    let selected=cpr::choose_extracted(&raw_cnf,&ext_cnf,graph_deadline);
+                    if selected{
+                        removed=rows.len();
+                        prepared=Some(ext_cnf);ext
+                    }else{prepared=Some(raw_cnf);raw}
+                }else{
+                    removed=rows.len();
+                    encode(&view,&rows)?
+                }
+            }else{encode(&ps_miter,&[])?}
+        }else{encode(&ps_miter,&[])?};
 
         let num_active_vars = ps_miter.v.path_vars.len() - num_qubits;
 
@@ -799,18 +808,28 @@ fn finish_native_verification(
         // C_raw = 2^m C_ext. Keep printed count and half-units intact.
         // The denominator exponent is 2n+h-2m, NOT 2n+h-m.
         let count_twice_log2=expected_twice_log2.checked_sub(
-            rows.len().checked_mul(2).ok_or_else(||anyhow::anyhow!("CPR extraction overflow"))?
+            removed.checked_mul(2).ok_or_else(||anyhow::anyhow!("CPR extraction overflow"))?
         ).ok_or_else(||anyhow::anyhow!("CPR normalization underflow"))?;
         // Extracted encodings do not take the analytic identity shortcut.
-        let analytic_identity = rows.is_empty() &&
+        let analytic_identity = removed==0 &&
             wmc_mgr.has_exact_unweighted_tautology(count_twice_log2);
         let mut printed_count = None;
         if !analytic_identity {
             // Serialize only when a solver actually needs CNF. Reuse precisely
             // these bytes for the subprocess, rather than rendering twice.
-            let dimacs_start = Instant::now();
-            let cnf_string = wmc_mgr.try_to_dimacs_string(tool_name)?;
-            to_dimacs_time = Some(dimacs_start.elapsed().as_secs_f64());
+            let cnf_string=match prepared {
+                Some(cnf)=>cnf,
+                None=>{
+                    let dimacs_start=Instant::now();
+                    let cnf=wmc_mgr.try_to_dimacs_string(tool_name)?;
+                    to_dimacs_time=Some(dimacs_start.elapsed().as_secs_f64());
+                    cnf
+                }
+            };
+            #[cfg(test)]
+            if cpr_route {
+                println!("CPR_I2B_ROUTE removed={removed} twice={count_twice_log2} header={}",cnf_string.lines().next().unwrap_or(""));
+            }
 
             solver_invoked = true;
             let tool_start = Instant::now();
@@ -834,6 +853,10 @@ fn finish_native_verification(
             // bound on native solver arithmetic or weight conversion.
             let twice: i32 = count_twice_log2.try_into()
                 .map_err(|_| anyhow::anyhow!("WMC normalization outside exact transport range"))?;
+            #[cfg(test)]
+            if cpr_route {
+                println!("CPR_I2B_COUNT twice={twice} removed={removed} real={} imag={}",count.real,count.imag);
+            }
             let observed = crate::precision_count::classify_with_uncertainty(
                 count, twice, &eps.to_string(), &BigRational::zero(),
             )?;
@@ -1391,7 +1414,7 @@ mod cpr_native_handoff_tests {
             let result=finish_native_verification(
                 raw.clone(),1,a.len(),b.len(),VerificationMethod::Hybrid,
                 VerificationStrategy::Difference,"gpmc",1e-8,0.0,1e-8,90,
-                start,start,start.checked_add(std::time::Duration::from_secs(27)),None,None
+                start,start,start.checked_add(std::time::Duration::from_secs(27)),None,None,false
             ).expect("native lifted WMC");
             assert_eq!(result.status,expected,"{name}: native lifted");
             assert!(result.solver_invoked&&!result.rr_approximate);
@@ -1405,7 +1428,7 @@ mod cpr_native_handoff_tests {
             let timed=finish_native_verification(
                 raw.clone(),1,a.len(),b.len(),VerificationMethod::Hybrid,
                 VerificationStrategy::Difference,"gpmc",1e-8,0.0,1e-8,90,
-                start,start,Some(start),None,None
+                start,start,Some(start),None,None,false
             ).expect("expired native handoff");
             assert_eq!(timed.status,EquivalenceStatus::Timeout);
             assert!(!timed.solver_invoked);
@@ -1413,7 +1436,7 @@ mod cpr_native_handoff_tests {
             let error=finish_native_verification(
                 raw,1,a.len(),b.len(),VerificationMethod::Hybrid,
                 VerificationStrategy::Difference,"unsupported-cpr-i1a",1e-8,0.0,1e-8,90,
-                start,start,start.checked_add(std::time::Duration::from_secs(27)),None,None
+                start,start,start.checked_add(std::time::Duration::from_secs(27)),None,None,false
             );
             assert!(error.is_err(),"{name}: unsupported solver is an error, not a verdict");
             println!("CPR_I1A_CASE case={name} status={expected:?} raw_lift=true native_solver=true timeout_no_solver=true unsupported_solver_error=true");
@@ -1451,7 +1474,7 @@ mod cpr_native_extraction_tests {
                     let result=finish_native_verification(
                         raw.clone(),1,a.len(),b.len(),VerificationMethod::Hybrid,VerificationStrategy::Difference,
                         "gpmc",1e-8,0.0,1e-8,90,start,start,
-                        start.checked_add(std::time::Duration::from_secs(27)),None,mode
+                        start.checked_add(std::time::Duration::from_secs(27)),None,mode,false
                     ).unwrap();
                     assert_eq!(result.status,expected,"{name} m={m}");
                     assert!(result.solver_invoked&&!result.rr_approximate);
@@ -1463,5 +1486,35 @@ mod cpr_native_extraction_tests {
             }
         }
         println!("CPR_I2A_GATE cases=6 raw_extracted_native_parity=true");
+    }
+}
+
+
+#[cfg(test)]
+mod cpr_native_router_tests {
+    use super::*;
+    #[test]
+    fn i2b_locked_source_worker(){
+        // One subprocess per original heavy coordinate, no synthetic lift.
+        let source=std::env::var("CRR_SOURCE").unwrap();
+        let target=std::env::var("CRR_TARGET").unwrap();
+        let (a,n)=crate::qasm::parse_qasm_str(&std::fs::read_to_string(source).unwrap()).unwrap();
+        let (b,m)=crate::qasm::parse_qasm_str(&std::fs::read_to_string(target).unwrap()).unwrap();
+        assert_eq!(n,m);
+        let start=Instant::now();
+        let build_deadline=start+std::time::Duration::from_secs(15);
+        let deadline=start+std::time::Duration::from_secs(27);
+        let built=cpr::build_difference(n,&a,&b,build_deadline).unwrap();
+        assert_eq!(built.gates_applied,a.len()+b.len());
+        let pairs=built.pairs;
+        let twice=n+built.residual.v.path_vars.len();
+        println!("CPR_I2B_BUILD pairs={} twice={twice} gates={}",pairs.len(),built.gates_applied);
+        let result=finish_native_verification(
+            built.residual,n,a.len(),b.len(),VerificationMethod::Hybrid,VerificationStrategy::Difference,
+            "gpmc",1e-8,0.0,1e-8,90,start,start,Some(deadline),None,Some(&pairs),true
+        ).unwrap();
+        assert!(result.solver_invoked&&!result.rr_approximate);
+        assert_eq!(n+result.final_ps.v.path_vars.len(),twice);
+        println!("CPR_I2B_RESULT status={:?} total_s={} pathsum_s={} solve_s={:?} precision_reason={:?}",result.status,result.verification_time,result.pathsum_time,result.tool_time,result.wmc_precision_reason);
     }
 }

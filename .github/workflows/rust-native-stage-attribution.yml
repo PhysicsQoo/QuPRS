@@ -2,6 +2,26 @@ name: Rust Native Stage Attribution Pilot
 
 on:
   workflow_dispatch:
+    inputs:
+      dag_stage:
+        description: 'DAG experiment stage (one job only; smoke is default)'
+        required: false
+        default: smoke
+        type: choice
+        options:
+          - smoke
+          - d1
+          - d1c
+          - d1d
+          - d1e
+          - d2a
+          - d3
+          - d3b
+          - d3c
+          - raw-pilot
+          - e1a
+          - e1b
+          - e1c
   push:
     branches: [experiment/eq-dag-encoder]
     paths:
@@ -13,6 +33,7 @@ on:
       - 'rust/research/eq_dag_d2a*'
       - 'rust/research/eq_dag_d3*'
       - 'rust/research/eq_dag_e1*'
+      - 'rust/research/eq_dag_ci_smoke.py'
       - 'rust/quprs/examples/eq_dag_d3_count.rs'
       - '.github/workflows/rust-native-stage-attribution.yml'
 
@@ -74,7 +95,7 @@ jobs:
           retention-days: 30
 
   eq-dag-d1:
-    if: github.ref == 'refs/heads/experiment/eq-dag-encoder' && github.event_name == 'workflow_dispatch'
+    if: github.ref == 'refs/heads/experiment/eq-dag-encoder' && github.event_name == 'workflow_dispatch' && inputs.dag_stage == 'd1'
     runs-on: ubuntu-24.04
     timeout-minutes: 40
     steps:
@@ -119,7 +140,7 @@ jobs:
           retention-days: 30
 
   eq-dag-d1c:
-    if: github.ref == 'refs/heads/experiment/eq-dag-encoder' && github.event_name == 'workflow_dispatch'
+    if: github.ref == 'refs/heads/experiment/eq-dag-encoder' && github.event_name == 'workflow_dispatch' && inputs.dag_stage == 'd1c'
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
@@ -157,7 +178,7 @@ jobs:
           retention-days: 30
 
   eq-dag-d1d:
-    if: github.ref == 'refs/heads/experiment/eq-dag-encoder' && github.event_name == 'workflow_dispatch'
+    if: github.ref == 'refs/heads/experiment/eq-dag-encoder' && github.event_name == 'workflow_dispatch' && inputs.dag_stage == 'd1d'
     runs-on: ubuntu-24.04
     timeout-minutes: 40
     steps:
@@ -208,7 +229,7 @@ jobs:
 
 
   eq-dag-d1e:
-    if: github.ref == 'refs/heads/experiment/eq-dag-encoder' && github.event_name == 'workflow_dispatch'
+    if: github.ref == 'refs/heads/experiment/eq-dag-encoder' && github.event_name == 'workflow_dispatch' && inputs.dag_stage == 'd1e'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -246,7 +267,7 @@ jobs:
           retention-days: 30
 
   eq-dag-d2a:
-    if: github.ref == 'refs/heads/experiment/eq-dag-encoder' && github.event_name == 'workflow_dispatch'
+    if: github.ref == 'refs/heads/experiment/eq-dag-encoder' && github.event_name == 'workflow_dispatch' && inputs.dag_stage == 'd2a'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -285,7 +306,7 @@ jobs:
           retention-days: 30
 
   eq-dag-d3:
-    if: github.ref == 'refs/heads/experiment/eq-dag-encoder' && github.event_name == 'workflow_dispatch'
+    if: github.ref == 'refs/heads/experiment/eq-dag-encoder' && github.event_name == 'workflow_dispatch' && inputs.dag_stage == 'd3'
     runs-on: ubuntu-24.04
     timeout-minutes: 65
     permissions:
@@ -349,7 +370,7 @@ jobs:
           retention-days: 30
 
   eq-dag-d3b:
-    if: github.ref == 'refs/heads/experiment/eq-dag-encoder' && github.event_name == 'workflow_dispatch'
+    if: github.ref == 'refs/heads/experiment/eq-dag-encoder' && github.event_name == 'workflow_dispatch' && inputs.dag_stage == 'd3b'
     runs-on: ubuntu-24.04
     timeout-minutes: 65
     permissions:
@@ -413,7 +434,7 @@ jobs:
           retention-days: 30
 
   eq-dag-d3c:
-    if: github.ref == 'refs/heads/experiment/eq-dag-encoder' && github.event_name == 'workflow_dispatch'
+    if: github.ref == 'refs/heads/experiment/eq-dag-encoder' && github.event_name == 'workflow_dispatch' && inputs.dag_stage == 'd3c'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -470,7 +491,7 @@ jobs:
           retention-days: 30
 
   eq-dag-raw-pilot:
-    if: github.ref == 'refs/heads/experiment/eq-dag-encoder' && github.event_name == 'workflow_dispatch'
+    if: github.ref == 'refs/heads/experiment/eq-dag-encoder' && github.event_name == 'workflow_dispatch' && inputs.dag_stage == 'raw-pilot'
     runs-on: ubuntu-24.04
     timeout-minutes: 50
     permissions:
@@ -543,7 +564,7 @@ jobs:
           retention-days: 30
 
   eq-dag-e1a:
-    if: github.ref == 'refs/heads/experiment/eq-dag-encoder' && github.event_name == 'workflow_dispatch'
+    if: github.ref == 'refs/heads/experiment/eq-dag-encoder' && github.event_name == 'workflow_dispatch' && inputs.dag_stage == 'e1a'
     runs-on: ubuntu-24.04
     timeout-minutes: 12
     permissions:
@@ -588,7 +609,7 @@ jobs:
           retention-days: 30
 
   eq-dag-e1b:
-    if: github.ref == 'refs/heads/experiment/eq-dag-encoder' && github.event_name == 'workflow_dispatch'
+    if: github.ref == 'refs/heads/experiment/eq-dag-encoder' && github.event_name == 'workflow_dispatch' && inputs.dag_stage == 'e1b'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
@@ -638,7 +659,7 @@ jobs:
           retention-days: 30
 
   eq-dag-e1c:
-    if: github.ref == 'refs/heads/experiment/eq-dag-encoder' && github.event_name == 'push'
+    if: github.ref == 'refs/heads/experiment/eq-dag-encoder' && github.event_name == 'workflow_dispatch' && inputs.dag_stage == 'e1c'
     runs-on: ubuntu-24.04
     timeout-minutes: 115
     permissions:
@@ -705,3 +726,19 @@ jobs:
           name: eq-dag-e1c-matched-solver-pilot
           path: eq-dag-e1c-evidence/
           retention-days: 30
+
+  eq-dag-smoke:
+    if: github.ref == 'refs/heads/experiment/eq-dag-encoder' && (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.dag_stage == 'smoke'))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Compile research Python and check exact semantic controls
+        run: |
+          set -euo pipefail
+          python3 -m py_compile rust/research/eq_dag*.py
+          python3 -B rust/research/eq_dag_ci_smoke.py

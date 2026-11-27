@@ -9,7 +9,7 @@ on:
       suite:
         description: Bounded Frontier admission suite
         type: choice
-        options: [frontier-release-quality, frontier-vqe16-gpmc-scout, v020-cross-family-scout, v020-pinned-integration]
+        options: [frontier-release-quality, frontier-vqe16-gpmc-scout, v020-cross-family-scout, v020-pinned-integration, v020-planner-diagnosis]
         default: frontier-release-quality
 permissions:
   contents: read
@@ -475,7 +475,7 @@ jobs:
           if-no-files-found: warn
 
   v020-pinned-integration:
-    if: github.event_name == 'push' || inputs.suite == 'v020-pinned-integration'
+    if: github.event_name == 'workflow_dispatch' && inputs.suite == 'v020-pinned-integration'
     name: v0.2.0 pinned QuPRS integration / ${{ matrix.case }}
     runs-on: ubuntu-24.04
     timeout-minutes: 12
@@ -642,5 +642,146 @@ jobs:
         with:
           name: rawmocs-v020-integration-${{ matrix.case }}
           path: .v020-integration/
+          include-hidden-files: true
+          if-no-files-found: warn
+
+  v020-planner-diagnosis:
+    if: github.event_name == 'push' || inputs.suite == 'v020-planner-diagnosis'
+    name: v0.2.0 bounded plan-only diagnosis / ${{ matrix.case }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - case: vqe16_native
+            artifact: 15166930703
+            zip_sha: e535f1659836d6316eb1d20e2df2df74b810184d76ba67931e66e5599d1305c1
+            cnf_sha: 5683d3d2780614cb23526a7c14644e7b52d710a994de8a6d9d81b1b2097bc624
+          - case: qnn12_native
+            artifact: 15166063610
+            zip_sha: 6bb36c83a575ec45779d6fb8b9c384fe59d1684dad0fe3877f60597c5392d7bd
+            cnf_sha: 7c8841e0cf9c1c3f8b8b366750311aa9f630639f5f4446921aa1917fb55f3703
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: PhysicsQoo/RaWMoCS
+          ref: 0b8538be510718e7c8d79a79875681628b73f9be
+          path: .plan-candidate
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: .plan-candidate/crates/rawmocs-cli -> target
+          shared-key: rawmocs-general-dependencies
+          cache-workspace-crates: 'false'
+      - name: Verify original candidate and recover immutable CNF
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT: ${{ matrix.artifact }}
+          ZIP_SHA: ${{ matrix.zip_sha }}
+          CNF_SHA: ${{ matrix.cnf_sha }}
+        run: |
+          set -euo pipefail
+          test "$(git -C .plan-candidate rev-parse HEAD)" = 0b8538be510718e7c8d79a79875681628b73f9be
+          mkdir -p .v020-plan-evidence .v020-plan-input
+          zip="$RUNNER_TEMP/plan-input.zip"
+          gh api "repos/PhysicsQoo/QuPRS/actions/artifacts/$ARTIFACT/zip" > "$zip"
+          echo "$ZIP_SHA  $zip" | sha256sum -c -
+          unzip -q "$zip" -d .v020-plan-input
+          sudo apt-get -o Dir::Etc::sourcelist=/etc/apt/sources.list.d/ubuntu.sources -o Dir::Etc::sourceparts=- -o APT::Get::List-Cleanup=0 update
+          sudo apt-get -o Dir::Etc::sourcelist=/etc/apt/sources.list.d/ubuntu.sources -o Dir::Etc::sourceparts=- install -y --no-install-recommends libgmp-dev libmpfr-dev m4 make gcc pkg-config
+          python3 - <<'PY'
+          import hashlib,json,os
+          from pathlib import Path
+          root=Path(".v020-plan-input")
+          cnf,=root.rglob("*-gpmc.cnf")
+          report,=root.rglob("report.json")
+          r=json.loads(report.read_text())
+          assert r["rawmocs_sha"]=="0b8538be510718e7c8d79a79875681628b73f9be"
+          assert r["status"]=="FRONTIER_NOT_COMPLETE" and r["rows"]["frontier"]["fallback_reasons"]==["no bounded prejoin plan"]
+          assert hashlib.sha256(cnf.read_bytes()).hexdigest()==r["cnf_sha256"]==os.environ["CNF_SHA"]
+          Path(".v020-plan-evidence/input.json").write_text(json.dumps({"cnf":str(cnf.resolve()),"source_sha256":r["cnf_sha256"],"prior":r["rows"]["frontier"],"artifact":os.environ["ARTIFACT"]},indent=2)+"\n")
+          PY
+      - name: Instrument only a disposable test build and retain patch
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path(".plan-candidate/crates/rawmocs-cli/src/factor_prejoin.rs")
+          src=p.read_text()
+          def change(old,new):
+              global src
+              assert src.count(old)==1,old
+              src=src.replace(old,new)
+          change('        if nb.len() > WIDTH {\n            return Ok(None);\n        }','        if nb.len() > WIDTH {\n            #[cfg(test)]\n            eprintln!("V020_LEAF_WIDTH observed={}", nb.len());\n            return Ok(None);\n        }')
+          change('        if cost.work > WORK || cost.peak > LIVE {\n            return Ok(None);\n        }','        if cost.work > WORK || cost.peak > LIVE {\n            #[cfg(test)]\n            eprintln!("V020_LEAF_RESOURCE work={} peak={}", cost.work, cost.peak);\n            return Ok(None);\n        }')
+          change('    Ok(Some(Plan { ops, cost, extra }))','    #[cfg(test)]\n    eprintln!("V020_LEAF_ACCEPT width={} work={} peak={}", cost.width, cost.work, cost.peak);\n    Ok(Some(Plan { ops, cost, extra }))')
+          change('            if plans.len() == 1 << cuts.len()\n                && cost.work <= WORK','            #[cfg(test)]\n            eprintln!("V020_CANDIDATE cuts={} leaves={} expected={} work={} peak={} width={}", cuts.len(), plans.len(), 1usize << cuts.len(), cost.work, cost.peak, cost.width);\n            if plans.len() == 1 << cuts.len()\n                && cost.work <= WORK')
+          test=r'''
+              #[test]
+              #[ignore = "bounded original source planner diagnosis only"]
+              fn v020_plan_only_diagnosis() {
+                  let raw = std::fs::read_to_string(std::env::var("RAWMOCS_TEST_ORIGINAL").unwrap()).unwrap();
+                  let p = parse_emitted(&raw, 432).unwrap();
+                  let d = Instant::now() + Duration::from_secs(30);
+                  let (fs, nodes, scalar, local_cost) = match local_frontier_policy::<false, true>(&p, &raw, d, true, true, None, true) {
+                      Ok(x) => x,
+                      Err(reason) => { println!("V020_LOCAL_REJECT reason={reason}"); return; }
+                  };
+                  println!("V020_LOCAL remaining={} factors={} work={} peak={} width={}", nodes.len(), fs.len(), local_cost.work, local_cost.peak, local_cost.width);
+                  match choose(&fs, &nodes, &scalar, &local_cost, d) {
+                      Ok((cuts, plans, cost)) => println!("V020_PLAN_ACCEPT cuts={} leaves={} width={} work={} peak={}", cuts.len(), plans.len(), cost.width, cost.work, cost.peak),
+                      Err(reason) => println!("V020_PLAN_REJECT reason={reason}"),
+                  }
+              }
+          '''
+          change('mod tests {\n    use super::*;','mod tests {\n    use super::*;\n'+test)
+          p.write_text(src)
+          PY
+          git -C .plan-candidate diff --check
+          git -C .plan-candidate diff -- crates/rawmocs-cli/src/factor_prejoin.rs > .v020-plan-evidence/diagnostic.patch
+          test "$(git -C .plan-candidate diff --name-only)" = crates/rawmocs-cli/src/factor_prejoin.rs
+          cargo test --locked --release --manifest-path .plan-candidate/crates/rawmocs-cli/Cargo.toml --no-run
+      - name: Bounded planner diagnosis and reject classification
+        env:
+          CASE: ${{ matrix.case }}
+          CNF_SHA: ${{ matrix.cnf_sha }}
+        run: |
+          set -euo pipefail
+          export RAWMOCS_TEST_ORIGINAL="$(python3 -c 'import json;print(json.load(open(".v020-plan-evidence/input.json"))["cnf"])')"
+          timeout -k 2s 40s prlimit --as=3221225472 -- cargo test --locked --release --manifest-path .plan-candidate/crates/rawmocs-cli/Cargo.toml v020_plan_only_diagnosis -- --ignored --nocapture > .v020-plan-evidence/planner.log 2>&1
+          python3 - <<'PY'
+          import collections,hashlib,json,os,re
+          from pathlib import Path
+          root=Path(".v020-plan-evidence")
+          log=(root/"planner.log").read_text()
+          assert "1 passed; 0 failed" in log
+          leaf_width=[int(x) for x in re.findall(r"^V020_LEAF_WIDTH observed=(\d+)$",log,re.M)]
+          leaf_resource=[tuple(map(int,x)) for x in re.findall(r"^V020_LEAF_RESOURCE work=(\d+) peak=(\d+)$",log,re.M)]
+          leaf_accept=re.findall(r"^V020_LEAF_ACCEPT width=(\d+) work=(\d+) peak=(\d+)$",log,re.M)
+          cuts=collections.defaultdict(collections.Counter)
+          for n,leaves,expected,work,peak,width in re.findall(r"^V020_CANDIDATE cuts=(\d+) leaves=(\d+) expected=(\d+) work=(\d+) peak=(\d+) width=(\d+)$",log,re.M):
+              n,leaves,expected,work,peak,width=map(int,(n,leaves,expected,work,peak,width))
+              cuts[n]["attempted"]+=1
+              if leaves!=expected:cuts[n]["incomplete_leaf"]+=1
+              else:
+                  cuts[n]["all_leaves"]+=1
+                  if work>40000000:cuts[n]["aggregate_work_reject"]+=1
+                  if peak>2000000:cuts[n]["aggregate_live_reject"]+=1
+                  if work<=40000000 and peak<=2000000:cuts[n]["admitted"]+=1
+          terminal=re.findall(r"^V020_(?:PLAN_ACCEPT|PLAN_REJECT|LOCAL_REJECT) .+$",log,re.M)
+          assert len(terminal)==1,terminal
+          cnf=Path(os.environ["RAWMOCS_TEST_ORIGINAL"])
+          assert hashlib.sha256(cnf.read_bytes()).hexdigest()==os.environ["CNF_SHA"]
+          report={"case":os.environ["CASE"],"candidate":"0b8538be510718e7c8d79a79875681628b73f9be","source_sha256":os.environ["CNF_SHA"],"status":"PLAN_ONLY_DIAGNOSTIC_COMPLETE","terminal":terminal[0],"local":re.findall(r"^V020_LOCAL .+$",log,re.M),"leaf_width_rejects":len(leaf_width),"first_rejected_width_histogram":dict(collections.Counter(leaf_width)),"leaf_work_rejects":sum(w>40000000 for w,p in leaf_resource),"leaf_live_rejects":sum(p>2000000 for w,p in leaf_resource),"leaf_resource_rejects":len(leaf_resource),"leaf_accepts":len(leaf_accept),"cut_candidates":dict(cuts),"scope":"instrumented test build, no solve execution or speed ratio"}
+          (root/"report.json").write_text(json.dumps(report,indent=2)+"\n")
+          print("V020_PLANNER_REPORT",json.dumps(report),flush=True)
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: rawmocs-v020-plan-${{ matrix.case }}
+          path: .v020-plan-evidence/
           include-hidden-files: true
           if-no-files-found: warn

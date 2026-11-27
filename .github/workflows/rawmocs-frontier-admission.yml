@@ -535,8 +535,22 @@ jobs:
           cmake -S .gpmc -B .gpmc/build -G Ninja -DCMAKE_BUILD_TYPE=Release
           cmake --build .gpmc/build --target gpmc-bin --parallel 2
           sha256sum .rawmocs-{candidate,baseline}/crates/rawmocs-cli/target/release/rawmocs .gpmc/build/gpmc > .v020-integration/binaries.sha256
-          printf '#!/bin/sh\nexec "%s" --solver auto-frontier "$@"\n' "$PWD/.rawmocs-candidate/crates/rawmocs-cli/target/release/rawmocs" > .v020-integration/frontier
-          chmod 700 .v020-integration/frontier
+          mkdir -p .v020-integration/bin
+          cat > .v020-integration/bin/frontier <<'SH'
+          #!/bin/sh
+          set -eu
+          [ "$#" -eq 5 ] && [ "$1" = --digits ] && [ "$3" = --timeout-ms ] || exit 2
+          exec "$(dirname "$0")/../../.rawmocs-candidate/crates/rawmocs-cli/target/release/rawmocs" "$1" "$2" "$3" "$4" --solver auto-frontier "$5"
+          SH
+          chmod 700 .v020-integration/bin/frontier
+          sh -n .v020-integration/bin/frontier
+          printf 'p cnf 1 0\nc t wmc\nc p weight 1 -1 0 0\n' > .v020-integration/wrapper-control.cnf
+          .rawmocs-candidate/crates/rawmocs-cli/target/release/rawmocs --digits 130 --timeout-ms 1000 --solver auto-frontier .v020-integration/wrapper-control.cnf > .v020-integration/control-direct.stdout 2> .v020-integration/control-direct.stderr
+          .v020-integration/bin/frontier --digits 130 --timeout-ms 1000 .v020-integration/wrapper-control.cnf > .v020-integration/control-wrapper.stdout 2> .v020-integration/control-wrapper.stderr
+          cmp .v020-integration/control-direct.stdout .v020-integration/control-wrapper.stdout
+          grep -q '^s SATISFIABLE$' .v020-integration/control-wrapper.stdout
+          grep -q '^RAWMOCS_COMPLETE route=.* digits=130 bits=432 ' .v020-integration/control-wrapper.stderr
+          echo V020_FRONTIER_WRAPPER_PREFLIGHT_PASS
       - name: Public Python check_equivalence and scoped adapter parity
         if: matrix.case == 'e2e'
         env:
@@ -546,7 +560,7 @@ jobs:
           set -euo pipefail
           for arm in baseline candidate frontier; do
             raw=".rawmocs-$arm/crates/rawmocs-cli/target/release/rawmocs"
-            if [[ "$arm" == frontier ]]; then raw=.v020-integration/frontier; fi
+            if [[ "$arm" == frontier ]]; then raw=.v020-integration/bin/frontier; fi
             python research/rawmocs_integration/compare.py --case e2e --raw "$raw" --gpmc .gpmc/build/gpmc --out ".v020-integration/$arm"
           done
           python - <<'PY'
@@ -597,7 +611,7 @@ jobs:
           os.environ["QUPRS_GPMC_PATH"]=str(gpmc)
           default=get_solver_adapter("gpmc")
           bins={a:Path(".rawmocs-"+a+"/crates/rawmocs-cli/target/release/rawmocs").resolve() for a in ("baseline","candidate")}
-          bins["frontier"]=root/"frontier"
+          bins["frontier"]=root/"bin"/"frontier"
           report={"status":"IN_PROGRESS","cnf_sha256":expected,"witness_sha256":digest(witness),"digits":130,"bits":432,"target":100,"rows":{}}
           def save():(root/"transport.json").write_text(json.dumps(report,indent=2)+"\n")
           save()

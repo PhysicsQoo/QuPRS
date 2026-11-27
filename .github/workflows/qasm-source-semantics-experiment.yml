@@ -11,6 +11,7 @@ on:
       - rust/research/cps_reducibility_pilot.py
       - rust/research/cps_reducibility_stage2.py
       - rust/research/cps_reducibility_stage3.py
+      - rust/research/cps_reducibility_stage4.py
       - rust/research/autoq_c3_pilot.py
       - rust/quprs/tests/property_hoare_experiment.rs
       - rust/quprs/tests/cps_orbit_eq_experiment.rs
@@ -50,7 +51,7 @@ jobs:
           rustc --version | tee evidence/rustc-version.txt
           cargo --version | tee evidence/cargo-version.txt
           lscpu > evidence/cpu.txt
-          sha256sum rust/quprs/tests/cps_orbit_eq_experiment.rs rust/quprs/tests/support/autoq_hsl_p0.rs rust/research/cps_reducibility_pilot.py rust/research/cps_reducibility_stage2.py rust/research/cps_reducibility_stage3.py rust/quprs/tests/property_hoare_experiment.rs rust/research/autoq_c3_pilot.py rust/research/hoare_ganak_exact.py > evidence/source-sha256.txt
+          sha256sum rust/quprs/tests/cps_orbit_eq_experiment.rs rust/quprs/tests/support/autoq_hsl_p0.rs rust/research/cps_reducibility_pilot.py rust/research/cps_reducibility_stage2.py rust/research/cps_reducibility_stage3.py rust/research/cps_reducibility_stage4.py rust/quprs/tests/property_hoare_experiment.rs rust/research/autoq_c3_pilot.py rust/research/hoare_ganak_exact.py > evidence/source-sha256.txt
           sudo apt-get update
           sudo apt-get install -y cmake pkg-config libgmp-dev libmpfr-dev zlib1g-dev
       - name: Provision pinned GPMC and qualify packed count
@@ -86,10 +87,10 @@ jobs:
         timeout-minutes: 10
         run: |
           set -euo pipefail
-          timeout 480s python3 rust/research/cps_reducibility_stage3.py \
+          timeout 480s python3 rust/research/cps_reducibility_stage4.py \
             "$(cat evidence/cps_orbit_eq_experiment.path)" "$(cat evidence/property_hoare_experiment.path)" "$RUNNER_TEMP/cps-gpmc" evidence/cps-pilot \
             2>&1 | tee evidence/cps-pilot.log
-          grep -F 'CPS_STAGE3_SUMMARY ' evidence/cps-pilot.log
+          grep -F 'CPS_STAGE4_ACCEPTANCE ' evidence/cps-pilot.log
       - uses: actions/upload-artifact@v4
         if: always()
         with:

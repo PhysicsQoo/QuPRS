@@ -1129,7 +1129,7 @@ fn hoare_autoq_c3_arm(){
         };
         println!("AQ_CPS_RESIDUAL raw_h={h0} residual_h={} k={k} phase_terms={} output_terms={}",
             s.h,s.phase.len(),s.output.iter().map(|p|p.len()).sum::<usize>());
-        if mode=="structural"||mode=="structural-factor"||mode=="raw-factor"{
+        if mode=="structural"||mode=="structural-factor"||mode=="raw-factor"||mode=="orbit-factor"{
             if ghz&&k==1{
                 if let Some(w)=aq_ghz_witness(&s){
                     route="symbolic";
@@ -1174,7 +1174,7 @@ fn hoare_autoq_c3_arm(){
         // Phase-blind exact support index: only two distinct fixed kets
         // and one live path, at the original 1/sqrt2 scale.
         let mut index=BTreeMap::<(u64,u64),Vec<usize>>::new();
-        let indexed=["hybrid-support","hybrid-direct","structural-factor"].contains(&mode.as_str())&&s.h==1&&k==1&&bb.iter().enumerate().all(|(j,b)|{
+        let indexed=["hybrid-support","hybrid-direct","structural-factor","orbit-wmc"].contains(&mode.as_str())&&s.h==1&&k==1&&bb.iter().enumerate().all(|(j,b)|{
             if let [a,b]=b.terms.as_slice(){
                 if let (AqPattern::Fixed(u),AqPattern::Fixed(v))=(a.pattern,b.pattern){
                     if u!=v{index.entry((u.min(v),u.max(v))).or_default().push(j);return true;}

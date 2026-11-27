@@ -60,6 +60,9 @@ pub mod ir;
 pub mod rational; 
 pub mod reduction;
 pub mod strategy;
+// Private CPR core; the ordinary API does not select it.
+#[allow(dead_code)]
+mod cpr;
 pub mod stats;    
 pub mod wmc;
 pub mod precision_count;
@@ -639,7 +642,6 @@ fn check_equivalence_with_distance_mode(
             "approximate_distance_tolerance must be finite and in (0, 1)"
         ));
     }
-    let approximate_distance_tolerance = Some(eps);
     let global_start = Instant::now();
     let stage_session = diagnostics::Session::from_environment();
     if timeout_secs == 0 {
@@ -659,9 +661,6 @@ fn check_equivalence_with_distance_mode(
     // The final RR residual is also the WMC input whenever RR is inconclusive.
     ps.rr_tolerance = rr_tolerance;
 
-    let mut status = EquivalenceStatus::Unknown;
-    let mut rr_approximate = false;
-
     // 2. Build the Miter Circuit (C1 * C2^\dagger)
     let pathsum_start = Instant::now();
     let mut ps_miter = strategy.run(ps, gates1, gates2);
@@ -673,12 +672,48 @@ fn check_equivalence_with_distance_mode(
         ps_miter.full_reduce();
     }
 
+    finish_native_verification(
+        ps_miter, num_qubits, gates1.len(), gates2.len(), method, strategy,
+        tool_name, wmc_phase_tolerance, rr_tolerance, eps,
+        gpmc_precision_digits, global_start, pathsum_start, deadline,
+        stage_session.as_ref(), None, false,
+    )
+}
+
+// Shared private terminal handoff. The caller owns construction and must
+// provide the final trusted residual, with its original normalization.
+// No public arbitrary-residual API, gate replay, extra reduction or clone.
+// I2a admits terminal extraction only for the private strict CPR caller.
+// Untracked Elim remains inadmissible.
+#[inline]
+fn finish_native_verification(
+    ps_miter: PathSum,
+    num_qubits: usize,
+    gate_num1: usize,
+    gate_num2: usize,
+    method: VerificationMethod,
+    strategy: VerificationStrategy,
+    tool_name: &str,
+    wmc_phase_tolerance: f64,
+    rr_tolerance: f64,
+    eps: f64,
+    gpmc_precision_digits: u32,
+    global_start: Instant,
+    pathsum_start: Instant,
+    deadline: Option<Instant>,
+    stage_session: Option<&diagnostics::Session>,
+    cpr_pairs: Option<&[(u32,u32)]>,
+    cpr_route: bool,
+) -> Result<EquivalenceCheckResult> {
+    let mut status = EquivalenceStatus::Unknown;
+    let mut rr_approximate = false;
+
     // This is also the complete RR-only reduction state; no terminal probe.
     let rr_view = &ps_miter;
     rr_approximate |= rr_view.rr_approximate;
 
     // 3. Reduction Rules Check
-    if method != VerificationMethod::WmcOnly {
+    if method != VerificationMethod::WmcOnly && (cpr_pairs.is_none() || rr_view.v.path_vars.len()==num_qubits) {
         if rr_view.is_identity_up_to_phase() {
             if let Some(phase_coeff) = rr_view.get_global_phase() {
                 // The up-to-global-phase relation is established by RR.
@@ -743,28 +778,46 @@ fn check_equivalence_with_distance_mode(
 
         let _wmc_scope = diagnostics::span("wmc_total");
         let wmc_start = Instant::now();
-        let mut wmc_mgr = WmcManager::new(&ps_miter);
-        // High-precision source weights are selected only for GPMC's
-        // projective-distance mode. All other modes retain their fast path.
+        // Both arms use precisely the native input-weight precision.
         #[cfg(feature="high-precision-gpmc")]
-        if tool_name == "gpmc" {
-            // Unweighted CNFs have no phase input to approximate. In
-            // particular, retain exact identity proofs for arbitrarily tight
-            // distance requests without asking MPFR for unused precision.
-            let bits = if ps_miter.p.terms.is_empty() {
-                96
-            } else {
-                crate::precise_weight::bits_for_distance(
-                    eps, ps_miter.p.terms.len(),
-                )?
-            };
-            wmc_mgr.enable_precise_gpmc_weights(bits);
-        }
-
-        {
-            let _encode_scope = diagnostics::span("cnf_encode");
-            wmc_mgr.encode_trace(&ps_miter)?;
-        }
+        let bits = if tool_name == "gpmc" {
+            Some(if ps_miter.p.terms.is_empty(){96}else{
+                crate::precise_weight::bits_for_distance(eps,ps_miter.p.terms.len())?
+            })
+        }else{None};
+        let encode=|view:&PathSum,rows:&[Vec<crate::pathsum::Monomial>]|->Result<WmcManager>{
+            let mut mgr=WmcManager::new(view);
+            #[cfg(feature="high-precision-gpmc")]
+            if let Some(bits)=bits{mgr.enable_precise_gpmc_weights(bits);}
+            let _scope=diagnostics::span("cnf_encode");
+            if rows.is_empty(){mgr.encode_trace(view)?;}else{mgr.encode_trace_with_zero_constraints(view,rows)?;}
+            Ok(mgr)
+        };
+        let mut prepared=None;
+        let mut removed=0usize;
+        let wmc_mgr=if let Some(pairs)=cpr_pairs.filter(|p|!p.is_empty()){
+            let route_start=Instant::now();
+            if let Some((view,rows))=cpr::extract_terminal(&ps_miter,pairs)?{
+                if cpr_route{
+                    let raw=encode(&ps_miter,&[])?;
+                    let ext=encode(&view,&rows)?;
+                    let serial_start=Instant::now();
+                    let raw_cnf=raw.try_to_dimacs_string(tool_name)?;
+                    let ext_cnf=ext.try_to_dimacs_string(tool_name)?;
+                    to_dimacs_time=Some(serial_start.elapsed().as_secs_f64());
+                    let graph_deadline=route_start+crate::clock::Duration::from_millis(250);
+                    let graph_deadline=deadline.map_or(graph_deadline,|d|d.min(graph_deadline));
+                    let selected=cpr::choose_extracted(&raw_cnf,&ext_cnf,graph_deadline);
+                    if selected{
+                        removed=rows.len();
+                        prepared=Some(ext_cnf);ext
+                    }else{prepared=Some(raw_cnf);raw}
+                }else{
+                    removed=rows.len();
+                    encode(&view,&rows)?
+                }
+            }else{encode(&ps_miter,&[])?}
+        }else{encode(&ps_miter,&[])?};
 
         let num_active_vars = ps_miter.v.path_vars.len() - num_qubits;
 
@@ -775,15 +828,31 @@ fn check_equivalence_with_distance_mode(
         let expected_twice_log2 = num_qubits.checked_mul(2)
             .and_then(|twice_n| twice_n.checked_add(num_active_vars))
             .ok_or_else(|| anyhow::anyhow!("WMC normalization overflow"))?;
-        let analytic_identity =
-            wmc_mgr.has_exact_unweighted_tautology(expected_twice_log2);
+        // C_raw = 2^m C_ext. Keep printed count and half-units intact.
+        // The denominator exponent is 2n+h-2m, NOT 2n+h-m.
+        let count_twice_log2=expected_twice_log2.checked_sub(
+            removed.checked_mul(2).ok_or_else(||anyhow::anyhow!("CPR extraction overflow"))?
+        ).ok_or_else(||anyhow::anyhow!("CPR normalization underflow"))?;
+        // Extracted encodings do not take the analytic identity shortcut.
+        let analytic_identity = removed==0 &&
+            wmc_mgr.has_exact_unweighted_tautology(count_twice_log2);
         let mut printed_count = None;
         if !analytic_identity {
             // Serialize only when a solver actually needs CNF. Reuse precisely
             // these bytes for the subprocess, rather than rendering twice.
-            let dimacs_start = Instant::now();
-            let cnf_string = wmc_mgr.try_to_dimacs_string(tool_name)?;
-            to_dimacs_time = Some(dimacs_start.elapsed().as_secs_f64());
+            let cnf_string=match prepared {
+                Some(cnf)=>cnf,
+                None=>{
+                    let dimacs_start=Instant::now();
+                    let cnf=wmc_mgr.try_to_dimacs_string(tool_name)?;
+                    to_dimacs_time=Some(dimacs_start.elapsed().as_secs_f64());
+                    cnf
+                }
+            };
+            #[cfg(test)]
+            if cpr_route {
+                println!("CPR_I2B_ROUTE removed={removed} twice={count_twice_log2} header={}",cnf_string.lines().next().unwrap_or(""));
+            }
 
             solver_invoked = true;
             let tool_start = Instant::now();
@@ -805,11 +874,12 @@ fn check_equivalence_with_distance_mode(
             // Printed-output numerical classification only. The former
             // input-error allowance was a conjectural estimate, not a
             // bound on native solver arithmetic or weight conversion.
-            let twice = num_qubits.checked_mul(2)
-                .and_then(|v| v.checked_add(num_active_vars))
-                .ok_or_else(|| anyhow::anyhow!("WMC normalization overflow"))?;
-            let twice: i32 = twice.try_into()
+            let twice: i32 = count_twice_log2.try_into()
                 .map_err(|_| anyhow::anyhow!("WMC normalization outside exact transport range"))?;
+            #[cfg(test)]
+            if cpr_route {
+                println!("CPR_I2B_COUNT twice={twice} removed={removed} real={} imag={}",count.real,count.imag);
+            }
             let observed = crate::precision_count::classify_with_uncertainty(
                 count, twice, &eps.to_string(), &BigRational::zero(),
             )?;
@@ -884,8 +954,8 @@ fn check_equivalence_with_distance_mode(
 
     Ok(EquivalenceCheckResult {
         qubit_num: num_qubits,
-        gate_num1: gates1.len(),
-        gate_num2: gates2.len(),
+        gate_num1,
+        gate_num2,
         method,
         strategy,
         status,
@@ -898,11 +968,11 @@ fn check_equivalence_with_distance_mode(
         wmc_printed_verdict,
         wmc_precision_reason,
         wmc_print_resolution_distance,
-        approximate_distance_tolerance,
+        approximate_distance_tolerance: Some(eps),
         rr_approximate: public_rr_approximate,
         solver_invoked,
         final_ps: ps_miter,
-        stage_ledger: stage_session.as_ref().map(|session| session.snapshot(total_time, ps_time)),
+        stage_ledger: stage_session.map(|session| session.snapshot(total_time, ps_time)),
     })
 }
 mod ganak_distribution;
@@ -1314,3 +1384,131 @@ mod rr_integer_compact_candidate_tests {
         }
     }
 }
+
+#[cfg(test)]
+mod cpr_native_handoff_tests {
+    use super::*;
+    use crate::ir::QuantumOp;
+    use crate::rational::{Angle, FreeRational};
+
+    // Construct an exact inverse-HH output lift on a trusted original
+    // residual. This exercises raw native WMC with h+2, no extracted
+    // integrator or Elim event, and no research fixed-precision solver.
+    fn output_lift(mut ps: PathSum) -> PathSum {
+        let old = ps.f.functions[0].clone();
+        let u = ps.v.get_fresh_var();
+        let z = ps.v.get_fresh_var();
+        ps.p.add_term(vec![u,z], PhaseCoeff::HALF);
+        for mut m in old {
+            m.push(z);
+            m.sort_unstable();
+            m.dedup();
+            ps.p.add_term(m, PhaseCoeff::HALF);
+        }
+        ps.f.functions[0] = [vec![u]].into_iter().collect();
+        ps
+    }
+
+    #[test]
+    fn i1a_raw_lift_uses_native_phase_verdict_and_error_contract() {
+        let theta=Angle::new_constant(FreeRational::new(1,2));
+        let cases: [(&str,Vec<QuantumOp>,Vec<QuantumOp>,EquivalenceStatus);3] = [
+            ("identity",vec![QuantumOp::H(0),QuantumOp::H(0)],vec![],EquivalenceStatus::Equivalent),
+            ("global_phase",vec![QuantumOp::RZ(0,theta.clone())],vec![QuantumOp::P(0,theta)],EquivalenceStatus::EquivalentUpToGlobalPhase),
+            ("negative",vec![QuantumOp::X(0)],vec![],EquivalenceStatus::NotEquivalent),
+        ];
+        for (name,a,b,expected) in cases {
+            let opts=VerificationOptions{
+                method:VerificationMethod::Hybrid,
+                strategy:VerificationStrategy::Difference,
+                rr_tolerance:0.0,timeout_secs:27,
+                gpmc_precision_digits:90,
+                ..VerificationOptions::default()
+            };
+            let ordinary=check_equivalence_with_options(1,&a,&b,&opts).expect("native source");
+            assert_eq!(ordinary.status,expected,"{name}: ordinary source");
+            assert!(!ordinary.rr_approximate);
+            let raw=output_lift(ordinary.final_ps);
+            assert_eq!(raw.v.path_vars.len(),3,"{name}: exactly two fresh bits");
+            let phase=raw.p.terms.clone();
+            let f=raw.f.functions.clone();
+            let start=Instant::now();
+            let result=finish_native_verification(
+                raw.clone(),1,a.len(),b.len(),VerificationMethod::Hybrid,
+                VerificationStrategy::Difference,"gpmc",1e-8,0.0,1e-8,90,
+                start,start,start.checked_add(std::time::Duration::from_secs(27)),None,None,false
+            ).expect("native lifted WMC");
+            assert_eq!(result.status,expected,"{name}: native lifted");
+            assert!(result.solver_invoked&&!result.rr_approximate);
+            assert_eq!(result.final_ps.p.terms,phase);
+            assert_eq!(result.final_ps.f.functions,f);
+            assert_eq!(result.final_ps.v.path_vars,raw.v.path_vars);
+            assert_eq!((result.qubit_num,result.gate_num1,result.gate_num2),(1,a.len(),b.len()));
+            assert_eq!(result.approximate_distance_tolerance,Some(1e-8));
+            assert!(result.wmc_precision_reason.is_some());
+            let start=Instant::now();
+            let timed=finish_native_verification(
+                raw.clone(),1,a.len(),b.len(),VerificationMethod::Hybrid,
+                VerificationStrategy::Difference,"gpmc",1e-8,0.0,1e-8,90,
+                start,start,Some(start),None,None,false
+            ).expect("expired native handoff");
+            assert_eq!(timed.status,EquivalenceStatus::Timeout);
+            assert!(!timed.solver_invoked);
+            let start=Instant::now();
+            let error=finish_native_verification(
+                raw,1,a.len(),b.len(),VerificationMethod::Hybrid,
+                VerificationStrategy::Difference,"unsupported-cpr-i1a",1e-8,0.0,1e-8,90,
+                start,start,start.checked_add(std::time::Duration::from_secs(27)),None,None,false
+            );
+            assert!(error.is_err(),"{name}: unsupported solver is an error, not a verdict");
+            println!("CPR_I1A_CASE case={name} status={expected:?} raw_lift=true native_solver=true timeout_no_solver=true unsupported_solver_error=true");
+        }
+        println!("CPR_I1A_GATE cases=3 native_handoff=true phase=true timeout=true error=true");
+    }
+}
+
+
+#[cfg(test)]
+mod cpr_native_extraction_tests {
+    use super::*;
+    use crate::rational::{Angle,FreeRational};
+    #[test]
+    fn i2a_extraction_uses_original_native_handoff(){
+        use QuantumOp::*;
+        let theta=Angle::new_constant(FreeRational::new(1,2));
+        let cases=[
+            ("identity",vec![H(0),H(0)],vec![],EquivalenceStatus::Equivalent),
+            ("global_phase",vec![RZ(0,theta.clone())],vec![P(0,theta)],EquivalenceStatus::EquivalentUpToGlobalPhase),
+            ("negative",vec![X(0)],vec![],EquivalenceStatus::NotEquivalent),
+        ];
+        for (name,a,b,expected) in cases{
+            let built=cpr::build_difference(1,&a,&b,Instant::now()+std::time::Duration::from_secs(15)).unwrap();
+            assert!(built.pairs.is_empty());
+            for m in [1usize,2] {
+                let mut raw=built.residual.clone();
+                let pairs:Vec<_>=(0..m).map(|_|cpr::lift_output(&mut raw,0)).collect();
+                let (view,rows)=cpr::extract_terminal(&raw,&pairs).unwrap().unwrap();
+                assert_eq!(rows.len(),m);
+                assert_eq!(view.v.path_vars.len()+m,raw.v.path_vars.len());
+                let phase=raw.p.terms.clone();
+                for mode in [None,Some(pairs.as_slice())]{
+                    let start=Instant::now();
+                    let result=finish_native_verification(
+                        raw.clone(),1,a.len(),b.len(),VerificationMethod::Hybrid,VerificationStrategy::Difference,
+                        "gpmc",1e-8,0.0,1e-8,90,start,start,
+                        start.checked_add(std::time::Duration::from_secs(27)),None,mode,false
+                    ).unwrap();
+                    assert_eq!(result.status,expected,"{name} m={m}");
+                    assert!(result.solver_invoked&&!result.rr_approximate);
+                    assert_eq!(result.final_ps.p.terms,phase);
+                    assert_eq!(result.final_ps.f.functions,raw.f.functions);
+                    assert_eq!(result.final_ps.v.path_vars,raw.v.path_vars);
+                }
+                println!("CPR_I2A_CASE case={name} raw_and_extracted={expected:?} m={m}");
+            }
+        }
+        println!("CPR_I2A_GATE cases=6 raw_extracted_native_parity=true");
+    }
+}
+
+

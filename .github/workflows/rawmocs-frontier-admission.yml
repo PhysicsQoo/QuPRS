@@ -9,7 +9,7 @@ on:
       suite:
         description: Bounded Frontier admission suite
         type: choice
-        options: [frontier-release-quality, frontier-vqe16-gpmc-scout, v020-cross-family-scout, v020-pinned-integration, v020-planner-diagnosis, v020-width-transfer, v020-rust-integration, v020-final-admission, v020-frontier-holdout, v020-shared-contraction]
+        options: [frontier-release-quality, frontier-vqe16-gpmc-scout, v020-cross-family-scout, v020-pinned-integration, v020-planner-diagnosis, v020-width-transfer, v020-rust-integration, v020-final-admission, v020-frontier-holdout, v020-shared-contraction, v020-package-rehearsal]
         default: frontier-release-quality
 permissions:
   contents: read
@@ -1578,7 +1578,7 @@ jobs:
           if-no-files-found: warn
 
   v020-shared-contraction:
-    if: github.event_name == 'push' || inputs.suite == 'v020-shared-contraction'
+    if: github.event_name == 'workflow_dispatch' && inputs.suite == 'v020-shared-contraction'
     name: v0.2.0 fixed-cut contraction reuse / ${{ matrix.case }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
@@ -1778,3 +1778,125 @@ jobs:
           path: .v020-plan-evidence/
           include-hidden-files: true
           if-no-files-found: warn
+
+
+  v020-package-rehearsal:
+    if: github.event_name == 'push' || inputs.suite == 'v020-package-rehearsal'
+    name: v0.2.0 disposable version and source-package rehearsal (no publication)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: PhysicsQoo/RaWMoCS
+          ref: bff6901ac415424c2141ea353b145f6de2cffb6e
+          path: .package-candidate
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: .package-candidate/crates/rawmocs-cli -> target
+          shared-key: rawmocs-general-dependencies
+          cache-workspace-crates: 'false'
+      - name: Create a local-only version rehearsal commit
+        run: |
+          set -euo pipefail
+          mkdir -p .v020-package-evidence
+          cd .package-candidate
+          test "$(git rev-parse HEAD)" = bff6901ac415424c2141ea353b145f6de2cffb6e
+          test -z "$(git status --porcelain)"
+          git rev-parse HEAD > ../.v020-package-evidence/original-revision.txt
+          git hash-object releases/request.json > ../.v020-package-evidence/request-blob.txt
+          python3 - <<'PY'
+          from pathlib import Path
+          import tomllib
+          manifest=Path("crates/rawmocs-cli/Cargo.toml")
+          lock=Path("crates/rawmocs-cli/Cargo.lock")
+          m=manifest.read_text()
+          l=lock.read_text()
+          assert tomllib.loads(m)["package"]["version"]=="0.1.1"
+          old='name = "rawmocs-cli"\nversion = "0.1.1"'
+          new='name = "rawmocs-cli"\nversion = "0.2.0"'
+          assert m.count(old)==1 and l.count(old)==1
+          m2=m.replace(old,new);l2=l.replace(old,new)
+          a=tomllib.loads(m);b=tomllib.loads(m2)
+          a["package"]["version"]="0.2.0"
+          assert a==b
+          a=tomllib.loads(l);b=tomllib.loads(l2)
+          selected=[p for p in a["package"] if p["name"]=="rawmocs-cli"]
+          assert len(selected)==1 and selected[0]["version"]=="0.1.1"
+          selected[0]["version"]="0.2.0"
+          assert a==b
+          manifest.write_text(m2);lock.write_text(l2)
+          PY
+          git diff --check
+          git diff -- crates/rawmocs-cli/Cargo.toml crates/rawmocs-cli/Cargo.lock > ../.v020-package-evidence/version-only.patch
+          test "$(git diff --name-only | sort | tr '\n' ' ')" = "crates/rawmocs-cli/Cargo.lock crates/rawmocs-cli/Cargo.toml "
+          git -c user.name="Release rehearsal" -c user.email="rehearsal@example.invalid" commit -m "Local-only source-package rehearsal" -- crates/rawmocs-cli/Cargo.toml crates/rawmocs-cli/Cargo.lock
+          test "$(git rev-parse HEAD^)" = bff6901ac415424c2141ea353b145f6de2cffb6e
+          test "$(git hash-object releases/request.json)" = "$(cat ../.v020-package-evidence/request-blob.txt)"
+          git rev-parse HEAD > ../.v020-package-evidence/rehearsal-revision.txt
+          test -z "$(git status --porcelain --untracked-files=no)"
+      - name: Install build prerequisites and validate the versioned policy
+        run: |
+          set -euo pipefail
+          sudo apt-get -o Dir::Etc::sourcelist=/etc/apt/sources.list.d/ubuntu.sources -o Dir::Etc::sourceparts=- -o APT::Get::List-Cleanup=0 update
+          sudo apt-get -o Dir::Etc::sourcelist=/etc/apt/sources.list.d/ubuntu.sources -o Dir::Etc::sourceparts=- install -y --no-install-recommends libgmp-dev libmpfr-dev m4 make gcc pkg-config
+          cd .package-candidate
+          python3 scripts/test_release_source.py 2>&1 | tee ../.v020-package-evidence/receipt-tests.log
+          PYTHONPATH=scripts python3 - <<'PY' | tee ../.v020-package-evidence/policy.log
+          import tomllib
+          from release_source import native_policy
+          with open("crates/rawmocs-cli/Cargo.toml","rb") as f:
+              version=tomllib.load(f)["package"]["version"]
+          assert version=="0.2.0"
+          assert native_policy(version,False)=={"quadruples":True,"baseline":"b3d02b2720c2fae5231c0ed5cf44950164a5780d"}
+          print("V020_MANIFEST_POLICY_REHEARSAL_PASS")
+          PY
+          cargo metadata --locked --no-deps --format-version 1 --manifest-path crates/rawmocs-cli/Cargo.toml > ../.v020-package-evidence/cargo-metadata.json
+      - name: Reuse the real extracted-tree packaging gate
+        run: |
+          set -euo pipefail
+          cd .package-candidate
+          bash crates/rawmocs-cli/tools/package_source.sh "$GITHUB_WORKSPACE/.v020-package-evidence/source-package" 2>&1 | tee "$GITHUB_WORKSPACE/.v020-package-evidence/package.log"
+      - name: Verify package assets and reject altered provenance locally
+        run: |
+          set -euo pipefail
+          PYTHONPATH=.package-candidate/scripts python3 - <<'PY'
+          import hashlib,json
+          from pathlib import Path
+          from release_source import verify_assets
+          root=Path(".v020-package-evidence")
+          pack=root/"source-package"
+          original=(root/"original-revision.txt").read_text().strip()
+          revision=(root/"rehearsal-revision.txt").read_text().strip()
+          assert original=="bff6901ac415424c2141ea353b145f6de2cffb6e" and revision!=original
+          names=("rawmocs-0.2.0-source.tar.gz","SHA256SUMS","source-package.json")
+          assets={name:(pack/name).read_bytes() for name in names}
+          sha=hashlib.sha256(assets[names[0]]).hexdigest()
+          req={"version":"0.2.0","revision":revision,"source_sha256":sha}
+          verify_assets(req,assets)
+          def reject(r,a):
+              try:verify_assets(r,a)
+              except ValueError:return
+              raise AssertionError("invalid package accepted")
+          reject({**req,"revision":original},assets)
+          reject({**req,"source_sha256":"0"*64},assets)
+          reject(req,{**assets,"SHA256SUMS":b"0"*64+b"  rawmocs-0.2.0-source.tar.gz\n"})
+          assert (pack/"version.txt").read_text().strip()=="rawmocs 0.2.0"
+          report={"status":"V020_PACKAGE_REHEARSAL_PASS","candidate":original,"local_only_revision":revision,"source_sha256":sha,"published":False,"scope":"disposable commit; local asset verifier and extracted install only; not a release request or main CI receipt"}
+          (root/"report.json").write_text(json.dumps(report,indent=2)+"\n")
+          print("V020_PACKAGE_REHEARSAL_PASS",json.dumps(report),flush=True)
+          PY
+          test "$(git -C .package-candidate hash-object releases/request.json)" = "$(cat .v020-package-evidence/request-blob.txt)"
+          test -z "$(git -C .package-candidate status --porcelain --untracked-files=no)"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: rawmocs-v020-package-rehearsal-not-for-release
+          path: .v020-package-evidence/
+          include-hidden-files: true
+          if-no-files-found: warn
+          retention-days: 7

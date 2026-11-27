@@ -243,5 +243,43 @@ def cohort():
     assert len(totals)==8
     print("CRR_COHORT_SUMMARY",json.dumps(dict(cases=totals,direct_exact_branches=direct_checks,remainder_exact_fibers=rem_checks,source_semantics_certified=False,production=False)),flush=True)
 
+
+def verify_ket(row):
+    a,b=row["before"],row["after"]
+    assert a["live"]==b["live"] and a["n"]==b["n"]
+    v=row["pivot"];rhs=anf(row["rhs"])
+    assert v>=a["n"] and v in a["live"] and (v,) in rhs
+    assert all(v not in m or m==(v,) for m in rhs)
+    p,fs,g=decode(a);q,gs,g2=decode(b)
+    assert g is None and g2 is None and fs[row["output"]]==rhs
+    assert substitute_phase(p,v,lift(rhs))==q
+    assert [substitute_anf(f,v,rhs) for f in fs]==gs
+    assert gs[row["output"]]=={(v,)}
+    return 1
+
+def ket_cohort():
+    manifest=json.loads((ROOT/"docs/development/paper-corpus-manifest.json").read_text())
+    cases={c["id"]:c for c in manifest["cohorts"]["table2_mqt"]["cases"]}
+    ids=("grover-noancilla_4","qwalk-noancilla_3","qwalk-noancilla_4","qpeexact_8","wstate_4","qnn_4","vqe_4","ghz_32")
+    rows=[];checked=0
+    for name in ids:
+        env=dict(os.environ,CRR_CASE=name)
+        for side,key in (("source","CRR_SOURCE"),("transpiled","CRR_TARGET")):
+            e=cases[name][side];p=ROOT/e["path"];data=p.read_bytes()
+            assert hashlib.sha1(("blob %d"%len(data)).encode()+b"\x00"+data).hexdigest()==e["git_blob_sha1"]
+            env[key]=str(p)
+            print("CRR_KET_SOURCE",name,side,hashlib.sha256(data).hexdigest(),flush=True)
+        cmd=["timeout","--kill-after=3s","40s","cargo","test","--release","--locked","--manifest-path","rust/Cargo.toml","-p","quprs","--test","conditional_rr_experiment","conditional_stitch::native_output_coordinate_cohort","--","--exact","--nocapture"]
+        r=subprocess.run(cmd,cwd=ROOT,env=env,capture_output=True,text=True)
+        print(r.stdout,flush=True)
+        assert r.returncode==0,(name,r.returncode,r.stderr[-4000:])
+        rec=lambda prefix:[json.loads(l.removeprefix(prefix)) for l in r.stdout.splitlines() if l.startswith(prefix)]
+        row=rec("CRR_KET ");assert len(row)==1;rows.extend(row)
+        for z in rec("CRR_KET_REWRITE "):checked+=verify_ket(z)
+    assert len(rows)==8
+    print("CRR_KET_SUMMARY",json.dumps(dict(cases=rows,exact_reparameterizations=checked,source_semantics_certified=False,production=False)),flush=True)
+
 if __name__=="__main__":
-    cohort() if os.environ.get("CRR_ORIGINAL_COHORT") else main()
+    if os.environ.get("CRR_KET_COHORT"):ket_cohort()
+    elif os.environ.get("CRR_ORIGINAL_COHORT"):cohort()
+    else:main()

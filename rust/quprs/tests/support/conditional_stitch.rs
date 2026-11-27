@@ -439,3 +439,59 @@ fn native_original_rr_cohort(){
     println!("CRR_COHORT {{\"case\":\"{case}\",\"status\":\"complete\",\"native\":\"{status}\",\"eligible\":{},\"tested\":{tested},\"direct\":{direct},\"direct_useful\":{useful},\"remainder\":{rem},\"hidden_before\":{},\"hidden_after_rem\":{h},\"incidence_before\":{},\"incidence_after_rem\":{cost},\"identity_after_rem\":{identity},\"parse_s\":{parse},\"rr_s\":{rr},\"scan_s\":{}}}",
         ids.len(),internal(p).len(),incidence(p),t.elapsed().as_secs_f64());
 }
+
+
+// Vilmart ket-style coordinate normalization, adapted to original input
+// labels. A singleton internal pivot in f_i=v XOR R is replaced by
+// v XOR R in P and all f; this is an involution, no scale change.
+// Try only if it exposes an original reduction, never enumerate guards.
+#[test]
+fn native_output_coordinate_cohort(){
+    let case=std::env::var("CRR_CASE").expect("case");
+    let (a,n)=parse_qasm_str(&std::fs::read_to_string(std::env::var("CRR_SOURCE").unwrap()).unwrap()).unwrap();
+    let (b,m)=parse_qasm_str(&std::fs::read_to_string(std::env::var("CRR_TARGET").unwrap()).unwrap()).unwrap();
+    assert_eq!(n,m);
+    let t=Instant::now();
+    let opts=VerificationOptions{method:VerificationMethod::ReductionRules,rr_tolerance:0.0,timeout_secs:20,..VerificationOptions::default()};
+    let r=check_equivalence_with_options(n,&a,&b,&opts).unwrap();
+    let rr=t.elapsed().as_secs_f64();let p=r.final_pathsum();assert!(!r.solver_invoked);
+    if r.rr_approximate||!p.v.continuous_vars.is_empty()||p.p.terms.values().any(|c|!c.symbols.is_empty())||terms(p)>TERM_CAP||matches!(r.equivalent(),"timeout"|"memory_out"){
+        println!("CRR_KET {{\"case\":\"{case}\",\"status\":\"not_admitted\"}}");return;
+    }
+    println!("CRR_KET_RESIDUAL {{\"case\":\"{case}\",\"native\":\"{}\",\"ir\":{}}}",r.equivalent(),ir(p,None));
+    let start=Instant::now();let mut probes=0;let mut exposed=0;let mut accepted=0;let mut cap_reject=0;
+    let orig_candidates:FxHashSet<_>=p.get_reducible_vars().into_iter().collect();
+    let mut best:Option<(usize,u32,Anf,PathSum,usize,usize)>=None;
+    'output:for(i,f)in p.f.functions.iter().enumerate(){
+        if f.len()<2||f.len()>5{continue;}
+        let mut pivots:Vec<_>=f.iter().filter(|m|m.len()==1).map(|m|m[0])
+            .filter(|v|(*v as usize)>=n&&p.v.path_vars.contains(v)&&f.iter().all(|m|m==&vec![*v]||!m.contains(v))).collect();
+        pivots.sort_unstable();
+        for v in pivots{
+            if probes>=32{break 'output;}probes+=1;
+            let affected=p.p.terms.keys().chain(p.f.functions.iter().flatten()).filter(|m|m.contains(&v)).count();
+            if affected.saturating_mul(1usize<<f.len())>TERM_CAP{cap_reject+=1;continue;}
+            let mut q=p.clone();
+            q.p.substitute_var_with_poly(v,f);
+            q.f.substitute_var_with_poly(v,f);
+            assert_eq!(q.f.functions[i],[vec![v]].into_iter().collect::<Anf>());
+            assert_eq!(q.v.path_vars,p.v.path_vars);
+            if terms(&q)>TERM_CAP{cap_reject+=1;continue;}
+            let unlocked=q.get_reducible_vars().into_iter().filter(|y|!orig_candidates.contains(y)).count();
+            if unlocked==0{continue;}exposed+=1;
+            let mut reduced=q.clone();reduced.full_reduce();
+            if reduced.rr_approximate||internal(&reduced).len()>=internal(p).len(){continue;}
+            accepted+=1;
+            let h=internal(&reduced).len();let cost=incidence(&reduced);
+            if best.as_ref().is_none_or(|(_,_,_,_,oldh,oldcost)|(h,cost)<(*oldh,*oldcost)){
+                best=Some((i,v,f.clone(),q,h,cost));
+            }
+        }
+    }
+    let mut after_h=internal(p).len();let mut after_cost=incidence(p);
+    if let Some((i,v,rhs,q,h,cost))=best{
+        println!("CRR_KET_REWRITE {{\"case\":\"{case}\",\"output\":{i},\"pivot\":{v},\"rhs\":{:?},\"before\":{},\"after\":{}}}",sorted(&rhs),ir(p,None),ir(&q,None));
+        after_h=h;after_cost=cost;
+    }
+    println!("CRR_KET {{\"case\":\"{case}\",\"status\":\"complete\",\"native\":\"{}\",\"probes\":{probes},\"exposed\":{exposed},\"accepted\":{accepted},\"cap_reject\":{cap_reject},\"hidden_before\":{},\"hidden_after\":{after_h},\"incidence_before\":{},\"incidence_after\":{after_cost},\"rr_s\":{rr},\"scan_s\":{}}}",r.equivalent(),internal(p).len(),incidence(p),start.elapsed().as_secs_f64());
+}

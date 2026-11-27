@@ -2787,13 +2787,14 @@ fn factor_source_ops(src:&str,n:usize)->Vec<G>{
         assert!(a.iter().all(|&i|i<n));
         assert_eq!(a.iter().copied().collect::<BTreeSet<_>>().len(),a.len());
         match (gate,a.as_slice()){
-            ("h",[a])=>G::H(*a),("x",[a])=>G::X(*a),
+            ("h",[a])=>G::H(*a),("x",[a])=>G::X(*a),("z",[a])=>G::Z(*a),
             ("cz",[a,b])=>G::CZ(*a,*b),("ccx",[a,b,c])=>G::CCX(*a,*b,*c),
             ("cx",[a,b])=>G::CX(*a,*b),
             _=>panic!("unsupported pinned source gate"),
         }
     }).collect()
 }
+include!("support/autoq_hsl_p0.rs");
 fn factor_target(k:usize,z:usize)->i128{
     let n=2*k-1;
     if z>>k!=1usize<<(n-1-k){return 0;}
@@ -4704,6 +4705,7 @@ fn partition_export(dir:&std::path::Path){
         let Some(dir)=std::env::var_os("HOARE_EXACT_FIXTURE_DIR") else{return;};
         let dir=std::path::PathBuf::from(dir);
         std::fs::create_dir_all(&dir).unwrap();
+        aq_export(&dir);
         let zero_pred=Anf::from([0,1]);let all=Anf::from([0]);
         let init3=Anf::from([0,1,2,3,4,5,6,7]);
         let cases=[

@@ -130,6 +130,7 @@ def main():
             return (count(base, list(prefix)+[-d0,-d1], negative_lit=d2, stage_deadline=stage_deadline),
                     count(base, list(prefix)+[d0,-d2], negative_lit=d1, stage_deadline=stage_deadline))
 
+        run_aq_hsl_p0(directory,pathlib.Path(sys.argv[4]).resolve(),exe,tmp)
         # Primary GPMC pilot uses a separate budget before Ganak regressions.
         gpmc_rows=run_gpmc_pure(directory,pathlib.Path(sys.argv[4]).resolve(),tmp,time.monotonic()+45)
         run_predicate_moment_gpmc(directory,pathlib.Path(sys.argv[4]).resolve(),tmp,pathlib.Path(sys.argv[3]).resolve())
@@ -4628,6 +4629,86 @@ def online_sector_cli(args):
     print("ONLINE_GPMC_RECEIPT "+json.dumps(dict(query_sha256=hashlib.sha256(data.encode()).hexdigest(),
         solver_sha256=hashlib.sha256(pathlib.Path(exe).read_bytes()).hexdigest(),metrics=records)),flush=True)
     print("ONLINE_GPMC_RESULT "+status,flush=True)
+
+
+
+def run_aq_hsl_p0(directory, exe, ganak, tmp):
+    """AQ-R4 normalized singleton ray test; reuse existing exact pack/parser."""
+    manifest=directory/"aq-hsl-p0.tsv"
+    if not manifest.is_file():
+        raise RuntimeError("AQ HSL native export missing")
+    with manifest.open() as f:
+        plans=list(csv.DictReader(f,delimiter="\t"))
+    assert len(plans)==18 and len({(p["case"],p["variant"],p["mode"]) for p in plans})==18
+    # Exact single-copy overlap numerator in Z[zeta8].
+    def verdict(bins,k):
+        a,b,c,d=(bins[j]-bins[j+4] for j in range(4))
+        real=a*a+b*b+c*c+d*d
+        radical=a*b+b*c+c*d-a*d
+        # |overlap|^2=(real+radical*sqrt(2))/2^k.
+        return "PROVED" if radical==0 and real==(1<<k) else "REFUTED"
+    def solve_gpmc(base,phase,primary,end,key):
+        data,radix,bound=single_fibre_pack(base,phase,primary)
+        query=pathlib.Path(tmp)/"aq-hsl-p0.wmc"
+        query.write_text(data)
+        metrics=[]
+        remaining=end-time.monotonic()
+        if remaining<=0:raise TimeoutError("AQ budget")
+        out=profile_gpmc([str(exe),"-mode=1","-natw",str(query)],remaining,
+                          pathlib.Path(tmp)/"aq-hsl-p0.time",metrics)
+        value=parse_gpmc_integer(out,"wmc",bound*radix**7)
+        return single_fibre_decode(value,radix,bound,8),metrics,hashlib.sha256(data.encode()).hexdigest()
+    def solve_ganak(base,phase,primary,end):
+        header,*clauses=base.splitlines()
+        _,_,v,c=header.split()
+        query=pathlib.Path(tmp)/"aq-hsl-p0-ganak.cnf"
+        bins=[]
+        for j in range(8):
+            remaining=end-time.monotonic()
+            if remaining<=0:raise TimeoutError("AQ Ganak budget")
+            assumptions=[l if j>>i&1 else -l for i,l in enumerate(phase)]
+            query.write_text(f"c t mc\np cnf {v} {int(c)+3}\n"+"\n".join(clauses)+
+                             "\n"+"\n".join(f"{l} 0" for l in assumptions)+"\n")
+            p=subprocess.run([str(ganak),"--mode","0","--prob","0",str(query)],
+                             capture_output=True,text=True,timeout=remaining,check=True)
+            bins.append(parse_count(p.stdout,1<<primary))
+        assert sum(bins)<=1<<primary
+        return bins
+    rows=[]
+    for p in plans:
+        key="aq-{case}-{variant}-{mode}".format(**p)
+        status=p["status"];expected=p["expected"]=="true"
+        row=dict(p,verdict=status,gpmc="NOT_RUN",ganak="NOT_RUN")
+        if status=="READY":
+            start=time.monotonic()
+            base=(directory/(key+".cnf")).read_text()
+            phase=list(map(int,p["phase"].split(",")))
+            primary=int(p["primary"]);k=int(p["k"])
+            row.update(verdict="UNKNOWN",cnf_sha256=hashlib.sha256(base.encode()).hexdigest())
+            try:
+                bins,metrics,query_hash=solve_gpmc(base,phase,primary,start+10,key)
+                actual=verdict(bins,k)
+                row.update(verdict=actual,gpmc="EXACT",bins=bins,metrics=metrics,query_sha256=query_hash)
+                assert (actual=="PROVED")==expected,(key,bins,k)
+            except (TimeoutError,subprocess.TimeoutExpired,SolverSignalKilled):
+                row["gpmc"]="TIMEOUT_OR_SIGNAL"
+            row["gpmc_wall_s"]=time.monotonic()-start
+            start=time.monotonic()
+            try:
+                gbins=solve_ganak(base,phase,primary,start+10)
+                assert (verdict(gbins,k)=="PROVED")==expected
+                if row["gpmc"]=="EXACT":assert gbins==row["bins"],key
+                row.update(ganak="EXACT",ganak_bins=gbins)
+            except (TimeoutError,subprocess.TimeoutExpired,SolverSignalKilled):
+                row["ganak"]="TIMEOUT_OR_SIGNAL"
+            row["ganak_wall_s"]=time.monotonic()-start
+        elif status!="UNKNOWN":
+            assert (status=="PROVED")==expected
+        rows.append(row)
+        print("AQ_HSL_P0_ARM "+json.dumps(row),flush=True)
+    print("AQ_HSL_P0_SUMMARY "+json.dumps(dict(arms=len(rows),exact=sum(r["verdict"] in ("PROVED","REFUTED") for r in rows),
+        unknown=sum(r["verdict"]=="UNKNOWN" for r in rows),gpmc_exact=sum(r["gpmc"]=="EXACT" for r in rows),
+        ganak_exact=sum(r["ganak"]=="EXACT" for r in rows))),flush=True)
 
 
 def run_predicate_moment_gpmc(directory, exe, tmp, sat_exe):

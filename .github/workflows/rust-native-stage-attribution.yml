@@ -23,6 +23,7 @@ on:
           - e1b
           - e1c
           - e1e
+          - e1f
           - e1c-matrix
           - l1
   push:
@@ -999,4 +1000,77 @@ jobs:
         with:
           name: eq-dag-e1e-sparse-parity-cnfs
           path: eq-dag-e1e-evidence/
+          retention-days: 30
+
+  eq-dag-e1f:
+    if: github.ref == 'refs/heads/experiment/eq-dag-encoder' && ((github.event_name == 'push' && contains(github.event.head_commit.message, 'screen sparse parity solver')) || (github.event_name == 'workflow_dispatch' && inputs.dag_stage == 'e1f'))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 18
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: eq-dag-d1d-heldout-mqt
+          run-id: 46004315659
+          github-token: ${{ github.token }}
+          path: d1d
+      - uses: actions/download-artifact@v4
+        with:
+          name: eq-dag-e1b-common-factor-cnfs
+          run-id: 46020482676
+          github-token: ${{ github.token }}
+          path: e1b
+      - uses: actions/download-artifact@v4
+        with:
+          name: eq-dag-e1e-sparse-parity-cnfs
+          run-id: 46040853651
+          github-token: ${{ github.token }}
+          path: e1e
+      - uses: actions/checkout@v4
+        with:
+          repository: PhysicsQoo/RaWMoCS
+          ref: 7ff6b1fdb772f16367fd1e094761a368d54f2ea7
+          path: .rawmocs-dag
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            rust -> target
+            .rawmocs-dag/crates/rawmocs-cli -> target
+      - name: Install pinned solvers and directed interval helper
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y cmake pkg-config libgmp-dev libmpfr-dev zlib1g-dev m4 make gcc time
+          python3 scripts/install_gpmc_release.py --dest "$RUNNER_TEMP/gpmc"
+          QUPRS_SOLVER_PROVISION=external cargo build --locked --release --manifest-path rust/Cargo.toml -p quprs --example eq_dag_d3_count
+          cargo build --locked --release --manifest-path .rawmocs-dag/crates/rawmocs-cli/Cargo.toml
+          cc -O2 -shared -fPIC rust/research/eq_dag_e1f_interval.c -lmpfr -lgmp -o "$RUNNER_TEMP/interval.so"
+      - name: Directed finite-weight bound and bounded paired solver pilot
+        run: |
+          set -euo pipefail
+          for d in d1d e1b e1e; do (cd "$d" && sha256sum -c SHA256SUMS); done
+          python3 -u rust/research/eq_dag_e1f_screen.py d1d e1b e1e "$RUNNER_TEMP/interval.so" "$RUNNER_TEMP/gpmc" rust/target/release/examples/eq_dag_d3_count .rawmocs-dag .rawmocs-dag/crates/rawmocs-cli/target/release/rawmocs eq-dag-e1f-evidence | tee e1f.log
+      - name: Seal evidence
+        if: always()
+        run: |
+          mkdir -p eq-dag-e1f-evidence
+          test ! -f e1f.log || cp e1f.log eq-dag-e1f-evidence/
+          git rev-parse HEAD > eq-dag-e1f-evidence/head.txt
+          git rev-parse 'HEAD^{tree}' > eq-dag-e1f-evidence/tree.txt
+          lscpu > eq-dag-e1f-evidence/cpu.txt
+          cd eq-dag-e1f-evidence
+          find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 -r sha256sum > SHA256SUMS
+          sha256sum -c SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: eq-dag-e1f-bounded-parity-screen
+          path: eq-dag-e1f-evidence/
           retention-days: 30

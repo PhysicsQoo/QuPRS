@@ -3,7 +3,7 @@
 // PathSum, guarded_native_step, compact, and the existing exact CNF encoder.
 // No alternative RR, no dense target construction in the solver.
 #[derive(Clone,Copy)]
-enum AqPattern { Fixed(u64), Except { width:usize, excluded:u64, suffix:u64 } }
+enum AqPattern { Fixed(u64), Except { offset:usize, width:usize, excluded:u64, outside:u64 } }
 #[derive(Clone)]
 struct AqTerm { pattern:AqPattern, signed:i64 }
 #[derive(Clone)]
@@ -16,9 +16,9 @@ fn aq_bits(s:&str)->Option<u64>{
 fn aq_match(p:&AqPattern,z:u64)->bool{
     match *p{
         AqPattern::Fixed(v)=>z==v,
-        AqPattern::Except{width,excluded,suffix}=>{
-            let mask=(1u64<<width)-1;
-            z>>width==suffix && z&mask!=excluded
+        AqPattern::Except{offset,width,excluded,outside}=>{
+            let mask=((1u64<<width)-1)<<offset;
+            z&!mask==outside && ((z&mask)>>offset)!=excluded
         }
     }
 }
@@ -60,9 +60,13 @@ fn aq_parse(hsl:&str)->Option<AqState>{
         let width=wd.parse::<usize>().ok()?;
         let (var2,excluded)=except.split_once('≠')?;
         if var!=var2||width==0||width>=n||excluded.len()!=width{return None;}
-        let suffix=ket.strip_prefix(var)?.strip_suffix('>')?;
-        if suffix.len()+width!=n{return None;}
-        let pattern=AqPattern::Except{width,excluded:aq_bits(excluded)?,suffix:aq_bits(suffix)?};
+        let ket=ket.strip_suffix('>')?;
+        let (prefix,suffix)=ket.split_once(var)?;
+        let offset=prefix.len();
+        if offset+suffix.len()+width!=n{return None;}
+        let prefix=if prefix.is_empty(){0}else{aq_bits(prefix)?};
+        let suffix=if suffix.is_empty(){0}else{aq_bits(suffix)?};
+        let pattern=AqPattern::Except{offset,width,excluded:aq_bits(excluded)?,outside:prefix|(suffix<<(offset+width))};
         if aq_match(&pattern,fixed){return None;} // disjoint support admission
         terms.push(AqTerm{pattern,signed:v2});
     }
@@ -74,15 +78,58 @@ fn aq_parse(hsl:&str)->Option<AqState>{
     if norm!=(1i128<<k){return None;} // normalized, nonzero singleton
     Some(AqState{n,k,terms})
 }
+
+// Bounded outer-domain instantiation; coherent paths remain symbolic.
+// Substitute only ket tokens and the disequality RHS, never coefficients.
+fn aq_family(hsl:&str)->Option<(usize,Vec<AqState>)>{
+    let Some((prefix,domain))=hsl.trim_end().rsplit_once(" : ")else{
+        return Some((0,vec![aq_parse(hsl)?]));
+    };
+    let (var,w)=domain.strip_suffix('}')?.strip_prefix('|')?.split_once("|=")?;
+    let w=w.parse::<usize>().ok()?;
+    if var.len()!=1||!var.as_bytes()[0].is_ascii_lowercase()||w==0||w>3{return None;}
+    let (header,expr)=prefix.rsplit_once('\n')?;
+    if !expr.starts_with('{'){return None;}
+    let mut rows=Vec::new();
+    for x in 0..1u64<<w{
+        let bits:String=(0..w).map(|i|if x>>i&1==1{'1'}else{'0'}).collect();
+        let mut tokens=Vec::new();
+        for token in expr.split_whitespace(){
+            if token.contains("|=")&&token.starts_with(&format!("|{var}|")){return None;}
+            if token.ends_with('>')&&token.contains('|'){
+                let (left,ket)=token.split_once('|')?;
+                tokens.push(format!("{left}|{}",ket.replace(var,&bits)));
+            }else if let Some((lhs,rhs))=token.split_once('≠'){
+                if lhs==var{return None;}
+                tokens.push(if rhs==var{format!("{lhs}≠{bits}")}else{token.to_owned()});
+            }else{tokens.push(token.to_owned());}
+        }
+        rows.push(aq_parse(&format!("{header}\n{}}}",tokens.join(" ")))?);
+    }
+    Some((w,rows))
+}
+fn aq_label_support(b:&AqState,w:usize,label:u64)->bool{
+    let mask=(1u64<<w)-1;
+    b.terms.iter().all(|t|match t.pattern{
+        AqPattern::Fixed(v)=>v&mask==label,
+        AqPattern::Except{offset,outside,..}=>offset>=w&&outside&mask==label,
+    })
+}
+fn aq_label_preserved(s:&Symbolic,w:usize)->bool{
+    s.output.iter().take(w).enumerate().all(|(i,p)|*p==Anf::from([1u64<<i]))
+}
+
 fn aq_pattern_lit(c:&mut Cnf,p:&AqPattern,z:&[Lit])->Lit{
     let eq=|c:&mut Cnf,bits:&[Lit],v:u64|->Lit{
         bits.iter().enumerate().fold(ONE,|a,(i,&l)|c.and(a,if v>>i&1!=0{l}else{-l}))
     };
     match *p{
         AqPattern::Fixed(v)=>eq(c,z,v),
-        AqPattern::Except{width,excluded,suffix}=>{
-            let a=eq(c,&z[width..],suffix);
-            let b=eq(c,&z[..width],excluded);
+        AqPattern::Except{offset,width,excluded,outside}=>{
+            let lo=eq(c,&z[..offset],outside);
+            let hi=eq(c,&z[offset+width..],outside>>(offset+width));
+            let a=c.and(lo,hi);
+            let b=eq(c,&z[offset..offset+width],excluded);
             c.and(a,-b)
         }
     }
@@ -138,14 +185,19 @@ fn aq_rr_terminal(s:&Symbolic,x:u64,b:&AqState)->Option<bool>{
 }
 fn aq_export(dir:&std::path::Path){
     let mut manifest=String::from("case\tvariant\tmode\tstatus\tprimary\tphase\tk\tbuild_ns\trr_ns\tencode_ns\texpected\n");
-    for (name,pre,post,src) in AQ_SOURCES{
+    for (family,pre,post,src) in AQ_SOURCES{
+        for (suffix,bytes) in [("pre.hsl",pre),("post.hsl",post),("circuit.qasm",src)]{
+            std::fs::write(dir.join(format!("aq-source-{family}-{suffix}")),bytes).unwrap();
+        }
         let start=std::time::Instant::now();
-        let a=aq_parse(pre).expect("pre admission");let b=aq_parse(post).expect("post admission");
-        assert_eq!(a.n,b.n);
-        let x=match a.terms.as_slice(){[AqTerm{pattern:AqPattern::Fixed(v),..}]=>*v,_=>panic!("fixed input only")};
-        let ops=factor_source_ops(src,a.n);
+        let (w,aa)=aq_family(pre).expect("pre admission");
+        let (wb,bb)=aq_family(post).expect("post admission");
+        assert_eq!(w,wb);assert_eq!(aa.len(),bb.len());
+        let width=aa[0].n;
+        assert!(aa.iter().chain(&bb).all(|a|a.n==width));
+        let ops=factor_source_ops(src,width);
         let (native_ops,n)=quprs::qasm::parse_qasm_str(src).expect("native QASM parse");
-        assert_eq!((native_ops,n),(ops.clone(),a.n));
+        assert_eq!((native_ops,n),(ops.clone(),width));
         let mut ps=PathSum::new(n);ps.set_auto_reduce(false);
         for g in &ops{g.apply(&mut ps,false);}
         let raw=compact(&ps,n).expect("raw native CPS");
@@ -156,6 +208,20 @@ fn aq_export(dir:&std::path::Path){
         let residual=compact(&reduced,n).unwrap();
         let rr_ns=t.elapsed().as_nanos();
         let k0=h0.checked_sub(scale as usize).expect("scale");
+        assert!(aq_label_preserved(&raw,w)&&aq_label_preserved(&residual,w));
+        for (label,(a,b)) in aa.iter().zip(&bb).enumerate(){
+        let x=match a.terms.as_slice(){[AqTerm{pattern:AqPattern::Fixed(v),..}]=>*v,_=>panic!("fixed input only")};
+        assert!(aq_label_support(a,w,label as u64)&&aq_label_support(b,w,label as u64));
+        let name=if w==0{family.to_owned()}else{format!("{family}-label{label}")};
+        // Separate dense gate oracle; not used to select route.
+        let dense=dense_state(n,&ops,x);
+        let (mut sum,mut norm)=(0i128,0i128);
+        for (z,r) in dense.iter().enumerate(){
+            assert_eq!(r[1..],[0,0,0]);
+            let m=b.terms.iter().filter(|t|aq_match(&t.pattern,z as u64)).map(|t|i128::from(t.signed)).sum::<i128>();
+            sum+=i128::from(r[0])*m;norm+=i128::from(r[0]).pow(2);
+        }
+        assert_eq!(norm,1i128<<h0);assert_eq!(sum.pow(2),1i128<<(h0+b.k));
         for variant in ["source","relative-mutant","global-sign"]{
             let mut target=b.clone();
             if variant=="relative-mutant"{
@@ -187,12 +253,14 @@ fn aq_export(dir:&std::path::Path){
             }
         }
         println!("AQ_HSL_NATIVE_EXPORT case={name} h0={h0} residual_h={} scale2={scale} rr_steps={steps}",residual.h);
+        }
+        println!("AQ_HSL_FAMILY_ADMISSION family={family} labels={} label_bits={w} raw_and_rr_preserved=true dense_oracle=true",aa.len());
     }
     std::fs::write(dir.join("aq-hsl-p0.tsv"),manifest).unwrap();
-    println!("AQ_HSL_NATIVE_EXPORT_SUMMARY cases=2 variants=6 arms=18");
+    println!("AQ_HSL_NATIVE_EXPORT_SUMMARY families=3 columns=10 variants=30 arms=90");
 }
 
-const AQ_SOURCES:[(&str,&str,&str,&str);2]=[
+const AQ_SOURCES:[(&str,&str,&str,&str);3]=[
     ("bv03",r####"Constants
 c1 := 1
 Extended Dirac
@@ -285,5 +353,84 @@ h qubits[2];
 x qubits[4];
 
 h qubits[4];
+"####),
+    ("mogrover03",r####"Constants
+c1 := 1
+Extended Dirac
+{c1 |s00000> : |s|=3}
+"####,r####"Constants
+aH := 11 / (sqrt2 ^ 7)
+aL := -1 / (sqrt2 ^ 7)
+Extended Dirac
+{aH |ss01> + aL ∑ |i|=3, i≠s |si01> : |s|=3}
+"####,r####"OPENQASM 2.0;
+include "qelib1.inc";
+qreg qubits[8];
+x qubits[7];
+
+x qubits[0];
+x qubits[1];
+x qubits[2];
+h qubits[3];
+h qubits[4];
+h qubits[5];
+h qubits[7];
+
+cx qubits[0], qubits[3];
+cx qubits[1], qubits[4];
+cx qubits[2], qubits[5];
+ccx qubits[3], qubits[4], qubits[6];
+cz qubits[6], qubits[5];
+ccx qubits[3], qubits[4], qubits[6];
+cx qubits[0], qubits[3];
+cx qubits[1], qubits[4];
+cx qubits[2], qubits[5];
+h qubits[3];
+h qubits[4];
+h qubits[5];
+x qubits[3];
+x qubits[4];
+x qubits[5];
+ccx qubits[3], qubits[4], qubits[6];
+cz qubits[6], qubits[5];
+ccx qubits[3], qubits[4], qubits[6];
+x qubits[3];
+x qubits[4];
+x qubits[5];
+h qubits[3];
+h qubits[4];
+h qubits[5];
+x qubits[7];
+
+cx qubits[0], qubits[3];
+cx qubits[1], qubits[4];
+cx qubits[2], qubits[5];
+ccx qubits[3], qubits[4], qubits[6];
+cz qubits[6], qubits[5];
+ccx qubits[3], qubits[4], qubits[6];
+cx qubits[0], qubits[3];
+cx qubits[1], qubits[4];
+cx qubits[2], qubits[5];
+h qubits[3];
+h qubits[4];
+h qubits[5];
+x qubits[3];
+x qubits[4];
+x qubits[5];
+ccx qubits[3], qubits[4], qubits[6];
+cz qubits[6], qubits[5];
+ccx qubits[3], qubits[4], qubits[6];
+x qubits[3];
+x qubits[4];
+x qubits[5];
+h qubits[3];
+h qubits[4];
+h qubits[5];
+x qubits[7];
+
+x qubits[0];
+x qubits[1];
+x qubits[2];
+h qubits[7];
 "####),
 ];

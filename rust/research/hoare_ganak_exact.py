@@ -4639,7 +4639,8 @@ def run_aq_hsl_p0(directory, exe, ganak, tmp):
         raise RuntimeError("AQ HSL native export missing")
     with manifest.open() as f:
         plans=list(csv.DictReader(f,delimiter="\t"))
-    assert len(plans)==18 and len({(p["case"],p["variant"],p["mode"]) for p in plans})==18
+    assert len(plans)==90 and len({(p["case"],p["variant"],p["mode"]) for p in plans})==90
+    assert {p["case"] for p in plans}=={"bv03","grover03",*(f"mogrover03-label{i}" for i in range(8))}
     # Exact single-copy overlap numerator in Z[zeta8].
     def verdict(bins,k):
         a,b,c,d=(bins[j]-bins[j+4] for j in range(4))
@@ -4706,6 +4707,14 @@ def run_aq_hsl_p0(directory, exe, ganak, tmp):
             assert (status=="PROVED")==expected
         rows.append(row)
         print("AQ_HSL_P0_ARM "+json.dumps(row),flush=True)
+    for variant in ("source","relative-mutant","global-sign"):
+        for mode in ("rr","wmc","hybrid"):
+            group=[r for r in rows if r["case"].startswith("mogrover03-label") and r["variant"]==variant and r["mode"]==mode]
+            assert len(group)==8
+            result="REFUTED" if any(r["verdict"]=="REFUTED" for r in group) else "PROVED" if all(r["verdict"]=="PROVED" for r in group) else "UNKNOWN"
+            if result!="UNKNOWN":assert (result=="PROVED")== (variant!="relative-mutant")
+            print("AQ_HSL_STATESET "+json.dumps(dict(variant=variant,mode=mode,verdict=result,labels=8,
+                definite=sum(r["verdict"]!="UNKNOWN" for r in group),witness=next((r["case"] for r in group if r["verdict"]=="REFUTED"),None))),flush=True)
     print("AQ_HSL_P0_SUMMARY "+json.dumps(dict(arms=len(rows),exact=sum(r["verdict"] in ("PROVED","REFUTED") for r in rows),
         unknown=sum(r["verdict"]=="UNKNOWN" for r in rows),gpmc_exact=sum(r["gpmc"]=="EXACT" for r in rows),
         ganak_exact=sum(r["ganak"]=="EXACT" for r in rows))),flush=True)

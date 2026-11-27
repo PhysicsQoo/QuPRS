@@ -10,6 +10,7 @@ on:
       - rust/quprs/tests/property_hoare_experiment.rs
       - rust/quprs/tests/hoare_paper_source_experiment.rs
       - rust/quprs/tests/support/native_dyadic_cnf.rs
+      - rust/quprs/tests/support/autoq_hsl_p0.rs
       - benchmarks/Feynman/qft_4.qasm
       - benchmarks/Feynman/hwb6.qasm
       - benchmarks/Feynman/mod5_4.qasm
@@ -242,6 +243,16 @@ jobs:
           HOARE_EXACT_FIXTURE_DIR="$GITHUB_WORKSPACE/evidence/hoare-exact-fixtures" \
             cargo test --locked --manifest-path rust/Cargo.toml -p quprs \
               --test property_hoare_experiment hoare_export_external_exact_fixtures -- --nocapture
+          test "$(git hash-object evidence/hoare-exact-fixtures/aq-source-bv03-pre.hsl)" = c5d58ba0764d33099613e49aea8a20f174be9ca0
+          test "$(git hash-object evidence/hoare-exact-fixtures/aq-source-bv03-post.hsl)" = 3bcc54d9fc6bf3ca618a67808f2d3da3c3fb86b6
+          test "$(git hash-object evidence/hoare-exact-fixtures/aq-source-bv03-circuit.qasm)" = f399669db5b5e8ac469f70de179491e2008694fb
+          test "$(git hash-object evidence/hoare-exact-fixtures/aq-source-grover03-pre.hsl)" = 9c369a362f5e504cd5d4cc64b4b5297a06661b42
+          test "$(git hash-object evidence/hoare-exact-fixtures/aq-source-grover03-post.hsl)" = 5d45f38067d9e95ff0afe997c5f175cc1082e7e4
+          test "$(git hash-object evidence/hoare-exact-fixtures/aq-source-grover03-circuit.qasm)" = 79604029953261a0cd419b9ec932b055dd9ea0c8
+          test "$(git hash-object evidence/hoare-exact-fixtures/aq-source-mogrover03-pre.hsl)" = 286d24f8d0e43e07535658526682566d4897823d
+          test "$(git hash-object evidence/hoare-exact-fixtures/aq-source-mogrover03-post.hsl)" = 413ee90158043d0e17dc9285261b05de694793d1
+          test "$(git hash-object evidence/hoare-exact-fixtures/aq-source-mogrover03-circuit.qasm)" = 4a5cc0a405f2c67172de5a7fe2ca16fcfac77bdc
+          sha256sum evidence/hoare-exact-fixtures/aq-source-* | tee evidence/aq-hsl-source-sha256.txt
           tmp="$(mktemp -d)"
           trap 'rm -rf "$tmp"' EXIT
           curl --proto '=https' --tlsv1.2 --fail --location --silent --show-error --max-time 60 \

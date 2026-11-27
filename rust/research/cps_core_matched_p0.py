@@ -56,6 +56,12 @@ def worker(binary,solver,folder,mode):
         packed,radix,bound=single_fibre_pack(base,list(map(int,phase.split(","))),primary)
         query=folder/"packed.cnf";query.write_text(packed)
         row.update(solver_invoked=True,cnf_sha256=sha(folder/"base.cnf"),packed_sha256=sha(query))
+        # Persist the exact prepared query even if the outer deadline kills
+        # the worker. This proves readiness, not a solver verdict.
+        receipt=dict(row,verdict="UNKNOWN",reason="QUERY_PREPARED")
+        tmp=folder/"query-ready.tmp"
+        tmp.write_text(json.dumps(receipt)+"\n")
+        tmp.replace(folder/"query-ready.json")
         start=time.monotonic()
         p=subprocess.run([str(solver),"-mode=1","-natw",str(query)],capture_output=True,text=True)
         row["solver_s"]=time.monotonic()-start

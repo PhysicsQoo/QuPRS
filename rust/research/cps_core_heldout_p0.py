@@ -71,7 +71,19 @@ for ci,(case,hashes) in enumerate(BLOBS.items()):
             wall=time.monotonic()-t
             (folder/"stdout").write_text(p.stdout);(folder/"stderr").write_text(p.stderr)
             if p.returncode in (124,137):
+                receipt=folder/"query-ready.json"
                 row=dict(verdict="UNKNOWN",reason="PROCESS_TIMEOUT")
+                if mode!="autoq" and receipt.is_file():
+                    ready=json.loads(receipt.read_text())
+                    assert ready["verdict"]=="UNKNOWN" and ready["reason"]=="QUERY_PREPARED",ready
+                    assert ready["cnf_sha256"]==sha(folder/"base.cnf")
+                    assert ready["packed_sha256"]==sha(folder/"packed.cnf")
+                    assert ready["initial_sha256"]==sha(folder/"initial.txt")
+                    row.update(ready)
+                    row.update(verdict="UNKNOWN",reason="PROCESS_TIMEOUT",query_prepared=True)
+                    # The process deadline may expire before or during solver
+                    # execution; no fabricated solve duration or RSS.
+                    row["solver_invoked"]=None
             elif mode=="autoq":
                 result=classify(p.stdout,p.stderr,p.returncode,(q,gates))
                 row=dict(verdict=result if result in ("PROVED","REFUTED") else "UNKNOWN",reason=result)
@@ -98,9 +110,13 @@ for ci,(case,hashes) in enumerate(BLOBS.items()):
             assert all(by_mode[m]["verdict"]==expected for m in MODES if m!="autoq"),by_mode
         if case=="Grover/04":
             assert all(by_mode[m]["verdict"]==expected for m in ("wmc","hybrid","wmc-dag","hybrid-dag")),by_mode
+        if case=="MOGrover/04":
+            assert by_mode["hybrid"]["verdict"]==expected,by_mode
         assert by_mode["autoq"]["verdict"]==expected,by_mode
         for flat,dag in (("wmc","wmc-dag"),("hybrid","hybrid-dag")):
             a,b=by_mode[flat],by_mode[dag]
+            if a.get("primary",0)>0 and b.get("primary",0)>0:
+                assert all(a.get(x)==b.get(x) for x in ("initial_sha256","n","k","h","steps","primary")),(a,b)
             if a["verdict"]!="UNKNOWN" and b["verdict"]!="UNKNOWN":
                 assert a["verdict"]==b["verdict"] and all(a.get(x)==b.get(x) for x in ("n","k","h","steps","primary","bins","norm")), (a,b)
 assert len(records)==108

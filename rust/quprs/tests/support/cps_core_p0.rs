@@ -832,7 +832,10 @@ impl CpsCore {
     }
     fn then_circuit_diagnostic(&self,ops:&[G])->Result<Self,String>{
         if !self.valid()||self.q()==0{return Err("invalid-input".into());}
-        if ops.len()>128{return Err(format!("gate-count gates={} limit=128",ops.len()));}
+        // Bounded 05 source admission experiment; keep all per-gate
+        // and CPS structural budgets. This is not a new reduction rule.
+        const GATE_LIMIT:usize=256;
+        if ops.len()>GATE_LIMIT{return Err(format!("gate-count gates={} limit={GATE_LIMIT}",ops.len()));}
         let mut ps=self.ps.clone();ps.set_auto_reduce(false);
         let mut k=self.k;
         for (i,g) in ops.iter().enumerate(){

@@ -394,3 +394,77 @@ fn hoare_cps_core_guarded_rr(){
     assert!(elim>0&&hh>0&&omega>0&&multi>0&&blocked_count>0&&negative>0);
     println!("CPS_CORE_RR traces={traces} steps={steps} elim={elim} hh={hh} omega={omega} multi={multi} blocked={blocked_count} scale_mutants={mutants} negative_steps={negative} guard_block=PASS rectangular_reject=PASS");
 }
+
+// Reuse the existing guarded two-copy exact CNF encoder. No source
+// reconstruction and no re-normalization from residual hidden count.
+impl CpsCore{
+    fn wmc_norm_plan(&self)->Option<(Cnf,[Lit;3],usize,i32)>{
+        if !self.valid()||self.n()!=self.q(){return None;}
+        let s=compact(&self.ps,self.n())?;
+        let primary=s.n.checked_add(s.h.checked_mul(2)?)?;
+        if primary>63{return None;}
+        let guard=self.guard.compact(&self.ps)?;
+        let (cnf,phase)=guarded_pair(&s,&guard);
+        Some((cnf,phase,primary,self.k))
+    }
+}
+fn core_norm_numerator(c:&CpsCore)->(i64,i64){
+    let mut total=[0;4];
+    for v in core_matrix(c).into_iter().flatten(){
+        total=add(total,rus_mul(v,rus_conj(v)));
+    }
+    assert_eq!(total[2],0);assert_eq!(total[1],-total[3]);
+    (total[0],total[1])
+}
+#[test]
+fn hoare_cps_core_wmc_export(){
+    let dir=std::path::PathBuf::from(std::env::var("CPS_CORE_WMC_DIR").unwrap());
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut cases=Vec::new();
+    for (name,ops) in [
+        ("hh",vec![G::H(0),G::H(0)]),
+        ("omega",vec![G::H(0),G::S(0),G::H(0)]),
+        ("nonclifford",vec![G::H(0),G::T(0),G::H(0)]),
+        ("multi",vec![G::H(0),G::H(0),G::H(0),G::H(0)]),
+    ]{
+        let split=ops.len()/2;
+        let c=CpsCore::circuit(1,&ops[..split]).unwrap().then(&CpsCore::circuit(1,&ops[split..]).unwrap()).unwrap();
+        let mut g=Anf::from([0]);let y=*c.guard.ids.iter().find(|&&v|v>=1).unwrap();
+        xor_insert(&mut g,1u64<<y);
+        cases.push((format!("{name}-guard"),CpsCore::from_derived(c.ps.clone(),g,c.k).unwrap()));
+        if name=="hh"{cases.push(("adjoint".into(),c.adjoint().unwrap()));}
+        cases.push((name.into(),c));
+    }
+    let mut ps=PathSum::new(1);ps.set_auto_reduce(false);
+    let y=ps.v.get_fresh_var();
+    cases.push(("negative-scale".into(),CpsCore::canonical(ps.clone(),Anf::from([0])).unwrap()));
+    cases.push(("fixed-guard".into(),CpsCore::canonical(ps.clone(),Anf::from([1u64<<y])).unwrap()));
+    cases.push(("zero-guard".into(),CpsCore::canonical(ps.clone(),Anf::new()).unwrap()));
+    // Same output fibre, nonzero path count but exact cancellation.
+    ps.p.add_term(vec![y],quprs::PhaseCoeff::HALF);ps.v.get_fresh_var();
+    cases.push(("cancellation".into(),CpsCore::canonical(ps.clone(),Anf::from([0])).unwrap()));
+    // Nonzero sqrt(2) coefficient: 1+omega with independent free path.
+    ps.p.terms.clear();ps.p.add_term(vec![y],quprs::PhaseCoeff::new_constant(quprs::Rational::new(1,8)));
+    cases.push(("radical".into(),CpsCore::canonical(ps,Anf::from([0])).unwrap()));
+    let mut manifest=String::from("case\troute\tk\th\tsteps\tprimary\tvars\tclauses\tphase\ta\tb\n");
+    for (name,start) in &cases{
+        let mut residual=start.clone();let mut receipts=Vec::new();
+        for _ in 0..16{let Some((next,r))=residual.rr_step() else{break;};receipts.push(r);residual=next;}
+        core_rr_equal(start,&residual);
+        let replay=start.replay_rr(&receipts).unwrap();assert_eq!(replay.k,residual.k);
+        for (route,c,steps) in [("raw",start,0),("residual",&residual,receipts.len())]{
+            let (cnf,phase,primary,k)=c.wmc_norm_plan().unwrap();
+            let h=c.guard.ids.len()-c.n();
+            let (a,b)=core_norm_numerator(c);
+            let file=dir.join(format!("{name}-{route}.cnf"));
+            let mut data=format!("p cnf {} {}\n",cnf.vars,cnf.clauses.len());
+            for row in &cnf.clauses{for lit in row{data.push_str(&format!("{lit} "));}data.push_str("0\n");}
+            std::fs::write(file,data).unwrap();
+            let phase=phase.iter().map(ToString::to_string).collect::<Vec<_>>().join(",");
+            manifest.push_str(&format!("{name}\t{route}\t{k}\t{h}\t{steps}\t{primary}\t{}\t{}\t{phase}\t{a}\t{b}\n",cnf.vars,cnf.clauses.len()));
+        }
+    }
+    assert_eq!(cases.len(),14);
+    std::fs::write(dir.join("manifest.tsv"),manifest).unwrap();
+    println!("CPS_CORE_WMC_EXPORT cases=14 arms=28");
+}

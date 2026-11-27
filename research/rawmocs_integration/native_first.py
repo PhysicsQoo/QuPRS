@@ -43,23 +43,65 @@ def main():
             path=ROOT/(name+".cnf")
             path.write_text(source)
             for digits in (30,60,100,130):
-                with registered_rawmocs(RAW,digits=digits,address_space_bytes=None):
-                    cli=run_wmc(path,"rawmocs",timeout=10,preserve_count=True)
+                captures = {}
+                original = solver_process.run
+                def observed(command, timeout):
+                    result = original(command, timeout)
+                    arm = "rawmocs" if Path(command[0]).resolve() == RAW else "gpmc"
+                    assert Path(command[0]).resolve() in (RAW, GPMC)
+                    assert Path(command[-1]).read_bytes() == source.encode()
+                    assert arm not in captures
+                    captures[arm] = result
+                    (ROOT/f"{name}-{digits}-{arm}.stdout").write_text(result.stdout)
+                    (ROOT/f"{name}-{digits}-{arm}.stderr").write_text(result.stderr)
+                    return result
+                with registered_rawmocs(RAW,digits=digits,timeout_ms=10000,address_space_bytes=None):
+                    with patch.object(solver_process,"run",observed):
+                        cli=run_wmc(path,"rawmocs",timeout=10,preserve_count=True)
                 with registered_native(digits) as adapter:
                     with patch.object(solver_process,"run",forbidden):
                         native=run_wmc(path,"rawmocs_native",timeout=10,preserve_count=True)
                     detail=execute_solver(adapter,path,10,resource_resolver=forbidden,process_runner=forbidden,capture_decimal=True)
-                gpmc=run_wmc(path,"gpmc",timeout=10,preserve_count=True,precision_digits=digits)
+                with patch.object(solver_process,"run",observed):
+                    gpmc=run_wmc(path,"gpmc",timeout=10,preserve_count=True,precision_digits=digits)
+                from rawmocs_quprs import RawAdapter
+                import re
+                cli_sat, cli_count = RawAdapter.parse_protocol(captures["rawmocs"].stdout)
+                assert cli_sat is sat and cli_count == cli
+                bits = {30:100,60:200,100:333,130:432}[digits]
+                route, actual_digits, actual_bits = re.findall(
+                    r"^RAWMOCS_COMPLETE route=(\w+) digits=(\d+) bits=(\d+) ",
+                    captures["rawmocs"].stderr, re.M
+                )[0]
+                assert (int(actual_digits),int(actual_bits)) == (digits,bits)
+                # GPMC can omit MPFR precision only for the analytic UNSAT control.
+                headers = re.findall(r"^c o precision (\d+)\s*$", captures["gpmc"].stdout, re.M)
+                assert headers == [str(digits)] or (name=="unsat" and not headers and gpmc.real==gpmc.imag==0)
+                gpmc_sat = re.findall(r"^s (SATISFIABLE|UNSATISFIABLE)\s*$", captures["gpmc"].stdout,re.M)
+                assert gpmc_sat == ["SATISFIABLE" if sat else "UNSATISFIABLE"]
                 assert cli==native==detail.count and detail.sat is sat
                 scale=max(Fraction(1),abs(cli.real),abs(cli.imag))
                 assert max(abs(cli.real-gpmc.real),abs(cli.imag-gpmc.imag)) <= scale*Fraction(1,10**24)
-                report["fixtures"].append(dict(case=name,digits=digits,sat=sat,real=str(native.real),imag=str(native.imag),cnf_sha256=hashlib.sha256(path.read_bytes()).hexdigest()))
+                report["fixtures"].append(dict(case=name,digits=digits,bits=bits,cli_route=route,gpmc_reported_precision=headers,sat=sat,real=str(native.real),imag=str(native.imag),cnf_sha256=hashlib.sha256(path.read_bytes()).hexdigest()))
                 save()
-        bad=ROOT/"invalid.cnf";bad.write_text("not a CNF\n")
+        report["failure_controls"]={}
         with registered_native():
-            try:run_wmc(bad,"rawmocs_native",timeout=10,preserve_count=True)
-            except SolverExecutionError as exc:report["failure_kind"]=exc.kind
-            else:raise AssertionError("invalid input accepted")
+            for name,source,kind in (
+                ("invalid","not a CNF\n","INVALID_INPUT"),
+                ("unsupported","p cnf 1 0\nc t pwmc\n","UNSUPPORTED_INPUT"),
+                ("resource","p cnf 4097 0\nc t wmc\n","RESOURCE_LIMIT"),
+            ):
+                bad=ROOT/(name+".cnf");bad.write_text(source)
+                try:run_wmc(bad,"rawmocs_native",timeout=10,preserve_count=True)
+                except SolverExecutionError as exc:
+                    assert exc.kind==kind and not hasattr(exc,"count")
+                    report["failure_controls"][name]=exc.kind
+                else:raise AssertionError(f"{name} input accepted")
+            try:run_wmc(ROOT/"complex.cnf","rawmocs_native",timeout=0,preserve_count=True)
+            except solver_process.SolverTimeout:report["failure_controls"]["zero_budget"]="TIMEOUT_BEFORE_LAUNCH"
+            else:raise AssertionError("expired budget accepted")
+            assert run_wmc(ROOT/"complex.cnf","rawmocs_native",timeout=10,preserve_count=True).real != 0
+        save()
         identity=QuantumCircuit(2)
         eq=QuantumCircuit(2);eq.h(0);eq.t(0);eq.tdg(0);eq.h(0)
         neq=QuantumCircuit(2);neq.h(0)

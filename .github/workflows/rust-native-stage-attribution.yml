@@ -467,3 +467,76 @@ jobs:
           name: eq-dag-d3c-mechanism-audit
           path: eq-dag-d3c-evidence/
           retention-days: 30
+
+  eq-dag-raw-pilot:
+    if: github.ref == 'refs/heads/experiment/eq-dag-encoder' && github.event_name == 'push'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 50
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: eq-dag-d1d-heldout-mqt
+          run-id: 46004315659
+          github-token: ${{ github.token }}
+          path: d1d
+      - uses: actions/download-artifact@v4
+        with:
+          name: eq-dag-d2a-rewritten-cnfs
+          run-id: 46007045267
+          github-token: ${{ github.token }}
+          path: d2a
+      - uses: actions/download-artifact@v4
+        with:
+          name: eq-dag-d3-matched-solver-ab
+          run-id: 46007390837
+          github-token: ${{ github.token }}
+          path: d3
+      - uses: actions/download-artifact@v4
+        with:
+          name: eq-dag-d3b-balanced-topology
+          run-id: 46009831478
+          github-token: ${{ github.token }}
+          path: d3b
+      - uses: actions/checkout@v4
+        with:
+          repository: PhysicsQoo/RaWMoCS
+          ref: 7ff6b1fdb772f16367fd1e094761a368d54f2ea7
+          path: .rawmocs-dag
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: '.rawmocs-dag/crates/rawmocs-cli -> target'
+      - name: Build published RaWMoCS v0.2.2
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgmp-dev libmpfr-dev m4 make gcc time pkg-config
+          test "$(git -C .rawmocs-dag rev-parse HEAD)" = 7ff6b1fdb772f16367fd1e094761a368d54f2ea7
+          cargo build --locked --release --manifest-path .rawmocs-dag/crates/rawmocs-cli/Cargo.toml
+      - name: Matched RaWMoCS topology screening
+        run: |
+          set -euo pipefail
+          for d in d1d d2a d3 d3b; do (cd "$d" && sha256sum -c SHA256SUMS); done
+          python3 -u rust/research/eq_dag_d3c_raw.py d1d d2a d3 d3b .rawmocs-dag .rawmocs-dag/crates/rawmocs-cli/target/release/rawmocs eq-dag-raw-evidence | tee raw-dag.log
+      - name: Seal evidence
+        if: always()
+        run: |
+          mkdir -p eq-dag-raw-evidence
+          test ! -f raw-dag.log || cp raw-dag.log eq-dag-raw-evidence/
+          git rev-parse HEAD > eq-dag-raw-evidence/head.txt
+          git rev-parse 'HEAD^{tree}' > eq-dag-raw-evidence/tree.txt
+          cd eq-dag-raw-evidence
+          find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 -r sha256sum > SHA256SUMS
+          sha256sum -c SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: eq-dag-raw-topology-pilot
+          path: eq-dag-raw-evidence/
+          retention-days: 30

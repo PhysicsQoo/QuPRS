@@ -35,7 +35,8 @@ def attribution(raw):
         if line.startswith("c o ") and line[4:] in MARKERS:
             tag=MARKERS[line[4:]]
             marks.append(tag)
-            pending=tag if tag in ("read_done","simplify_done","score_start") else None
+            if tag in ("read_done","simplify_done","score_start"):
+                pending=tag
         m=ELAP.fullmatch(line)
         if m and pending is not None:
             times[pending]=float(m[1])

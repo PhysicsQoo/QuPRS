@@ -51,6 +51,10 @@ def worker(binary,solver,folder,mode):
     row=dict(verdict=status if status!="READY" else "UNKNOWN",reason="algebraic" if status in ("PROVED","REFUTED") else "residual",
              n=n,k=k,h=h,initial_h=ih,steps=steps,primary=primary,vars=vars,clauses=clauses,build_ns=build_ns,rr_ns=rr_ns,encode_ns=encode_ns,
              initial_sha256=sha(folder/"initial.txt"),solver_invoked=False)
+    affine=[l.removeprefix("CPS_AFFINE_INTERFACE ") for l in p.stdout.splitlines() if l.startswith("CPS_AFFINE_INTERFACE ")]
+    if affine:
+        assert len(affine)==1,affine
+        row["affine_interface"]=affine[0]
     if status=="READY":
         base=(folder/"base.cnf").read_text()
         packed,radix,bound=single_fibre_pack(base,list(map(int,phase.split(","))),primary)

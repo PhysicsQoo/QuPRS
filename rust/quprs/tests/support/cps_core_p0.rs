@@ -203,6 +203,115 @@ impl CpsCore{
         ps.f=f;
         Self::from_factors(ps,factors,k).ok_or("result-invariant")
     }
+    // Overflow-only exact composition with B-dagger, for affine B outputs
+    // and sign-only B phases. Solve source-side equality/pin pivots before
+    // allocating IDs. The remaining variables stay native PathSum paths;
+    // every removed variable has exactly one extension, so k is unchanged.
+    fn then_adjoint_affine(&self,b:&Self)->Result<(Self,usize,usize),String>{
+        if !self.valid()||!b.valid()||self.q()!=b.q(){return Err("invalid-input".into());}
+        if b.ps.p.terms.values().any(|c|core_phase8(c)!=Some(4)&&core_phase8(c)!=Some(0)){
+            return Err("non-sign-adjoint".into());
+        }
+        let mut rows=Vec::<(u64,Anf)>::new();
+        let mut gs=Vec::new();
+        let mut pins=0usize;
+        for g in b.guard.factors(){
+            let nonzero:Vec<_>=g.iter().copied().filter(|&m|m!=0).collect();
+            if nonzero.len()==1&&nonzero[0].count_ones()==1{
+                let rhs=if g.contains(&0){Anf::new()}else{Anf::from([0])};
+                rows.push((nonzero[0],rhs));pins+=1;
+            }else{gs.push(g.clone());}
+        }
+        for (a,out) in self.ps.f.functions.iter().zip(&b.ps.f.functions){
+            if out.iter().any(|m|m.len()>1){return Err("non-affine-output".into());}
+            let mut rhs=core_anf(a).ok_or("lhs-output")?;
+            let mut mask=0u64;
+            for m in out{
+                if m.is_empty(){xor_insert(&mut rhs,0);}
+                else{mask^=core_bit(m[0]).ok_or("source-id")?;}
+            }
+            rows.push((mask,rhs));
+        }
+        // RREF over B's source IDs only; RHS is a Boolean function in A.
+        // Any zero row becomes a guard on A, not a discarded constraint.
+        let mut pivots=Vec::new();
+        let mut rank=0usize;
+        for &id in &b.guard.ids{
+            let bit=core_bit(id).ok_or("source-id")?;
+            let Some(i)=(rank..rows.len()).find(|&i|rows[i].0&bit!=0) else{continue;};
+            rows.swap(rank,i);
+            let (m,r)=rows[rank].clone();
+            for (j,(q,t)) in rows.iter_mut().enumerate(){
+                if j==rank||*q&bit==0{continue;}
+                *q^=m;
+                for &v in &r{xor_insert(t,v);}
+                if t.len()>CORE_TERMS{return Err("affine-rhs-cap".into());}
+            }
+            pivots.push(id);rank+=1;
+        }
+        let free=b.guard.ids.len()-rank;
+        let total=self.ps.v.next_id as usize+free;
+        if total>63{return Err(format!("affine-live-cap lhs={} rhs={} rank={rank} pins={pins} free={free} required={total}",self.ps.v.next_id,b.guard.ids.len()));}
+        let mut ps=PathSum::new(self.n());ps.set_auto_reduce(false);
+        ps.v=self.ps.v.clone();ps.p=self.ps.p.clone();
+        let mut repl=BTreeMap::<u32,Anf>::new();
+        for &id in &b.guard.ids{
+            if pivots.contains(&id){continue;}
+            let fresh=ps.v.get_fresh_var();
+            repl.insert(id,Anf::from([core_bit(fresh).ok_or("bound-id")?]));
+        }
+        for (i,&id) in pivots.iter().enumerate(){
+            let mut rhs=rows[i].1.clone();
+            let mask=rows[i].0^core_bit(id).ok_or("pivot-id")?;
+            for &j in &b.guard.ids{
+                if mask&(1u64<<j)==0{continue;}
+                for &m in repl.get(&j).ok_or("unresolved-pivot")?{xor_insert(&mut rhs,m);}
+            }
+            if rhs.len()>CORE_TERMS{return Err("affine-rhs-cap".into());}
+            repl.insert(id,rhs);
+        }
+        let mut factors=self.guard.factors().cloned().collect::<Vec<_>>();
+        for (m,r) in rows.iter().skip(rank){
+            if *m!=0{return Err("incomplete-rref".into());}
+            let mut g=r.clone();xor_insert(&mut g,0);factors.push(g);
+        }
+        let mut work=0usize;
+        let mut subst=|g:&Anf|->Option<Anf>{
+            let mut out=Anf::new();
+            for &m in g{
+                let mut term=Anf::from([0]);
+                for &id in &b.guard.ids{
+                    if m&(1u64<<id)==0{continue;}
+                    let sub=repl.get(&id)?;
+                    work=work.checked_add(term.len().checked_mul(sub.len())?)?;
+                    if work>2_000_000{return None;}
+                    term=mul_anf(&term,sub)?;
+                    if term.is_empty(){break;}
+                }
+                for v in term{xor_insert(&mut out,v);}
+                if out.len()>CORE_TERMS{return None;}
+            }
+            Some(out)
+        };
+        for g in &gs{factors.push(subst(g).ok_or("guard-substitution-cap")?);}
+        for (m,c) in &b.ps.p.terms{
+            if core_phase8(c)==Some(0){continue;}
+            // -pi == pi; XOR sign monomials are exact modulo 2*pi.
+            let g=subst(&Anf::from([core_mask(m).ok_or("phase-mask")?])).ok_or("phase-substitution-cap")?;
+            for v in g{
+                ps.p.add_term((0..63u32).filter(|&i|v&(1u64<<i)!=0).collect(),quprs::PhaseCoeff::HALF);
+            }
+            if ps.p.terms.len()>CORE_PHASE_TERMS{return Err("phase-term-cap".into());}
+        }
+        ps.f=quprs::pathsum::BooleanState::new(b.n());
+        for (i,out) in ps.f.functions.iter_mut().enumerate(){
+            *out=repl.get(&(i as u32)).ok_or("output-map")?.iter().map(|&m|
+                (0..63u32).filter(|&j|m&(1u64<<j)!=0).collect()).collect();
+        }
+        let k=self.k.checked_add(b.k).ok_or("scale-overflow")?;
+        let c=Self::from_factors(ps,core_pack_guard_factors(factors),k).ok_or("result-invariant")?;
+        Ok((c,rank,pins))
+    }
     // Old free inputs become bound; fresh free outputs are never
     // captured by the old input/path IDs. Keep k, not k+n.
     fn adjoint(&self)->Option<Self>{
@@ -363,6 +472,34 @@ fn hoare_cps_core_closure(){
     assert!(a.then_guard_interface(&small).is_err());
     assert!(a.then(&small).is_none());
     println!("CPS_GUARD_INTERFACE small_parity=PASS wide_replacement=PASS transient_id=PASS formal_native_reject=PASS");
+    // Independent exact matrix product for affine output and fixed pin.
+    // y is uniquely determined by x xor y=z, padding is forced zero.
+    let mut ps=PathSum::new(1);ps.set_auto_reduce(false);
+    let y=ps.v.get_fresh_var();let pad=ps.v.get_fresh_var();
+    ps.f.functions[0].insert(vec![y]);
+    ps.p.add_term(vec![y],quprs::PhaseCoeff::HALF);
+    let b=CpsCore::canonical(ps,Anf::from([0,1u64<<pad])).unwrap();
+    let (c,rank,pins)=small.then_adjoint_affine(&b).unwrap();
+    assert_eq!((rank,pins),(2,1));
+    assert_eq!(c.k,small.k+b.k);
+    assert_eq!(core_matrix(&c),core_product(&core_matrix(&small),&core_matrix(&b.adjoint().unwrap())));
+    // Overdetermined output equations must survive as a guard.
+    let mut ps=b.ps.clone();
+    ps.f=quprs::pathsum::BooleanState::new(2);
+    for out in &mut ps.f.functions{*out=CoreBool::from_iter([vec![0],vec![y]]);}
+    let rect=CpsCore::canonical(ps,b.guard.extra.clone()).unwrap();
+    let mut ps=PathSum::new(1);ps.set_auto_reduce(false);
+    ps.f=quprs::pathsum::BooleanState::new(2);
+    ps.f.functions[0]=CoreBool::from_iter([vec![0]]);
+    ps.f.functions[1]=CoreBool::from_iter([vec![]]);
+    let a=CpsCore::canonical(ps,Anf::from([0])).unwrap();
+    let (c,_,_)=a.then_adjoint_affine(&rect).unwrap();
+    assert_eq!(core_matrix(&c),core_product(&core_matrix(&a),&core_matrix(&rect.adjoint().unwrap())));
+    let mut nonaffine=b.clone();nonaffine.ps.f.functions[0].insert(vec![0,y]);
+    assert!(nonaffine.valid()&&small.then_adjoint_affine(&nonaffine).is_err());
+    let mut nonreal=b.clone();nonreal.ps.p.add_term(vec![0],quprs::PhaseCoeff::new_constant(quprs::Rational::new(1,8)));
+    assert!(nonreal.valid()&&small.then_adjoint_affine(&nonreal).is_err());
+    println!("CPS_AFFINE_ADJOINT matrix=PASS unique_extension=PASS zero_row=PASS reject=PASS");
     // Original circuit embedding and gate lowering agree on each column.
     // Include an XOR output substitution with exact Z8 coefficient.
     let aops=vec![G::H(0),G::CX(0,1),G::H(1)];
@@ -1128,7 +1265,16 @@ fn hoare_cps_core_matched_worker(){
             Ok(v)=>v,Err(detail)=>{println!("CPS_COMPOSITION_DETAIL {detail}");return None;}
         };
         stage="composition";let mut c=match ua.then_diagnostic(&bd){
-            Ok(v)=>v,Err(detail)=>{println!("CPS_COMPOSITION_DETAIL {detail}");return None;}
+            Ok(v)=>v,Err(detail)=>{
+                if !detail.contains("bound-id-cap"){println!("CPS_COMPOSITION_DETAIL {detail}");return None;}
+                match ua.then_adjoint_affine(&b){
+                    Ok((v,rank,pins))=>{
+                        println!("CPS_AFFINE_INTERFACE rank={rank} pins={pins} lhs_live={} rhs_live={} result_live={} k={}",ua.guard.ids.len(),b.guard.ids.len(),v.guard.ids.len(),v.k);
+                        v
+                    },
+                    Err(e)=>{println!("CPS_COMPOSITION_DETAIL {detail}; affine {e}");return None;}
+                }
+            }
         };
         let build_ns=t.elapsed().as_nanos();
         stage="initial-snapshot";let snap=guarded_snapshot(&c.ps,c.n(),&c.guard)?;

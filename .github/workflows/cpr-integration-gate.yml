@@ -38,15 +38,28 @@ jobs:
           rustc --version | tee evidence/rustc.txt
           sha256sum rust/quprs/src/{lib,cpr,cpr_optin,circuit,strategy,wmc,reduction}.rs rust/Cargo.lock rust/quprs/Cargo.toml rust/quprs/examples/cpr_native_optin.rs > evidence/source-sha256.txt
           unset CRR_SOURCE CRR_TARGET QUPRS_GPMC_PATH QUPRS_GANAK_PATH
-          cargo test --locked --release --manifest-path rust/Cargo.toml -p quprs -p QuPRS_cli 2>&1 | tee evidence/default-full.log
-          cargo test --locked --release --manifest-path rust/Cargo.toml -p quprs --features experimental-cpr 2>&1 | tee evidence/optin-full.log
-          grep -F 'cpr_optin::tests::optin_request_and_rr_first_contract ... ok' evidence/optin-full.log
-          grep -F 'cpr_optin::tests::stop_and_native_failure_classification ... ok' evidence/optin-full.log
-          grep -F 'cpr_native_router_tests::i2b_locked_source_worker ... ignored' evidence/optin-full.log
-          cargo test --locked --release --manifest-path rust/Cargo.toml -p quprs --features experimental-cpr,browser-transport --lib cpr_optin::tests::browser_capture_is_not_native_optin -- --exact 2>&1 | tee evidence/browser-contract.log
-          grep -F 'cpr_optin::tests::browser_capture_is_not_native_optin ... ok' evidence/browser-contract.log
-          cargo check --locked --manifest-path rust/Cargo.toml -p quprs --no-default-features --features browser-transport 2>&1 | tee evidence/browser-check.log
-          cargo build --locked --release --manifest-path rust/Cargo.toml -p quprs --features experimental-cpr --example cpr_native_optin 2>&1 | tee evidence/example-build.log
+          # The existing CLI supervisor injects failures only with debug_assertions.
+          # Match main's dev-fast profile for the entire ordinary test suite.
+          # Continue independent gates on a failure, but aggregate every exit code.
+          failed=0
+          run_gate() {
+            local label="$1"; shift
+            local rc=0
+            "$@" 2>&1 | tee "evidence/${label}.log" || rc=$?
+            printf '%s %s\n' "$label" "$rc" | tee -a evidence/gate-exits.txt
+            if [ "$rc" -ne 0 ]; then failed=1; fi
+          }
+          run_gate default-debug-full cargo test --locked --manifest-path rust/Cargo.toml -p quprs -p QuPRS_cli
+          run_gate default-release-core cargo test --locked --release --manifest-path rust/Cargo.toml -p quprs
+          run_gate optin-full cargo test --locked --release --manifest-path rust/Cargo.toml -p quprs --features experimental-cpr
+          run_gate entry-contract grep -F 'cpr_optin::tests::optin_request_and_rr_first_contract ... ok' evidence/optin-full.log
+          run_gate stop-contract grep -F 'cpr_optin::tests::stop_and_native_failure_classification ... ok' evidence/optin-full.log
+          run_gate worker-isolation grep -F 'cpr_native_router_tests::i2b_locked_source_worker ... ignored' evidence/optin-full.log
+          run_gate browser-contract cargo test --locked --release --manifest-path rust/Cargo.toml -p quprs --features experimental-cpr,browser-transport --lib cpr_optin::tests::browser_capture_is_not_native_optin -- --exact
+          run_gate browser-rejection grep -F 'cpr_optin::tests::browser_capture_is_not_native_optin ... ok' evidence/browser-contract.log
+          run_gate browser-check cargo check --locked --manifest-path rust/Cargo.toml -p quprs --no-default-features --features browser-transport
+          run_gate example-build cargo build --locked --release --manifest-path rust/Cargo.toml -p quprs --features experimental-cpr --example cpr_native_optin
+          test "$failed" = 0
       - name: Seal evidence
         if: always()
         run: |

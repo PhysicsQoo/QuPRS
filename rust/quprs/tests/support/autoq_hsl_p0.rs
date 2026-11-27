@@ -1765,3 +1765,122 @@ fn hoare_autoq_shared_fixed_basis_arm(){
     };
     println!("AQ_C3_NATIVE case={case} mode={mode} verdict={verdict} route=shared-fixed-basis queries={queries} witness={witness:?} raw_h={raw_h:?} residual_h={residual_h:?} scale2={scale2:?} rr_steps={rr_steps:?} admission={admission} native_ns={}",start.elapsed().as_nanos());
 }
+
+// SS2 typed, bounded research fixtures: finite normalized basis inputs and
+// real two-term targets. No new solver, HSL grammar or production mode.
+fn aq_ss2_representatives(n:usize,ops:&[G],a:&[AqState],b:&[AqState],
+    deadline:std::time::Instant,bad:bool)->Option<Vec<usize>>{
+    use quprs::{check_equivalence_with_options,EquivalenceStatus,VerificationOptions,VerificationMethod,VerificationStrategy};
+    use std::io::Write;
+    let xs:Vec<u64>=a.iter().map(aq_fixed_input).collect::<Option<_>>()?;
+    let index:BTreeMap<u64,usize>=xs.iter().enumerate().map(|(i,&x)|(x,i)).collect();
+    if index.len()!=xs.len()||xs.is_empty()||b.is_empty(){return None;}
+    let mut masks=Vec::new();
+    // Candidate X translations on each wire. Full ray closure may be
+    // stronger than this sufficient exact signed-pattern test.
+    for j in 0..n{
+        if std::time::Instant::now()>=deadline{return None;}
+        let dx=1u64<<j;
+        if !xs.iter().all(|x|index.contains_key(&(x^dx)))||
+           !b.iter().all(|v|b.iter().any(|u|aq_shift_same(v,u,dx))){
+            println!("AQ_SS2_CLOSURE bit={j} accepted=false");continue;
+        }
+        let mut lhs=vec![G::X(j)];lhs.extend(ops.iter().cloned());
+        let mut rhs=ops.to_vec();
+        rhs.push(G::X(if bad{(j+1)%n}else{j}));
+        let opt=VerificationOptions{method:VerificationMethod::ReductionRules,
+            strategy:VerificationStrategy::Difference,tool_name:"gpmc".into(),timeout_secs:1,
+            rr_tolerance:0.0,..VerificationOptions::default()};
+        let t=std::time::Instant::now();
+        let r=check_equivalence_with_options(n,&lhs,&rhs,&opt).ok()?;
+        let p=&r.final_ps;
+        let h=p.v.path_vars.iter().filter(|&&id|id as usize>=p.v.num_qubits).count();
+        let exact=r.status==EquivalenceStatus::Equivalent&&!r.rr_approximate&&
+            !r.solver_invoked&&h==0&&p.p.terms.is_empty();
+        println!("AQ_SS2_CERT bit={j} status={} exact={exact} hh={} ns={}",r.status.as_str(),p.stats.hh.successes,t.elapsed().as_nanos());
+        std::io::stdout().flush().ok()?;
+        if exact{masks.push(dx);}
+    }
+    // Explicit finite orbit closure; each newly reached label is covered.
+    // No assertion of symbolic coverage or non-enumerative complexity.
+    let mut seen=BTreeSet::new();let mut reps=Vec::new();
+    for (i,&x) in xs.iter().enumerate(){
+        if seen.contains(&x){continue;}
+        reps.push(i);seen.insert(x);let mut todo=vec![x];
+        while let Some(v)=todo.pop(){
+            for &m in &masks{
+                let u=v^m;if !index.contains_key(&u){return None;}
+                if seen.insert(u){todo.push(u);}
+            }
+        }
+    }
+    if seen.len()!=xs.len(){return None;}
+    Some(reps)
+}
+
+#[test]
+fn hoare_autoq_ss2_arm(){
+    let Ok(case)=std::env::var("AQ_C3_CASE")else{return;};
+    use std::io::Write;
+    let mode=std::env::var("AQ_C3_MODE").unwrap();assert_eq!(mode,"wmc");
+    let file=std::path::PathBuf::from(std::env::var_os("AQ_C3_CNF").unwrap());
+    let start=std::time::Instant::now();
+    let deadline=start+std::time::Duration::from_millis(std::env::var("AQ_C3_BUDGET_MS").unwrap().parse().unwrap());
+    let n=2usize;let ops=vec![G::H(1)];
+    let xs=if case=="ss2-nonclosed-pre"{vec![0,2,3]}else{vec![0,1,2,3]};
+    let basis=|x|AqState{n,k:0,terms:vec![AqTerm{pattern:AqPattern::Fixed(x),signed:1}]};
+    let target=|x:u64,sign:i64|AqState{n,k:1,terms:vec![AqTerm{pattern:AqPattern::Fixed(x),signed:1},
+        AqTerm{pattern:AqPattern::Fixed(x|2),signed:sign}]};
+    let a:Vec<_>=xs.iter().copied().map(basis).collect();
+    // Deliberately place the wrong sign first: membership must not refute
+    // after a failed candidate. Positive/negative rays have equal support.
+    let mut b=vec![target(0,-1),target(1,-1),target(0,1),target(1,1)];
+    match case.as_str(){
+        "ss2-positive"|"ss2-nonclosed-pre"=>{},
+        "ss2-negative"=>{b.drain(..2);},
+        "ss2-nonclosed-post"=>{b.remove(1);},
+        "ss2-duplicate"=>{b.insert(0,target(0,-1));},
+        _=>panic!("unknown SS2 fixture"),
+    }
+    let mut queries=0usize;let mut witness=None;let mut admission="build";
+    let result=(||->Option<bool>{
+        let mut ps=PathSum::new(n);ps.set_auto_reduce(false);
+        for g in &ops{g.apply(&mut ps,false);}
+        let raw=compact(&ps,n)?;
+        let ambiguity=aq_discover_pairs(&raw,&a,&b).is_none();
+        let request=std::env::var("AQ_SHARED_FAMILY").ok().as_deref()==Some("orbit");
+        let bad=std::env::var_os("AQ_CPS_ORBIT_BAD").is_some();
+        let reps=if request{aq_ss2_representatives(n,&ops,&a,&b,deadline,bad)?}else{(0..a.len()).collect()};
+        std::fs::write(file.with_extension("initial.txt"),format!("n={n} h={} guard=1 pre={xs:?} case={case} output={:?} phase={:?}\n",raw.h,raw.output,raw.phase)).ok()?;
+        println!("AQ_SS2_ROUTE original={} representatives={} indices={:?} ambiguous={ambiguity} requested={request} bad={bad}",a.len(),reps.len(),reps);
+        std::io::stdout().flush().ok()?;
+        let mut any_unknown=false;
+        for i in reps{
+            let x=xs[i];let bound=aq_fixed_pre_path(n,x,&ops,deadline)?;
+            let s=compact(&bound,n)?;let cube=Cube{mask:(1u64<<n)-1,value:x};
+            if s.h!=raw.h||s.phase!=specialize_phase(&raw.phase,cube)||
+                s.output!=raw.output.iter().map(|f|specialize_bool(f,cube)).collect::<Vec<_>>(){return None;}
+            let mut matched=false;let mut unknown=false;
+            for (j,t) in b.iter().enumerate(){
+                if std::time::Instant::now()>=deadline{return None;}
+                let Some((c,phase,primary))=aq_overlap(&s,x,t)else{unknown=true;continue;};
+                let mut data=format!("p cnf {} {}\n",c.vars,c.clauses.len());
+                for row in &c.clauses{for l in row{data.push_str(&format!("{l} "));}data.push_str("0\n");}
+                std::fs::write(&file,data).ok()?;
+                let rem=deadline.saturating_duration_since(std::time::Instant::now());
+                if rem.is_zero(){return None;}
+                admission="membership";
+                println!("AQ_SS2_PAIR input={x} target={j} k={}",s.h+t.k);
+                queries+=1;
+                println!("AQ_C3_QUERY {} {} {} {}",primary,s.h+t.k,phase.iter().map(ToString::to_string).collect::<Vec<_>>().join(","),rem.as_millis());
+                std::io::stdout().flush().ok()?;
+                let mut answer=String::new();if std::io::stdin().read_line(&mut answer).ok()?==0{return None;}
+                match answer.trim(){"PROVED"=>{matched=true;break;},"REFUTED"=>{},_=>unknown=true}
+            }
+            if !matched{if unknown{any_unknown=true;}else{witness=Some(x);return Some(false);}}
+        }
+        if any_unknown{None}else{admission="complete";Some(true)}
+    })();
+    let verdict=if std::time::Instant::now()>=deadline{"UNKNOWN"}else{match result{Some(true)=>"PROVED",Some(false)=>"REFUTED",None=>"UNKNOWN"}};
+    println!("AQ_C3_NATIVE case={case} mode={mode} verdict={verdict} route=ss2-finite queries={queries} witness={witness:?} admission={admission} native_ns={}",start.elapsed().as_nanos());
+}

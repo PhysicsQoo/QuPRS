@@ -902,19 +902,22 @@ fn hoare_cps_core_matched_worker(){
     assert!(["rr","wmc","hybrid","wmc-dag","hybrid-dag"].contains(&mode.as_str()));
     let dag=mode.ends_with("-dag");
     let policy=mode.strip_suffix("-dag").unwrap_or(&mode);
+    let mut stage="source-read";
     let run=(||->Option<()>{
         let pre=std::fs::read_to_string(dir.join("pre.hsl")).ok()?;
         let post=std::fs::read_to_string(dir.join("post.hsl")).ok()?;
         let src=std::fs::read_to_string(dir.join("circuit.qasm")).ok()?;
         let t=std::time::Instant::now();
-        let a=core_hsl_lower(&pre)?;let b=core_hsl_lower(&post)?;
-        let (ops,n)=quprs::qasm::parse_qasm_str_source_pinned(&src).ok()?;
+        stage="pre-lowering";let a=core_hsl_lower(&pre)?;
+        stage="post-lowering";let b=core_hsl_lower(&post)?;
+        stage="qasm-parse";let (ops,n)=quprs::qasm::parse_qasm_str_source_pinned(&src).ok()?;
         if n!=a.q()||n!=b.q(){return None;}
-        let ua=a.then_circuit(&ops)?;
-        if !core_label_support(&ua,&b){return None;}
-        let mut c=ua.then(&b.adjoint()?)?;
+        stage="native-gate-composition";let ua=a.then_circuit(&ops)?;
+        stage="label-certificate";if !core_label_support(&ua,&b){return None;}
+        stage="adjoint";let bd=b.adjoint()?;
+        stage="composition";let mut c=ua.then(&bd)?;
         let build_ns=t.elapsed().as_nanos();
-        let snap=guarded_snapshot(&c.ps,c.n(),&c.guard)?;
+        stage="initial-snapshot";let snap=guarded_snapshot(&c.ps,c.n(),&c.guard)?;
         std::fs::write(dir.join("initial.txt"),format!("k={}\n{snap:?}\n",c.k)).ok()?;
         let initial_h=c.guard.ids.len()-c.n();
         let t=std::time::Instant::now();
@@ -932,6 +935,7 @@ fn hoare_cps_core_matched_worker(){
             let t=std::time::Instant::now();
             // Explicit experimental arm. No silent fallback: a DAG
             // admission failure must be reported as unsupported.
+            stage=if dag{"dag-encoder"}else{"flat-encoder"};
             let (cnf,d,p,k)=if dag{c.wmc_norm_factored_plan()}else{c.wmc_norm_plan()}?;
             if k!=c.k{return None;}
             primary=p;vars=cnf.vars;clauses=cnf.clauses.len();
@@ -944,7 +948,7 @@ fn hoare_cps_core_matched_worker(){
         println!("CPS_MATCHED_NATIVE {status} {} {} {} {initial_h} {steps} {primary} {vars} {clauses} {phase} {build_ns} {rr_ns} {encode_ns}",c.n(),c.k,c.guard.ids.len()-c.n());
         Some(())
     })();
-    if run.is_none(){println!("CPS_MATCHED_NATIVE UNSUPPORTED");}
+    if run.is_none(){println!("CPS_MATCHED_NATIVE UNSUPPORTED {stage}");}
 }
 
 

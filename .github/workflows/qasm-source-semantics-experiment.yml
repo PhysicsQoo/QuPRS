@@ -17,7 +17,7 @@ jobs:
   shared-semantics-native:
     name: Shared fixed-basis native acceptance
     runs-on: ubuntu-24.04
-    timeout-minutes: 40
+    timeout-minutes: 50
     env:
       QUPRS_SOLVER_PROVISION: external
       CARGO_TERM_COLOR: never
@@ -42,7 +42,7 @@ jobs:
           rustc --version | tee evidence/rustc-version.txt
           cargo --version | tee evidence/cargo-version.txt
           lscpu > evidence/cpu.txt
-          sha256sum rust/quprs/tests/support/autoq_hsl_p0.rs rust/quprs/tests/property_hoare_experiment.rs rust/research/autoq_grover_p0.py rust/research/autoq_c3_pilot.py rust/research/autoq_shared_width_p0.py rust/research/autoq_shared_family_p0.py rust/research/autoq_ss2_p0.py rust/research/autoq_ss3_p0.py rust/quprs/tests/support/cps_core_p0.rs rust/research/cps_core_wmc_p0.py rust/research/cps_core_source_decision_p0.py rust/research/cps_core_matched_p0.py rust/research/cps_core_encoding_ab_p0.py > evidence/source-sha256.txt
+          sha256sum rust/quprs/tests/support/autoq_hsl_p0.rs rust/quprs/tests/property_hoare_experiment.rs rust/research/autoq_grover_p0.py rust/research/autoq_c3_pilot.py rust/research/autoq_shared_width_p0.py rust/research/autoq_shared_family_p0.py rust/research/autoq_ss2_p0.py rust/research/autoq_ss3_p0.py rust/quprs/tests/support/cps_core_p0.rs rust/research/cps_core_wmc_p0.py rust/research/cps_core_source_decision_p0.py rust/research/cps_core_matched_p0.py rust/research/cps_core_encoding_ab_p0.py rust/research/cps_core_heldout_p0.py > evidence/source-sha256.txt
           sudo apt-get update
           sudo apt-get install -y cmake pkg-config libgmp-dev libmpfr-dev zlib1g-dev libboost-filesystem-dev libboost-test-dev libantlr4-runtime-dev
       - name: Provision pinned GPMC and qualify packed count
@@ -149,6 +149,14 @@ jobs:
           grep -F 'CPS_ENCODING_EXPORT arms=36 pairs=18 nonreal_reject=PASS' evidence/cps-core-encoding-export.log
           timeout 360s python3 rust/research/cps_core_encoding_ab_p0.py evidence/cps-core-encoding "$RUNNER_TEMP/cps-gpmc" | tee evidence/cps-core-encoding.log
           grep -F 'CPS_ENCODING_SUMMARY ' evidence/cps-core-encoding.log
+      - name: Held-out original source 04 and 05 admission pilot
+        timeout-minutes: 12
+        run: |
+          set -euo pipefail
+          src="$RUNNER_TEMP/autoq-matched"
+          export LD_LIBRARY_PATH="$src:$src/build/lib:$src/build/cli:${LD_LIBRARY_PATH:-}"
+          timeout 580s python3 rust/research/cps_core_heldout_p0.py "$(cat evidence/release-bin.path)" "$RUNNER_TEMP/cps-gpmc" "$src/build/cli/autoq" "$src" evidence/cps-core-heldout | tee evidence/cps-core-heldout.log
+          grep -F 'CPS_HELDOUT_SUMMARY {"arms": 108, "cases": 6, "obligations": 18' evidence/cps-core-heldout.log
       - uses: actions/upload-artifact@v4
         if: always()
         with:

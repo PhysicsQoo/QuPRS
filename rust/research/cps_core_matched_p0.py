@@ -38,8 +38,8 @@ def worker(binary,solver,folder,mode):
     markers=[l.split()[1:] for l in p.stdout.splitlines() if l.startswith("CPS_MATCHED_NATIVE ")]
     assert len(markers)==1,markers
     m=markers[0]
-    if m==["UNSUPPORTED"]:
-        print(json.dumps(dict(verdict="UNKNOWN",reason="UNSUPPORTED")));return
+    if m[0]=="UNSUPPORTED":
+        print(json.dumps(dict(verdict="UNKNOWN",reason="UNSUPPORTED",stage=m[1] if len(m)>1 else "unspecified")));return
     status=m[0]
     n,k,h,ih,steps,primary,vars,clauses=map(int,m[1:9])
     phase=m[9];build_ns,rr_ns,encode_ns=map(int,m[10:])

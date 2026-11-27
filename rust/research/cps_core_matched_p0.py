@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Matched original source E2E pilot. Four balanced periods, 4s per complete
+"""Matched original source E2E encoder A/B. Six balanced periods, 4s per complete
 process tree. Release builds; no timed dense oracle. GNU time max RSS is
 maximum individual process RSS, not sum of concurrent process-tree RSS."""
 import hashlib
@@ -15,8 +15,12 @@ from autoq_decision_pair import PIN, BLOBS, SHAPES, blob, mutant, classify
 from hoare_ganak_exact import single_fibre_pack, single_fibre_decode, parse_gpmc_integer
 
 CAP=4
-MODES=("rr","wmc","hybrid","autoq")
-ORDERS=((0,1,3,2),(1,2,0,3),(2,3,1,0),(3,0,2,1))
+MODES=("rr","wmc","hybrid","autoq","wmc-dag","hybrid-dag")
+# Williams design: balance both positions and first-order carryover.
+ORDERS=tuple(tuple((i+p)%6 for i in (0,1,5,2,4,3)) for p in range(6))
+PERIODS=len(ORDERS)
+assert all(sorted(order)==list(range(len(MODES))) for order in ORDERS)
+assert len({(a,b) for order in ORDERS for a,b in zip(order,order[1:])})==30
 VARIANTS=("source","relative-mutant","global-sign")
 def sha(p):
     return hashlib.sha256(p.read_bytes()).hexdigest()
@@ -106,25 +110,37 @@ def main(binary,solver,autoq,root,out):
                     want=Fraction(0) if case=="bv03" and variant=="relative-mutant" else Fraction(3249,4096)*(8 if case=="mogrover03" else 1) if variant=="relative-mutant" else Fraction(8 if case=="mogrover03" else 1)
                     assert row["norm"]==[str(want),"0"],row
                 rows.append(row);print("CPS_MATCHED_ARM",json.dumps(row),flush=True)
-    assert len(rows)==144
-    for period in range(4):
+    assert len(rows)==len(fixtures)*len(MODES)*PERIODS==324
+    for period in range(PERIODS):
         for case,variant in fixtures:
             group=[r for r in rows if (r["period"],r["case"],r["variant"])==(period,case,variant)]
-            assert len(group)==4 and len({tuple(r["inputs_sha256"]) for r in group})==1
+            assert len(group)==len(MODES) and len({tuple(r["inputs_sha256"]) for r in group})==1
             hashes={r["initial_sha256"] for r in group if "initial_sha256" in r}
-            assert len(hashes)<=1,(case,variant,hashes)
+            assert len(hashes)==1,(case,variant,hashes)
+            by_mode={r["mode"]:r for r in group}
+            for flat,dag in (("wmc","wmc-dag"),("hybrid","hybrid-dag")):
+                a,b=by_mode[flat],by_mode[dag]
+                assert a["verdict"]==a["expected"],a
+                if b["verdict"]!="UNKNOWN":
+                    assert a["verdict"]==b["verdict"]
+                    assert all(a.get(x)==b.get(x) for x in ("initial_sha256","n","h","k","steps","primary","solver_invoked","bins","norm")),(a,b)
+            assert by_mode["autoq"]["verdict"]==by_mode["autoq"]["expected"]
+            if case=="bv03":
+                assert by_mode["rr"]["verdict"]==by_mode["rr"]["expected"]
     summary=[]
     for case,variant in fixtures:
         for mode in MODES:
             group=[r for r in rows if (r["case"],r["variant"],r["mode"])==(case,variant,mode)]
             definite=[r for r in group if r["verdict"]!="UNKNOWN"]
-            summary.append(dict(case=case,variant=variant,mode=mode,definite=len(definite),runs=4,
-                median_wall_s=statistics.median(r["wall_s"] for r in definite) if len(definite)==4 else None,
-                median_rss_kib=statistics.median(r["max_individual_rss_kib"] for r in definite) if len(definite)==4 and all(r["max_individual_rss_kib"] is not None for r in definite) else None))
+            summary.append(dict(case=case,variant=variant,mode=mode,definite=len(definite),runs=PERIODS,
+                median_wall_s=statistics.median(r["wall_s"] for r in definite) if len(definite)==PERIODS else None,
+                median_rss_kib=statistics.median(r["max_individual_rss_kib"] for r in definite) if len(definite)==PERIODS and all(r["max_individual_rss_kib"] is not None for r in definite) else None,
+                median_solver_s=statistics.median(r.get("solver_s",0) for r in definite) if len(definite)==PERIODS else None,
+                median_encode_ns=statistics.median(r.get("encode_ns",0) for r in definite) if len(definite)==PERIODS and mode!="autoq" else None))
     (out/"summary.json").write_text(json.dumps(dict(rows=rows,summary=summary,source_pin=PIN,
         binary_sha256=sha(binary),solver_sha256=sha(solver),autoq_sha256=sha(autoq),cap_s=CAP),indent=2)+"\n")
     for r in summary:print("CPS_MATCHED_MEDIAN",json.dumps(r),flush=True)
-    print("CPS_MATCHED_SUMMARY",json.dumps(dict(arms=len(rows),periods=4,**{m:sum(r["mode"]==m and r["verdict"]!="UNKNOWN" for r in rows) for m in MODES})),flush=True)
+    print("CPS_MATCHED_SUMMARY",json.dumps(dict(arms=len(rows),periods=PERIODS,**{m:sum(r["mode"]==m and r["verdict"]!="UNKNOWN" for r in rows) for m in MODES})),flush=True)
 if __name__=="__main__":
     if sys.argv[1]=="--worker":
         worker(pathlib.Path(sys.argv[2]),pathlib.Path(sys.argv[3]),pathlib.Path(sys.argv[4]),sys.argv[5])

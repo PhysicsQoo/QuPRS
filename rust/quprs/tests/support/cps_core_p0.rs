@@ -899,7 +899,9 @@ fn core_export_decision(dir:&std::path::Path,case:&str,variant:&str,start:&CpsCo
 fn hoare_cps_core_matched_worker(){
     let dir=std::path::PathBuf::from(std::env::var("CPS_CORE_MATCHED_DIR").unwrap());
     let mode=std::env::var("CPS_CORE_MATCHED_MODE").unwrap();
-    assert!(["rr","wmc","hybrid"].contains(&mode.as_str()));
+    assert!(["rr","wmc","hybrid","wmc-dag","hybrid-dag"].contains(&mode.as_str()));
+    let dag=mode.ends_with("-dag");
+    let policy=mode.strip_suffix("-dag").unwrap_or(&mode);
     let run=(||->Option<()>{
         let pre=std::fs::read_to_string(dir.join("pre.hsl")).ok()?;
         let post=std::fs::read_to_string(dir.join("post.hsl")).ok()?;
@@ -917,18 +919,20 @@ fn hoare_cps_core_matched_worker(){
         let initial_h=c.guard.ids.len()-c.n();
         let t=std::time::Instant::now();
         let mut steps=0;
-        if mode!="wmc"{
+        if policy!="wmc"{
             for _ in 0..32{
                 let Some((next,_))=c.rr_step() else{break;};
                 c=next;steps+=1;
             }
         }
         let rr_ns=t.elapsed().as_nanos();
-        let status=if mode=="wmc"{"READY"}else if let Some(v)=core_ray_rr_terminal(&c){v}else if mode=="rr"{"UNKNOWN"}else{"READY"};
+        let status=if policy=="wmc"{"READY"}else if let Some(v)=core_ray_rr_terminal(&c){v}else if policy=="rr"{"UNKNOWN"}else{"READY"};
         let mut primary=0;let mut vars=0;let mut clauses=0;let mut phase="-".to_owned();let mut encode_ns=0;
         if status=="READY"{
             let t=std::time::Instant::now();
-            let (cnf,d,p,k)=c.wmc_norm_plan()?;
+            // Explicit experimental arm. No silent fallback: a DAG
+            // admission failure must be reported as unsupported.
+            let (cnf,d,p,k)=if dag{c.wmc_norm_factored_plan()}else{c.wmc_norm_plan()}?;
             if k!=c.k{return None;}
             primary=p;vars=cnf.vars;clauses=cnf.clauses.len();
             phase=d.iter().map(ToString::to_string).collect::<Vec<_>>().join(",");

@@ -144,7 +144,7 @@ jobs:
           pathlib.Path("evidence/release-bin.path").write_text(paths[0])
           PY
           timeout 660s python3 rust/research/cps_core_matched_p0.py "$(cat evidence/release-bin.path)" "$RUNNER_TEMP/cps-gpmc" "$src/build/cli/autoq" "$src" evidence/cps-core-matched | tee evidence/cps-core-matched.log
-          grep -F 'CPS_MATCHED_SUMMARY ' evidence/cps-core-matched.log
+          grep -F 'CPS_MATCHED_SUMMARY {"arms": 324, "periods": 6' evidence/cps-core-matched.log
           CPS_CORE_SOURCE_DIR="$src" CPS_CORE_ENCODING_DIR="$PWD/evidence/cps-core-encoding" timeout 60s "$(cat evidence/release-bin.path)" --exact exact_property_cnf::hoare_cps_core_encoding_ab --nocapture | tee evidence/cps-core-encoding-export.log
           grep -F 'CPS_ENCODING_EXPORT arms=36 pairs=18 nonreal_reject=PASS' evidence/cps-core-encoding-export.log
           timeout 360s python3 rust/research/cps_core_encoding_ab_p0.py evidence/cps-core-encoding "$RUNNER_TEMP/cps-gpmc" | tee evidence/cps-core-encoding.log

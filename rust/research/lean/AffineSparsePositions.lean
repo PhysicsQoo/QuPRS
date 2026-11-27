@@ -38,14 +38,14 @@ theorem scope_concat {w : Nat} (x : BitVec w) (b : Bool) :
       (positions w x.toNat).map Nat.succ
     have hq : (x.toNat*2+0)/2 = x.toNat := by omega
     have hr : ¬ (x.toNat*2+0)%2=1 := by omega
-    rw [hq, if_neg hr]
+    rw [hq, ite_eq_right hr]
   · change (if (x.toNat*2+1)%2=1 then
       0 :: (positions w ((x.toNat*2+1)/2)).map Nat.succ
       else (positions w ((x.toNat*2+1)/2)).map Nat.succ) =
       0 :: (positions w x.toNat).map Nat.succ
     have hq : (x.toNat*2+1)/2 = x.toNat := by omega
     have hr : (x.toNat*2+1)%2=1 := by omega
-    rw [hq, if_pos hr]
+    rw [hq, ite_eq_left hr]
 
 theorem scope_count {w : Nat} (m : BitVec w) : (scope m).length = m.cpop.toNat := by
   refine BitVec.concat_induction (motive := fun _ x => (scope x).length = x.cpop.toNat) ?_ ?_ m
@@ -98,7 +98,7 @@ theorem scope_member {w : Nat} (m : BitVec w) :
     · intro h
       exact False.elim (List.not_mem_nil h)
     · intro h
-      omega
+      exact False.elim (Nat.not_lt_zero i h.1)
   · intro n x b ih i
     rw [scope_concat]
     cases i with
@@ -107,7 +107,7 @@ theorem scope_member {w : Nat} (m : BitVec w) :
         have hn : 0 ∉ (scope x).map Nat.succ := by
           intro h
           rcases List.mem_map.mp h with ⟨j, _, hj⟩
-          omega
+          exact Nat.noConfusion hj
         cases b
         · change 0 ∈ (scope x).map Nat.succ ↔ 0 < n+1 ∧ false = true
           constructor
@@ -123,20 +123,20 @@ theorem scope_member {w : Nat} (m : BitVec w) :
           constructor
           · intro h
             rcases List.mem_map.mp h with ⟨k, hk, he⟩
-            have he' : k = j := by omega
+            have he' : k = j := Nat.succ.inj he
             exact he' ▸ hk
           · intro h
             exact List.mem_map_of_mem h
         have hbase : j+1 ∈ (scope x).map Nat.succ ↔ j+1 < n+1 ∧ x.getLsbD j = true := by
           rw [hm, ih j]
-          exact ⟨fun h => ⟨by omega, h.2⟩, fun h => ⟨by omega, h.2⟩⟩
+          exact ⟨fun h => ⟨Nat.succ_lt_succ h.1, h.2⟩, fun h => ⟨Nat.lt_of_succ_lt_succ h.1, h.2⟩⟩
         cases b
         · exact hbase
         · change j+1 ∈ 0 :: (scope x).map Nat.succ ↔ j+1 < n+1 ∧ x.getLsbD j = true
           constructor
           · intro h
             rcases List.mem_cons.mp h with hz | ht
-            · omega
+            · exact False.elim (Nat.noConfusion hz)
             · exact hbase.mp ht
           · intro h
             exact List.mem_cons.mpr (Or.inr (hbase.mpr h))
@@ -166,7 +166,7 @@ theorem scope_remaining (fuel : Nat) (m : Word) :
   | succ n ih =>
       change scope (remaining n (clear m)) = (scope m).drop (n+1)
       rw [ih, scope_clear]
-      cases scope m <;> rfl
+      cases scope m <;> simp
 
 #print axioms positions_zero
 #print axioms scope_zero

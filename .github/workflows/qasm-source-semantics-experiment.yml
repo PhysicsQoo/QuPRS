@@ -31,6 +31,7 @@ on:
       - rust/research/cpr_elim_n4.py
       - rust/research/cpr_hh_n5a.py
       - rust/research/cpr_hh_n5b.py
+      - rust/research/cpr_hh_n5c.py
       - rust/quprs/src/reduction.rs
       - rust/research/cpr_admission_a4b_manifest.json
       - rust/quprs/tests/cpr_public_hybrid.rs
@@ -1348,10 +1349,10 @@ jobs:
           git rev-parse HEAD
           echo 'CRR_CORE_BRANCH_PREFLIGHT=PASS native_tests=NOT_RUN'
 
-  cpr-hh-n5b-contract:
+  cpr-hh-n5c:
     if: github.ref == 'refs/heads/experiment/cost-aware-pathsum'
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 40
     env:
       QUPRS_SOLVER_PROVISION: external
       CARGO_TERM_COLOR: never
@@ -1360,79 +1361,75 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: b398f07d6845efc23540549ccbfec717c27b1722
+          path: pinned-main
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: 8c57cf15f61bd15bbafb6f4cde5140b92e031d52
+          path: pre-fix
+          persist-credentials: false
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: 'rust -> target'
+          workspaces: |
+            rust -> target
+            pinned-main/rust -> target
+            pre-fix/rust -> target
           key: cpr-c3-main
       - name: Install native prerequisites
         run: sudo apt-get update && sudo apt-get install -y cmake pkg-config libgmp-dev libmpfr-dev zlib1g-dev
-      - name: Native phase and option contracts plus nonempty Myers matrix
+      - name: Fixed heavy CPR regression with pre-fix attribution and current main
         run: |
           set -euo pipefail
           mkdir -p evidence
           git rev-parse HEAD | tee evidence/source-head.txt
-          git diff --exit-code e9308899d462fc4ee9d9410367b7031cd1f0f183 HEAD -- rust/quprs/src rust/quprs/examples benchmarks/rust_core rust/research/cpr_hh_n5a.py rust/research/cpr_hh_pivot_n3.py
-          sha256sum rust/quprs/src/reduction.rs rust/quprs/src/lib.rs rust/quprs/tests/support/conditional_stitch.rs rust/research/cpr_hh_n5b.py rust/Cargo.lock > evidence/source-sha256.txt
+          git -C pinned-main rev-parse HEAD | tee evidence/main-head.txt
+          git -C pre-fix rev-parse HEAD | tee evidence/pre-fix-head.txt
+          test "$(cat evidence/main-head.txt)" = "b398f07d6845efc23540549ccbfec717c27b1722"
+          test "$(cat evidence/pre-fix-head.txt)" = "8c57cf15f61bd15bbafb6f4cde5140b92e031d52"
+          git diff --exit-code e06f397abcfadf12fd5540432004bd9bb88409b8 HEAD -- rust/quprs/src rust/quprs/examples rust/quprs/tests docs/development/paper-corpus-manifest.json
+          git diff --exit-code 8c57cf15f61bd15bbafb6f4cde5140b92e031d52 HEAD -- rust/quprs/src ':!rust/quprs/src/reduction.rs' rust/quprs/examples rust/quprs/tests/support/conditional_trace.rs rust/Cargo.lock docs/development/paper-corpus-manifest.json
+          git diff 8c57cf15f61bd15bbafb6f4cde5140b92e031d52 HEAD -- rust/quprs/src/reduction.rs | tee evidence/hh-diff.patch
+          git diff --stat b398f07d6845efc23540549ccbfec717c27b1722 HEAD -- rust/quprs/src rust/Cargo.lock | tee evidence/main-source-diff.txt
+          sha256sum rust/research/cpr_hh_n5c.py rust/research/cpr_rr_first.py rust/quprs/src/reduction.rs pre-fix/rust/quprs/src/reduction.rs pinned-main/rust/quprs/src/reduction.rs rust/quprs/examples/cpr_native_runner.rs rust/quprs/tests/support/conditional_stitch.rs rust/quprs/tests/support/conditional_trace.rs rust/Cargo.lock pre-fix/rust/Cargo.lock pinned-main/rust/Cargo.lock > evidence/source-sha256.txt
+          rustc --version | tee evidence/rustc.txt
           tmp="$(mktemp -d)"
           python3 scripts/install_gpmc_release.py --dest "$tmp/gpmc" | tee evidence/gpmc-release.json
           sha256sum "$tmp/gpmc" | tee evidence/gpmc-sha256.txt
           export QUPRS_GPMC_PATH="$tmp/gpmc"
-          cargo test --release --locked --manifest-path rust/Cargo.toml -p quprs --lib exact_global_phase_verdict_tests:: -- --nocapture | tee evidence/phase.log
-          cargo test --release --locked --manifest-path rust/Cargo.toml -p quprs --lib verification_options_contract_tests:: -- --nocapture | tee evidence/options.log
-          cargo test --release --locked --manifest-path rust/Cargo.toml -p quprs --test conditional_rr_experiment conditional_stitch::cpr_hh_nonempty_difference_contract -- --exact --nocapture | tee evidence/native.log
-          python3 rust/research/cpr_hh_n5b.py evidence/native.log | tee evidence/oracle.log
+          test ! -e pinned-main/rust/quprs/tests/cpr_public_hybrid.rs
+          cp rust/quprs/tests/cpr_public_hybrid.rs pinned-main/rust/quprs/tests/cpr_public_hybrid.rs
+          mkdir -p pinned-main/rust/quprs/examples
+          cp rust/quprs/examples/cpr_native_public.rs pinned-main/rust/quprs/examples/cpr_native_public.rs
+          build_example() {
+            local manifest="$1" name="$2" dest="$3"
+            cargo build --release --locked --manifest-path "$manifest" -p quprs --example "$name" --message-format=json > "$dest"
+            python3 -c 'import json,sys; rows=[json.loads(l) for l in open(sys.argv[1])]; p=[r["executable"] for r in rows if r.get("reason")=="compiler-artifact" and r.get("target",{}).get("name")==sys.argv[2] and r.get("executable")]; assert len(p)==1,p; print(p[0])' "$dest" "$name"
+          }
+          export CPR_BIN_MAIN="$(build_example pinned-main/rust/Cargo.toml cpr_native_public evidence/main-build.jsonl)"
+          export CPR_BIN_PRE_FIX="$(build_example pre-fix/rust/Cargo.toml cpr_native_runner evidence/pre-fix-build.jsonl)"
+          export CPR_BIN_FIXED="$(build_example rust/Cargo.toml cpr_native_runner evidence/fixed-build.jsonl)"
+          test "$(git -C pinned-main diff --name-only)" = ""
+          test "$(git -C pre-fix diff --name-only)" = ""
+          size "$CPR_BIN_MAIN" "$CPR_BIN_PRE_FIX" "$CPR_BIN_FIXED" | tee evidence/binary-size.txt
+          set +e
+          timeout --kill-after=5s 1200s python3 rust/research/cpr_hh_n5c.py 2>&1 | tee evidence/matched.log
+          cohort_status=${PIPESTATUS[0]}
+          set -e
+          python3 -m venv "$tmp/reference-venv"
+          "$tmp/reference-venv/bin/pip" install --disable-pip-version-check python-flint==0.9.0
+          set +e
+          CRR_GENERIC_LOG=evidence/matched.log CRR_BALL_BITS=2048 timeout --kill-after=5s 480s "$tmp/reference-venv/bin/python" rust/research/cpr_hh_n5c.py 2>&1 | tee evidence/source-parity.log
+          source_status=${PIPESTATUS[0]}
+          set -e
           find evidence -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > evidence/SHA256SUMS
+          test "$cohort_status" = 0
+          test "$source_status" = 0
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: cpr-hh-n5b-contract
-          path: evidence/
-
-  cpr-hh-n5b-simulation:
-    if: github.ref == 'refs/heads/experiment/cost-aware-pathsum'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 40
-    permissions:
-      contents: read
-      id-token: write
-    env:
-      QUPRS_SOLVER_PROVISION: external
-      CARGO_TERM_COLOR: never
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          persist-credentials: false
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: 'benchmarks/rust_core -> target'
-          key: cpr-core-simulation
-      - name: Source-pinned existing core benchmark
-        run: |
-          set -euo pipefail
-          mkdir -p evidence
-          git rev-parse HEAD | tee evidence/source-head.txt
-          git diff --exit-code e9308899d462fc4ee9d9410367b7031cd1f0f183 HEAD -- rust/quprs/src benchmarks/rust_core
-          git diff --exit-code b398f07d6845efc23540549ccbfec717c27b1722 HEAD -- benchmarks/rust_core/benches/core.rs benchmarks/rust_core/benches/shared
-          sha256sum rust/quprs/src/reduction.rs benchmarks/rust_core/benches/core.rs benchmarks/rust_core/benches/shared/qasm261.rs benchmarks/rust_core/Cargo.toml benchmarks/rust_core/Cargo.lock > evidence/source-sha256.txt
-          printf '%s\n' 'main=b398f07d6845efc23540549ccbfec717c27b1722' 'codspeed_main_run=6b03dbe363385668ede6de1a' 'comparison=existing_core_simulation' > evidence/baseline.txt
-          sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends cmake pkg-config libgmp-dev libmpfr-dev zlib1g-dev
-          cargo install --locked --version 6.0.0 cargo-codspeed
-          cd benchmarks/rust_core
-          cargo metadata --locked --no-deps --format-version 1 >/dev/null
-          cargo codspeed build -m simulation --bench core
-      - name: CodSpeed existing Rust core CPU Simulation
-        uses: CodSpeedHQ/action@v5
-        env:
-          CURL_HOME: ${{ github.workspace }}/.github/codspeed-download
-        with:
-          mode: simulation
-          run: cd benchmarks/rust_core && cargo codspeed run --bench core
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: cpr-hh-n5b-simulation
+          name: cpr-hh-n5c
           path: evidence/

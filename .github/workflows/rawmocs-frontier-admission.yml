@@ -11,7 +11,7 @@ on:
       suite:
         description: Bounded Frontier admission suite
         type: choice
-        options: [frontier-release-quality, frontier-vqe16-gpmc-scout, v020-cross-family-scout, v020-pinned-integration, v020-planner-diagnosis, v020-width-transfer, v020-rust-integration, v020-final-admission, v020-frontier-holdout, v020-shared-contraction, v020-package-rehearsal, p4-native-first]
+        options: [frontier-release-quality, frontier-vqe16-gpmc-scout, v020-cross-family-scout, v020-pinned-integration, v020-planner-diagnosis, v020-width-transfer, v020-rust-integration, v020-final-admission, v020-frontier-holdout, v020-shared-contraction, v020-package-rehearsal, p4-native-first, p4-native-long]
         default: frontier-release-quality
 permissions:
   contents: read
@@ -1944,7 +1944,7 @@ jobs:
           retention-days: 7
 
   p4-native-first:
-    if: github.event_name == 'push' || inputs.suite == 'p4-native-first'
+    if: github.event_name == 'workflow_dispatch' && inputs.suite == 'p4-native-first'
     name: P4 scoped Native API and CLI/GPMC parity
     runs-on: ubuntu-24.04
     timeout-minutes: 25
@@ -2026,5 +2026,102 @@ jobs:
         with:
           name: rawmocs-p4-native-first
           path: .p4-native-evidence/
+          include-hidden-files: true
+          if-no-files-found: warn
+
+  p4-native-long:
+    if: github.event_name == 'push' || inputs.suite == 'p4-native-long'
+    name: P4.5 long witnessed transport / ${{ matrix.case }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - case: qpeinexact22
+            artifact: '14999026030'
+            zip_sha: a11704d97a21c7642054c31caaa733e734a0505860fb63a1acd94b22a906ee9f
+            cnf_sha: 6fb69626195bee5b89ed3503ae8b1b4801d9267e7bd5ff3684af152afcd885e1
+            witness_sha: e59e2741a69dbb13b4f6d0b44562ac689541c4bcf7c43da476006ec8f1b87512
+          - case: grover6
+            artifact: '14993988130'
+            zip_sha: b222c21a0177876d6fdd4e915ac7359a94f2058ac7846ca33b0c00946fb7054e
+            cnf_sha: a9757cd5bd730b6f769d2970e3a16ac66fee7157b55f81208c0a7c2cece0023b
+            witness_sha: de23841cd2fbafe653cf3206e768b45f6eb8634380abdce867f0c70b1c786bf3
+          - case: qnn12
+            artifact: '14995474269'
+            zip_sha: d6a4bde601b0e7a5f0ff08370606d1c031fc75ae1177e894548e811092f7ac94
+            cnf_sha: 079f86a832056412d015759dd20a556a998ab4d596bea774a9ff5ebaed3484b7
+            witness_sha: 07635afae84795a1bc4846ceaad3dd46bc47d4284d9afb32df8ac918625df630
+    env:
+      OPENBLAS_NUM_THREADS: '1'
+      OMP_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+      PYTHONHASHSEED: '0'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: PhysicsQoo/RaWMoCS
+          ref: abe8316737ab5c90305160ea2d41626482cd65b7
+          path: .rawmocs-candidate
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: PhysicsQoo/GPMC
+          ref: 89bbc89d0de918e7a5385740355df55765039230
+          path: .gpmc
+          submodules: recursive
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            .rawmocs-candidate/crates/rawmocs-cli -> target
+            .rawmocs-candidate/crates/rawmocs-python -> target
+      - name: Build source-pinned candidate and GPMC
+        run: |
+          set -euo pipefail
+          test "$(git -C .rawmocs-candidate rev-parse HEAD)" = abe8316737ab5c90305160ea2d41626482cd65b7
+          test "$(git -C .gpmc rev-parse HEAD)" = 89bbc89d0de918e7a5385740355df55765039230
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends cmake ninja-build libgmp-dev libmpfr-dev zlib1g-dev m4 make gcc pkg-config
+          python -m pip install maturin==1.8.3 numpy sympy symengine 'qiskit==2.6.1' qiskit-qasm3-import psutil
+          cargo build --locked --release --manifest-path .rawmocs-candidate/crates/rawmocs-cli/Cargo.toml
+          (cd .rawmocs-candidate; maturin build --locked --release --interpreter python --compatibility linux --out "$RUNNER_TEMP/p4-wheel")
+          python -m pip install --no-index "$RUNNER_TEMP"/p4-wheel/*.whl
+          cmake -S .gpmc -B .gpmc/build -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake --build .gpmc/build --target gpmc-bin --parallel 2
+          mkdir -p .p4-long-evidence
+          python -m pip freeze > .p4-long-evidence/dependencies.txt
+          sha256sum "$RUNNER_TEMP"/p4-wheel/*.whl .rawmocs-candidate/crates/rawmocs-cli/target/release/rawmocs .gpmc/build/gpmc > .p4-long-evidence/binaries.sha256
+      - name: Recover immutable original CNF and independent witness
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT: ${{ matrix.artifact }}
+          ZIP_SHA: ${{ matrix.zip_sha }}
+        run: |
+          set -euo pipefail
+          zip="$RUNNER_TEMP/p4-original.zip"
+          gh api "repos/PhysicsQoo/RaWMoCS/actions/artifacts/$ARTIFACT/zip" > "$zip"
+          echo "$ZIP_SHA  $zip" | sha256sum -c -
+          unzip -q "$zip" -d .p4-long-input
+      - name: Three balanced matched trials with process-tree RSS sampling
+        env:
+          PYTHONPATH: ${{ github.workspace }}:${{ github.workspace }}/src:${{ github.workspace }}/.rawmocs-candidate/crates/rawmocs-cli/tools
+          CASE: ${{ matrix.case }}
+          CNF_SHA: ${{ matrix.cnf_sha }}
+          WITNESS_SHA: ${{ matrix.witness_sha }}
+        run: python research/rawmocs_integration/native_long.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: rawmocs-p4-long-${{ matrix.case }}
+          path: .p4-long-evidence/
           include-hidden-files: true
           if-no-files-found: warn

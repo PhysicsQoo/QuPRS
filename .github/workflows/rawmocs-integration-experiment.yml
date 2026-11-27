@@ -10,7 +10,7 @@ on:
       suite:
         description: Experimental evidence suite
         type: choice
-        options: [legacy, cross-family, source-admission, root-profile, factor-classes, sparse-anchor, prefix-memo, axis-profile, direct-binary, operand-profile, pool-profile, last-use-donor, masked-donor, descendant-units, inplace-scan, inplace-branch, move-components, borrowed-cache, general-cumulative, general-simulation-repair, general-native-gpmc, scope-scratch, streaming-large-general, large-root-closure, large-descendant-closure, fixed-work-descendant, large-general-candidate, long-native-candidate, default-parser-isolation, scope-scratch-fair, scope-scratch-candidate, large-root-ownership, root-ownership-port, packed-index-scratch, owned-entry-isolation, root-long-regression, reversible-index-state, reversible-canonical-boundary, historical-gap-baseline, reversible-frontier-transitions, reversible-ordered-frontier, historical-grover5, grover5-precision-audit, grover5-seven-pairs, reversible-rank-generation, reversible-single-unit-queue, component-scoped-trail-wmc, scoped-complete-ablation, scoped-adaptive-ablation, scoped-local-allocation, scoped-canonical-reuse, scoped-preindex-cache, general-pivot-scout, general-separator-scout, general-separator-paired, general-separator-transfer, general-separator-cli, general-separator-admission, general-separator-prehash, general-auto-fallback-scout, general-fallback-witness, general-frontier-transaction, qft24-bounded-order, qft24-cutset-dag, qft24-factor-fusion, general-frontier-holdout, general-frontier-borrowed-bucket, general-frontier-common-denominator, general-frontier-positive-scout]
+        options: [legacy, cross-family, source-admission, root-profile, factor-classes, sparse-anchor, prefix-memo, axis-profile, direct-binary, operand-profile, pool-profile, last-use-donor, masked-donor, descendant-units, inplace-scan, inplace-branch, move-components, borrowed-cache, general-cumulative, general-simulation-repair, general-native-gpmc, scope-scratch, streaming-large-general, large-root-closure, large-descendant-closure, fixed-work-descendant, large-general-candidate, long-native-candidate, default-parser-isolation, scope-scratch-fair, scope-scratch-candidate, large-root-ownership, root-ownership-port, packed-index-scratch, owned-entry-isolation, root-long-regression, reversible-index-state, reversible-canonical-boundary, historical-gap-baseline, reversible-frontier-transitions, reversible-ordered-frontier, historical-grover5, grover5-precision-audit, grover5-seven-pairs, reversible-rank-generation, reversible-single-unit-queue, component-scoped-trail-wmc, scoped-complete-ablation, scoped-adaptive-ablation, scoped-local-allocation, scoped-canonical-reuse, scoped-preindex-cache, general-pivot-scout, general-separator-scout, general-separator-paired, general-separator-transfer, general-separator-cli, general-separator-admission, general-separator-prehash, general-auto-fallback-scout, general-fallback-witness, general-frontier-transaction, qft24-bounded-order, qft24-cutset-dag, qft24-factor-fusion, general-frontier-holdout, general-frontier-borrowed-bucket, general-frontier-common-denominator, general-frontier-positive-scout, general-frontier-native-transfer, general-frontier-qpeexact20-retry]
         default: legacy
 permissions:
   contents: read
@@ -7906,7 +7906,7 @@ jobs:
           if-no-files-found: warn
 
   general-frontier-common-denominator:
-    if: github.event_name == 'push' || inputs.suite == 'general-frontier-common-denominator'
+    if: github.event_name == 'workflow_dispatch' && inputs.suite == 'general-frontier-common-denominator'
     name: Frontier common denominator / ${{ matrix.case }} / ${{ matrix.digits }} digits
     runs-on: ubuntu-24.04
     timeout-minutes: 12
@@ -8176,7 +8176,7 @@ jobs:
           if-no-files-found: warn
 
   general-frontier-positive-scout:
-    if: github.event_name == 'push' || inputs.suite == 'general-frontier-positive-scout'
+    if: github.event_name == 'workflow_dispatch' && inputs.suite == 'general-frontier-positive-scout'
     name: Actual positive frontier scout / ${{ matrix.case }}
     runs-on: ubuntu-24.04
     timeout-minutes: 15
@@ -8230,6 +8230,311 @@ jobs:
           test "$(git -C .upstream/quprs rev-parse "HEAD:$SOURCE")" = "$BLOB"
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends cmake ninja-build libgmp-dev libmpfr-dev zlib1g-dev m4 make gcc time pkg-config
+          mkdir -p .frontier-positive-evidence
+          repro=.classes-candidate/crates/rawmocs-cli/tools/repro
+          test "$(git -C .classes-candidate hash-object crates/rawmocs-cli/tools/repro/quprs_long_tail_source_bridge.rs)" = fc32f4e8b0a2f34386b86e08ddf147469275c245
+          cp "$repro/quprs_long_tail_source_bridge.rs" .upstream/quprs/rust/quprs/examples/
+          cargo build --locked --release --no-default-features --manifest-path .upstream/quprs/rust/Cargo.toml -p quprs --example quprs_long_tail_source_bridge
+          cargo test --locked --release --manifest-path .classes-candidate/crates/rawmocs-cli/Cargo.toml 2>&1 | tee .frontier-positive-evidence/science.log
+          cargo build --locked --release --manifest-path .classes-candidate/crates/rawmocs-cli/Cargo.toml
+      - name: Scout only validated frontier; witness genuine positive completions
+        env:
+          CASE: ${{ matrix.case }}
+          SOURCE: ${{ matrix.source }}
+          BLOB: ${{ matrix.blob }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib,json,os,re,subprocess,sys,time
+          from fractions import Fraction
+          from pathlib import Path
+          root=Path(".frontier-positive-evidence").resolve()
+          q=Path(".upstream/quprs").resolve()
+          cli=Path(".classes-candidate/crates/rawmocs-cli").resolve()
+          sys.path.insert(0,str(cli/"tools"))
+          from release_transfer import check_count
+          from release_native_paired import parse
+          case=os.environ["CASE"];rel=os.environ["SOURCE"];label="extended_"+case
+          binary=cli/"target/release/rawmocs"
+          def sha(p):return hashlib.sha256(p.read_bytes()).hexdigest()
+          report={"case":case,"source_path":rel,"qasm_blob":os.environ["BLOB"],"qasm_sha256":sha(q/rel),"quprs_sha":"0b28736651b3740ed3b201edd2efdef3da541e0d","rawmocs_sha":"3b3ba2ca7032c12577e908ff55202c53b5aaa3e0","binary_sha256":sha(binary),"digits":130,"bits":432,"target":100,"status":"IN_PROGRESS","rows":{}}
+          def finish(status):
+              report["status"]=status
+              (root/"report.json").write_text(json.dumps(report,indent=2)+"\n")
+              print("FRONTIER_POSITIVE_SCOUT_REPORT",json.dumps(report),flush=True)
+          def bounded(cmd,seconds,tag):
+              start=time.monotonic_ns()
+              p=subprocess.run(["timeout","-k","2s",str(seconds),"prlimit","--as=3221225472","--",*map(str,cmd)],capture_output=True,text=True,timeout=seconds+7)
+              (root/f"{tag}.stdout").write_text(p.stdout)
+              (root/f"{tag}.stderr").write_text(p.stderr)
+              return p,(time.monotonic_ns()-start)/1e9
+          exporter=q/"rust/target/release/examples/quprs_long_tail_source_bridge"
+          p,t=bounded([exporter,label,q,root,rel],30,"export")
+          if p.returncode:
+              report["export"]={"exit":p.returncode,"wall_s":t}
+              finish("EXPORT_NOT_ADMITTED");sys.exit(0)
+          cnf=root/(label+"-gpmc.cnf")
+          assert (root/(label+".qasm")).read_bytes()==(q/rel).read_bytes()
+          expected=sha(cnf);report["cnf_sha256"]=expected
+          header=cnf.open().readline().split();assert header[:2]==["p","cnf"] and len(header)==4
+          report["variables"],report["clauses"]=map(int,header[2:])
+          p,t=bounded([binary,"--digits","130","--solver","auto-frontier","--timeout-ms","13000",cnf],15,"frontier")
+          stop=re.findall(r"^PREJOIN_FRONTIER_STOP steps=(\d+) remaining=(\d+) reason=exact local bit cap$",p.stderr,re.M)
+          row={"exit":p.returncode,"wall_s":t,"stop":stop,"fallback_reasons":re.findall(r"^RAWMOCS_FALLBACK reason=(.+)$",p.stderr,re.M)}
+          report["rows"]["frontier"]=row
+          assert sha(cnf)==expected
+          if p.returncode:
+              assert not p.stdout
+              finish("FRONTIER_NOT_COMPLETE");sys.exit(0)
+          row.update(parse(p.stdout,"rawmocs"))
+          route,=re.findall(r"^RAWMOCS_COMPLETE route=([a-z-]+) digits=130 bits=432 ",p.stderr,re.M)
+          row["route"]=route
+          if not stop or route!="prejoin" or row["fallback_reasons"]:
+              finish("NO_POSITIVE_FRONTIER_ROUTE");sys.exit(0)
+          ref=None
+          for name in ("original_exact_prejoin.py","original_fixed_interval.py"):
+              p,t=bounded([sys.executable,cli/"tools/repro"/name,cnf,expected],45,name)
+              report.setdefault("oracle_attempts",[]).append({"name":name,"exit":p.returncode,"wall_s":t})
+              if p.returncode:continue
+              c=json.loads(p.stdout)
+              if name=="original_fixed_interval.py":
+                  assert "FIXED_INTERVAL_SELF_TEST PASS" in p.stderr
+                  c["status"]="INDEPENDENT_FIXED_INTERVAL_COMPLETE"
+              if c.get("status") not in ("INDEPENDENT_INTERVAL_COMPLETE","INDEPENDENT_FIXED_INTERVAL_COMPLETE"):continue
+              assert c["source_sha256"]==expected and c["bits"]==550 and type(c["sat"]) is bool
+              assert c["width"]<=19 and c["work"]<=40000000 and c["peak"]<=2000000
+              for key in ("real","imag"):
+                  a,b=map(Fraction,c[key]);assert a<=b
+              ref=c;break
+          if ref is None:
+              finish("POSITIVE_FRONTIER_UNWITNESSED");sys.exit(0)
+          row["witness_upper"]=check_count(row,ref,100)
+          (root/"independent-reference.json").write_text(json.dumps(ref,indent=2)+"\n")
+          report["witness_sha256"]=sha(root/"independent-reference.json")
+          assert sha(cnf)==expected
+          finish("POSITIVE_FRONTIER_WITNESSED")
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: rawmocs-frontier-positive-${{ matrix.case }}
+          path: .frontier-positive-evidence/
+          include-hidden-files: true
+          if-no-files-found: warn
+
+  general-frontier-native-transfer:
+    if: github.event_name == 'push' || inputs.suite == 'general-frontier-native-transfer'
+    name: Frontier native transfer / four arms
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: PhysicsQoo/RaWMoCS
+          ref: dc8b0b8840212548d4126c1f1d1f81cc04b83db8
+          path: .classes-candidate
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: PhysicsQoo/RaWMoCS
+          ref: 48693d6a8e767170cce6e942add2fb6371e27fe7
+          path: .frontier-baseline
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: PhysicsQoo/RaWMoCS
+          ref: 3b3ba2ca7032c12577e908ff55202c53b5aaa3e0
+          path: .frontier-validated
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: PhysicsQoo/GPMC
+          ref: 89bbc89d0de918e7a5385740355df55765039230
+          path: .gpmc
+          submodules: recursive
+          persist-credentials: false
+      - name: Recover exact source and independent witness
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p .frontier-native-evidence
+          for spec in '15163386446 60e9e24a2ca2a613f777c4fbb2fe5a5fc5d6e0c48af6f5d7eb4d8b8415cf5760 .frontier-native-original'; do
+            read -r id digest dir <<< "$spec"
+            zip="$RUNNER_TEMP/$id.zip"
+            gh api "repos/PhysicsQoo/QuPRS/actions/artifacts/$id/zip" > "$zip"
+            echo "$digest  $zip" | sha256sum -c -
+            unzip -q "$zip" -d "$dir"
+          done
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            .classes-candidate/crates/rawmocs-cli -> target
+            .frontier-baseline/crates/rawmocs-cli -> target
+            .frontier-validated/crates/rawmocs-cli -> target
+          shared-key: rawmocs-general-dependencies
+          cache-workspace-crates: 'false'
+      - name: Build pinned native executables and run tests
+        run: |
+          set -euo pipefail
+          test "$(git -C .classes-candidate rev-parse HEAD)" = dc8b0b8840212548d4126c1f1d1f81cc04b83db8
+          test "$(git -C .frontier-baseline rev-parse HEAD)" = 48693d6a8e767170cce6e942add2fb6371e27fe7
+          test "$(git -C .gpmc rev-parse HEAD)" = 89bbc89d0de918e7a5385740355df55765039230
+          # Use only the Ubuntu image's signed archive source. Ignore unrelated
+          # third-party repositories, without allowing unsigned packages.
+          test -f /etc/apt/sources.list.d/ubuntu.sources
+          sudo apt-get -o Dir::Etc::sourcelist=/etc/apt/sources.list.d/ubuntu.sources -o Dir::Etc::sourceparts=- -o APT::Get::List-Cleanup=0 update
+          sudo apt-get -o Dir::Etc::sourcelist=/etc/apt/sources.list.d/ubuntu.sources -o Dir::Etc::sourceparts=- install -y --no-install-recommends cmake ninja-build libgmp-dev libmpfr-dev zlib1g-dev m4 make gcc time pkg-config
+          cargo test --locked --release --manifest-path .classes-candidate/crates/rawmocs-cli/Cargo.toml 2>&1 | tee .frontier-native-evidence/science.log
+          test "$(git -C .frontier-validated rev-parse HEAD)" = 3b3ba2ca7032c12577e908ff55202c53b5aaa3e0
+          for repo in .classes-candidate .frontier-baseline .frontier-validated; do
+            cargo build --locked --release --manifest-path "$repo/crates/rawmocs-cli/Cargo.toml"
+          done
+          cmake -S .gpmc -B .gpmc/build -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake --build .gpmc/build --target gpmc-bin --parallel 2
+      - name: Exact frontier parity and seven rotated native quadruples
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib,json,os,re,statistics,subprocess,sys,time
+          from pathlib import Path
+          root=Path(".frontier-native-evidence").resolve()
+          cli=Path(".classes-candidate/crates/rawmocs-cli").resolve()
+          sys.path.insert(0,str(cli/"tools"))
+          from release_transfer import check_count
+          from release_native_paired import parse
+          cnf,=Path(".frontier-native-original").rglob("extended_qaoa11_native-gpmc.cnf")
+          cnf=cnf.resolve()
+          refpath,=Path(".frontier-native-original").rglob("independent-reference.json")
+          ref=json.loads(refpath.read_text())
+          def sha(p): return hashlib.sha256(p.read_bytes()).hexdigest()
+          expected="9590aa1e585eaafae3bed6a9d6e7fbc96f914388d0b3524d567876185329af25"
+          assert sha(cnf)==expected==ref["source_sha256"]
+          assert sha(refpath)=="77017d899f861ce422c7ee264e64cfa2ab2ada1c43ef30b738ee615116828094"
+          assert ref["bits"]==550
+          bins={"auto":Path(".frontier-baseline/crates/rawmocs-cli/target/release/rawmocs").resolve(),"frontier":Path(".frontier-validated/crates/rawmocs-cli/target/release/rawmocs").resolve(),"denominator":cli/"target/release/rawmocs","gpmc":Path(".gpmc/build/gpmc").resolve()}
+          report={"case":"qaoa11_native","source_sha256":expected,"witness_sha256":sha(refpath),"bits":432,"digits":130,"target":100,"binary_sha256":{k:sha(v) for k,v in bins.items()},"rows":[],"status":"IN_PROGRESS"}
+          def save(): (root/"report.json").write_text(json.dumps(report,indent=2)+"\n")
+          def bounded(cmd,seconds,tag,env=None):
+              start=time.monotonic_ns()
+              p=subprocess.run(["timeout","-k","2s",str(seconds),"prlimit","--as=3221225472","--",*map(str,cmd)],capture_output=True,text=True,timeout=seconds+7,env=env)
+              (root/f"{tag}.stdout").write_text(p.stdout)
+              (root/f"{tag}.stderr").write_text(p.stderr)
+              return p,time.monotonic_ns()-start
+          save()
+          env=dict(os.environ,RAWMOCS_TEST_ORIGINAL=str(cnf))
+          p,ns=bounded(["cargo","test","--locked","--release","--manifest-path",cli/"Cargo.toml","factor_prejoin::tests::original_exact_frontier_scout","--","--exact","--ignored","--nocapture","--test-threads=1"],55,"transaction",env)
+          assert p.returncode==0 and "FRONTIER_TRANSACTION_EXACT_MATCH" in p.stdout
+          assert "FRONTIER_BOUND last_safe=368 first_rejected=369" in p.stdout
+          assert "FRONTIER_SAFE remaining=7 " in p.stdout
+          report["transaction"]="EXACT_FACTOR_SCOPE_SCALAR_COST_MATCH"
+          def solve(arm,tag,legacy=False):
+              rss=root/f"{tag}.rss"
+              cmd=[bins["gpmc"],"-mode=1","-prec=130",cnf] if arm=="gpmc" else [bins["denominator"] if legacy else bins[arm],"--digits","130","--solver","auto" if legacy or arm=="auto" else "auto-frontier","--timeout-ms","8000",cnf]
+              p,ns=bounded(["/usr/bin/time","-f","%M","-o",rss,*cmd],10,tag)
+              assert p.returncode==0,(tag,p.returncode,p.stderr[-1000:])
+              row=parse(p.stdout,"gpmc" if arm=="gpmc" else "rawmocs")
+              row.update(arm=arm,wall_ns=ns,rss_kib=int(rss.read_text().strip()),witness_upper=check_count(row,ref,100))
+              if arm=="gpmc":
+                  assert re.findall(r"^c o precision (\d+)\s*$",p.stdout,re.M)==["130"]
+              else:
+                  route,=re.findall(r"^RAWMOCS_COMPLETE route=([a-z-]+) digits=130 bits=432 ",p.stderr,re.M)
+                  row["route"]=route
+                  if arm in ("frontier","denominator") and not legacy:
+                      assert route=="prejoin"
+                      assert re.findall(r"^PREJOIN_FRONTIER_STOP steps=(\d+) remaining=(\d+) reason=exact local bit cap$",p.stderr,re.M)==[("368","7")]
+                      plan,=re.findall(r"^PREJOIN_COMPLETE residual=(\d+) cuts=(\d+) leaves=(\d+) width=(\d+) work=(\d+) peak=(\d+)",p.stderr,re.M)
+                      row["plan"]=list(map(int,plan))
+                      assert row["plan"][0]==7 and row["plan"][3]<=19 and row["plan"][4]<=40000000 and row["plan"][5]<=2000000
+                      assert "RAWMOCS_FALLBACK" not in p.stderr
+                  else:
+                      assert route=="general" and "RAWMOCS_FALLBACK reason=exact local bit cap" in p.stderr
+                      assert "PREJOIN_FRONTIER_STOP" not in p.stderr
+              assert sha(cnf)==expected
+              return row,p.stdout
+          old,a=solve("auto","control-old")
+          new,b=solve("auto","control-new",True)
+          assert a==b
+          report["legacy_control"]="EXACT_OUTPUT_ROUTE_PASS"
+          save()
+          arms=("auto","frontier","denominator","gpmc")
+          orders=[arms[i:]+arms[:i] for i in range(4)]+[tuple(reversed(arms[i:]+arms[:i])) for i in range(3)]
+          stable={}
+          for trial,order in enumerate(orders):
+              for arm in order:
+                  row,raw=solve(arm,f"{trial}-{arm}")
+                  sig=(row["sat"],row["real"],row["imag"])
+                  if arm in stable: assert sig==stable[arm]
+                  else: stable[arm]=sig
+                  row["trial"]=trial
+                  report["rows"].append(row)
+                  save()
+          report["median_ns"]={a:statistics.median(r["wall_ns"] for r in report["rows"] if r["arm"]==a) for a in bins}
+          report["median_rss_kib"]={a:statistics.median(r["rss_kib"] for r in report["rows"] if r["arm"]==a) for a in bins}
+          assert stable["frontier"]==stable["denominator"]
+          assert all(next(r["plan"] for r in report["rows"] if r["trial"]==t and r["arm"]=="frontier")==next(r["plan"] for r in report["rows"] if r["trial"]==t and r["arm"]=="denominator") for t in range(7))
+          report["status"]="SEVEN_MATCHED_QUADRUPLES_PASS"
+          save()
+          print("FRONTIER_NATIVE_TRANSFER_REPORT",json.dumps(report),flush=True)
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: rawmocs-frontier-native-transfer-qaoa11
+          path: .frontier-native-evidence/
+          include-hidden-files: true
+          if-no-files-found: warn
+
+  general-frontier-qpeexact20-retry:
+    if: github.event_name == 'push' || inputs.suite == 'general-frontier-qpeexact20-retry'
+    name: Positive frontier retry / ${{ matrix.case }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - case: qpeexact20
+            source: benchmarks/MQTBench/qiskit-2.6.1-opt0/Random_Rotation/qpeexact_nativegates_ibm_qiskit_opt0_20.qasm
+            blob: 2026e84ec6d10892287afd466378c1dd4df1f59c
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: PhysicsQoo/RaWMoCS
+          ref: 3b3ba2ca7032c12577e908ff55202c53b5aaa3e0
+          path: .classes-candidate
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: PhysicsQoo/QuPRS
+          ref: 0b28736651b3740ed3b201edd2efdef3da541e0d
+          path: .upstream/quprs
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            .classes-candidate/crates/rawmocs-cli -> target
+            .upstream/quprs/rust -> target
+          shared-key: rawmocs-auto-fallback-scout
+          cache-workspace-crates: 'false'
+      - name: Build pinned exporter and native solvers
+        env:
+          SOURCE: ${{ matrix.source }}
+          BLOB: ${{ matrix.blob }}
+        run: |
+          set -euo pipefail
+          test "$(git -C .classes-candidate rev-parse HEAD)" = 3b3ba2ca7032c12577e908ff55202c53b5aaa3e0
+          test "$(git -C .upstream/quprs rev-parse HEAD)" = 0b28736651b3740ed3b201edd2efdef3da541e0d
+          test "$(git -C .upstream/quprs rev-parse "HEAD:$SOURCE")" = "$BLOB"
+          # Use only the Ubuntu image's signed archive source. Ignore unrelated
+          # third-party repositories, without allowing unsigned packages.
+          test -f /etc/apt/sources.list.d/ubuntu.sources
+          sudo apt-get -o Dir::Etc::sourcelist=/etc/apt/sources.list.d/ubuntu.sources -o Dir::Etc::sourceparts=- -o APT::Get::List-Cleanup=0 update
+          sudo apt-get -o Dir::Etc::sourcelist=/etc/apt/sources.list.d/ubuntu.sources -o Dir::Etc::sourceparts=- install -y --no-install-recommends cmake ninja-build libgmp-dev libmpfr-dev zlib1g-dev m4 make gcc time pkg-config
           mkdir -p .frontier-positive-evidence
           repro=.classes-candidate/crates/rawmocs-cli/tools/repro
           test "$(git -C .classes-candidate hash-object crates/rawmocs-cli/tools/repro/quprs_long_tail_source_bridge.rs)" = fc32f4e8b0a2f34386b86e08ddf147469275c245

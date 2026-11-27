@@ -1390,8 +1390,8 @@ jobs:
                   print(name,variant,entry["path"],hashlib.sha256(data).hexdigest())
           PY
           cargo test --release --locked --manifest-path rust/Cargo.toml -p quprs --lib cpr::tests:: -- --nocapture --test-threads=1 | tee evidence/builder.log
-          grep -Fx 'CPR_I1B_STREAM_GATE no_lift=4 prefix_elim=blocked continuation_elim=blocked deadline=blocked' evidence/builder.log
-          grep -Fx 'CPR_I1B_HEAVY_GATE cases=5 shape_parity=true' evidence/builder.log
+          grep -E '^(test cpr::tests::i1b_stream_and_fail_closed \.\.\. )?CPR_I1B_STREAM_GATE no_lift=4 prefix_elim=blocked continuation_elim=blocked deadline=blocked$' evidence/builder.log
+          grep -E '^(test cpr::tests::i1b_frozen_heavy_construction \.\.\. )?CPR_I1B_HEAVY_GATE cases=5 shape_parity=true$' evidence/builder.log
           find evidence -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > evidence/SHA256SUMS
       - uses: actions/upload-artifact@v4
         if: always()

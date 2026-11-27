@@ -191,6 +191,110 @@ impl<F:CoreGuardStorage> CpsCore<F>{
         let mut factors=self.guard.factors_ref().into_iter().cloned().collect::<Vec<_>>();factors.extend(gs);
         Self::shared_from_parts(ps,factors,k)
     }
+    fn shared_then_adjoint_affine(&self,b:&Self)->Result<(Self,usize,usize),String>{
+        if !self.shared_valid()||!b.shared_valid()||self.q()!=b.q(){return Err("invalid-input".into());}
+        if b.ps.p.terms.values().any(|c|core_phase8(c)!=Some(4)&&core_phase8(c)!=Some(0)){
+            return Err("non-sign-adjoint".into());
+        }
+        let mut rows=Vec::<(BTreeSet<u32>,BTreeSet<F::M>)>::new();
+        let one=F::mono(&[]).ok_or("constant")?;
+        let mut gs=Vec::new();
+        let mut pins=0usize;
+        for g in b.guard.factors_ref(){
+            let nonzero:Vec<_>=g.iter().filter(|m|*m!=&one).map(F::mono_ids).collect();
+            if nonzero.len()==1&&nonzero[0].len()==1{
+                let rhs=if g.contains(&one){BTreeSet::new()}else{BTreeSet::from([one.clone()])};
+                rows.push((BTreeSet::from([nonzero[0][0]]),rhs));pins+=1;
+            }else{gs.push(g.clone());}
+        }
+        for (a,out) in self.ps.f.functions.iter().zip(&b.ps.f.functions){
+            if out.iter().any(|m|m.len()>1){return Err("non-affine-output".into());}
+            let mut rhs=core_storage_anf::<F>(a).ok_or("lhs-output")?;
+            let mut mask=BTreeSet::new();
+            for m in out{
+                if m.is_empty(){core_toggle(&mut rhs,one.clone());}
+                else{core_toggle(&mut mask,m[0]);}
+            }
+            rows.push((mask,rhs));
+        }
+        // RREF over B's source IDs only; RHS is a Boolean function in A.
+        // Any zero row becomes a guard on A, not a discarded constraint.
+        let mut pivots=Vec::new();
+        let mut rank=0usize;
+        for &id in b.guard.ids(){
+            let Some(i)=(rank..rows.len()).find(|&i|rows[i].0.contains(&id)) else{continue;};
+            rows.swap(rank,i);
+            let (m,r)=rows[rank].clone();
+            for (j,(q,t)) in rows.iter_mut().enumerate(){
+                if j==rank||!q.contains(&id){continue;}
+                for &v in &m{core_toggle(q,v);}
+                for v in &r{core_toggle(t,v.clone());}
+                if t.len()>CORE_TERMS{return Err("affine-rhs-cap".into());}
+            }
+            pivots.push(id);rank+=1;
+        }
+        let free=b.guard.ids().len()-rank;
+        let total=(self.ps.v.next_id as usize).checked_add(free).ok_or("id-overflow")?;
+        if total>F::ID_LIMIT as usize{return Err(format!("affine-live-cap lhs={} rhs={} rank={rank} pins={pins} free={free} required={total}",self.ps.v.next_id,b.guard.ids().len()));}
+        let mut ps=PathSum::new(self.n());ps.set_auto_reduce(false);
+        ps.v=self.ps.v.clone();ps.p=self.ps.p.clone();
+        let mut repl=BTreeMap::<u32,BTreeSet<F::M>>::new();
+        for &id in b.guard.ids(){
+            if pivots.contains(&id){continue;}
+            let fresh=ps.v.get_fresh_var();
+            repl.insert(id,BTreeSet::from([F::mono(&[fresh]).ok_or("bound-id")?]));
+        }
+        for (i,&id) in pivots.iter().enumerate(){
+            let mut rhs=rows[i].1.clone();
+            if !rows[i].0.contains(&id){return Err("pivot-id".into());}
+            for &j in &rows[i].0{
+                if j==id{continue;}
+                for m in repl.get(&j).ok_or("unresolved-pivot")?{core_toggle(&mut rhs,m.clone());}
+            }
+            if rhs.len()>CORE_TERMS{return Err("affine-rhs-cap".into());}
+            repl.insert(id,rhs);
+        }
+        let mut factors=self.guard.factors_ref().into_iter().cloned().collect::<Vec<_>>();
+        for (m,r) in rows.iter().skip(rank){
+            if !m.is_empty(){return Err("incomplete-rref".into());}
+            let mut g=r.clone();core_toggle(&mut g,one.clone());factors.push(g);
+        }
+        let mut work=0usize;
+        let mut subst=|g:&BTreeSet<F::M>|->Option<BTreeSet<F::M>>{
+            let mut out=BTreeSet::new();
+            for m in g{
+                let mut term=BTreeSet::from([one.clone()]);
+                for id in F::mono_ids(m){
+                    let sub=repl.get(&id)?;
+                    work=work.checked_add(term.len().checked_mul(sub.len())?)?;
+                    if work>2_000_000{return None;}
+                    term=cps_guard_algebra::guard_mul(&term,sub)?;
+                    if term.is_empty(){break;}
+                }
+                for v in term{core_toggle(&mut out,v);}
+                if out.len()>CORE_TERMS{return None;}
+            }
+            Some(out)
+        };
+        for g in &gs{factors.push(subst(g).ok_or("guard-substitution-cap")?);}
+        for (m,c) in &b.ps.p.terms{
+            if core_phase8(c)==Some(0){continue;}
+            // -pi == pi; XOR sign monomials are exact modulo 2*pi.
+            let g=subst(&BTreeSet::from([F::mono(m).ok_or("phase-mask")?])).ok_or("phase-substitution-cap")?;
+            for v in g{
+                ps.p.add_term(F::mono_ids(&v),quprs::PhaseCoeff::HALF);
+            }
+            if ps.p.terms.len()>CORE_PHASE_TERMS{return Err("phase-term-cap".into());}
+        }
+        ps.f=quprs::pathsum::BooleanState::new(b.n());
+        for (i,out) in ps.f.functions.iter_mut().enumerate(){
+            *out=repl.get(&(i as u32)).ok_or("output-map")?.iter().map(F::mono_ids).collect();
+        }
+        let k=self.k.checked_add(b.k).ok_or("scale-overflow")?;
+        let factors=core_storage_pack::<F>(factors).ok_or("guard-pack")?;
+        let c=Self::shared_from_parts(ps,factors,k).ok_or("result-invariant")?;
+        Ok((c,rank,pins))
+    }
     fn shared_adjoint(&self)->Result<Self,String>{
         if !self.shared_valid(){return Err("invalid-input".into());}
         let mut ps=PathSum::new(self.q());ps.set_auto_reduce(false);
@@ -324,109 +428,7 @@ impl CpsCore{
     // allocating IDs. The remaining variables stay native PathSum paths;
     // every removed variable has exactly one extension, so k is unchanged.
     fn then_adjoint_affine(&self,b:&Self)->Result<(Self,usize,usize),String>{
-        if !self.valid()||!b.valid()||self.q()!=b.q(){return Err("invalid-input".into());}
-        if b.ps.p.terms.values().any(|c|core_phase8(c)!=Some(4)&&core_phase8(c)!=Some(0)){
-            return Err("non-sign-adjoint".into());
-        }
-        let mut rows=Vec::<(u64,Anf)>::new();
-        let mut gs=Vec::new();
-        let mut pins=0usize;
-        for g in b.guard.factors(){
-            let nonzero:Vec<_>=g.iter().copied().filter(|&m|m!=0).collect();
-            if nonzero.len()==1&&nonzero[0].count_ones()==1{
-                let rhs=if g.contains(&0){Anf::new()}else{Anf::from([0])};
-                rows.push((nonzero[0],rhs));pins+=1;
-            }else{gs.push(g.clone());}
-        }
-        for (a,out) in self.ps.f.functions.iter().zip(&b.ps.f.functions){
-            if out.iter().any(|m|m.len()>1){return Err("non-affine-output".into());}
-            let mut rhs=core_anf(a).ok_or("lhs-output")?;
-            let mut mask=0u64;
-            for m in out{
-                if m.is_empty(){xor_insert(&mut rhs,0);}
-                else{mask^=core_bit(m[0]).ok_or("source-id")?;}
-            }
-            rows.push((mask,rhs));
-        }
-        // RREF over B's source IDs only; RHS is a Boolean function in A.
-        // Any zero row becomes a guard on A, not a discarded constraint.
-        let mut pivots=Vec::new();
-        let mut rank=0usize;
-        for &id in &b.guard.ids{
-            let bit=core_bit(id).ok_or("source-id")?;
-            let Some(i)=(rank..rows.len()).find(|&i|rows[i].0&bit!=0) else{continue;};
-            rows.swap(rank,i);
-            let (m,r)=rows[rank].clone();
-            for (j,(q,t)) in rows.iter_mut().enumerate(){
-                if j==rank||*q&bit==0{continue;}
-                *q^=m;
-                for &v in &r{xor_insert(t,v);}
-                if t.len()>CORE_TERMS{return Err("affine-rhs-cap".into());}
-            }
-            pivots.push(id);rank+=1;
-        }
-        let free=b.guard.ids.len()-rank;
-        let total=self.ps.v.next_id as usize+free;
-        if total>63{return Err(format!("affine-live-cap lhs={} rhs={} rank={rank} pins={pins} free={free} required={total}",self.ps.v.next_id,b.guard.ids.len()));}
-        let mut ps=PathSum::new(self.n());ps.set_auto_reduce(false);
-        ps.v=self.ps.v.clone();ps.p=self.ps.p.clone();
-        let mut repl=BTreeMap::<u32,Anf>::new();
-        for &id in &b.guard.ids{
-            if pivots.contains(&id){continue;}
-            let fresh=ps.v.get_fresh_var();
-            repl.insert(id,Anf::from([core_bit(fresh).ok_or("bound-id")?]));
-        }
-        for (i,&id) in pivots.iter().enumerate(){
-            let mut rhs=rows[i].1.clone();
-            let mask=rows[i].0^core_bit(id).ok_or("pivot-id")?;
-            for &j in &b.guard.ids{
-                if mask&(1u64<<j)==0{continue;}
-                for &m in repl.get(&j).ok_or("unresolved-pivot")?{xor_insert(&mut rhs,m);}
-            }
-            if rhs.len()>CORE_TERMS{return Err("affine-rhs-cap".into());}
-            repl.insert(id,rhs);
-        }
-        let mut factors=self.guard.factors().cloned().collect::<Vec<_>>();
-        for (m,r) in rows.iter().skip(rank){
-            if *m!=0{return Err("incomplete-rref".into());}
-            let mut g=r.clone();xor_insert(&mut g,0);factors.push(g);
-        }
-        let mut work=0usize;
-        let mut subst=|g:&Anf|->Option<Anf>{
-            let mut out=Anf::new();
-            for &m in g{
-                let mut term=Anf::from([0]);
-                for &id in &b.guard.ids{
-                    if m&(1u64<<id)==0{continue;}
-                    let sub=repl.get(&id)?;
-                    work=work.checked_add(term.len().checked_mul(sub.len())?)?;
-                    if work>2_000_000{return None;}
-                    term=mul_anf(&term,sub)?;
-                    if term.is_empty(){break;}
-                }
-                for v in term{xor_insert(&mut out,v);}
-                if out.len()>CORE_TERMS{return None;}
-            }
-            Some(out)
-        };
-        for g in &gs{factors.push(subst(g).ok_or("guard-substitution-cap")?);}
-        for (m,c) in &b.ps.p.terms{
-            if core_phase8(c)==Some(0){continue;}
-            // -pi == pi; XOR sign monomials are exact modulo 2*pi.
-            let g=subst(&Anf::from([core_mask(m).ok_or("phase-mask")?])).ok_or("phase-substitution-cap")?;
-            for v in g{
-                ps.p.add_term((0..63u32).filter(|&i|v&(1u64<<i)!=0).collect(),quprs::PhaseCoeff::HALF);
-            }
-            if ps.p.terms.len()>CORE_PHASE_TERMS{return Err("phase-term-cap".into());}
-        }
-        ps.f=quprs::pathsum::BooleanState::new(b.n());
-        for (i,out) in ps.f.functions.iter_mut().enumerate(){
-            *out=repl.get(&(i as u32)).ok_or("output-map")?.iter().map(|&m|
-                (0..63u32).filter(|&j|m&(1u64<<j)!=0).collect()).collect();
-        }
-        let k=self.k.checked_add(b.k).ok_or("scale-overflow")?;
-        let c=Self::from_factors(ps,core_pack_guard_factors(factors),k).ok_or("result-invariant")?;
-        Ok((c,rank,pins))
+        self.shared_then_adjoint_affine(b)
     }
     // Old free inputs become bound; fresh free outputs are never
     // captured by the old input/path IDs. Keep k, not k+n.
@@ -595,6 +597,23 @@ fn hoare_cps_core_closure(){
     let mut nonreal=b.clone();nonreal.ps.p.add_term(vec![0],quprs::PhaseCoeff::new_constant(quprs::Rational::new(1,8)));
     assert!(nonreal.valid()&&small.then_adjoint_affine(&nonreal).is_err());
     println!("CPS_AFFINE_ADJOINT matrix=PASS unique_extension=PASS zero_row=PASS reject=PASS");
+    let (sc,srank,spins)=small.to_sparse().unwrap().shared_then_adjoint_affine(&b.to_sparse().unwrap()).unwrap();
+    assert_eq!((srank,spins,sc.k),(rank,pins,small.k+b.k));
+    assert_eq!(sparse_core_matrix(&sc),core_product(&core_matrix(&small),&core_matrix(&b.adjoint().unwrap())));
+    let (sc,_,_)=a.to_sparse().unwrap().shared_then_adjoint_affine(&rect.to_sparse().unwrap()).unwrap();
+    assert_eq!(sparse_core_matrix(&sc),core_product(&core_matrix(&a),&core_matrix(&rect.adjoint().unwrap())));
+    assert!(small.to_sparse().unwrap().shared_then_adjoint_affine(&nonaffine.to_sparse().unwrap()).is_err());
+    assert!(small.to_sparse().unwrap().shared_then_adjoint_affine(&nonreal.to_sparse().unwrap()).is_err());
+    // Force an actual high ID into the affine pivot and phase replacement.
+    let mut ps=PathSum::new(1);ps.set_auto_reduce(false);
+    ps.v.next_id=128;let y=ps.v.get_fresh_var();
+    ps.f.functions[0]=CoreBool::from_iter([vec![y]]);
+    ps.p.add_term(vec![0,y],quprs::PhaseCoeff::HALF);
+    let wide=CpsCore::<SparseGuardFrame>::shared_from_parts(ps,vec![SparseAnf::from([SparseMono::new(vec![]).unwrap()])],1).unwrap();
+    let (sc,rank,pins)=small.to_sparse().unwrap().shared_then_adjoint_affine(&wide).unwrap();
+    assert_eq!((rank,pins,sc.k),(1,0,2));
+    assert_eq!(sparse_core_matrix(&sc),core_product(&core_matrix(&small),&core_dagger(&sparse_core_matrix(&wide))));
+    println!("CPS_SHARED_AFFINE matrix=PASS zero_row=PASS high_id=PASS reject=PASS");
     // Original circuit embedding and gate lowering agree on each column.
     // Include an XOR output substitution with exact Z8 coefficient.
     let aops=vec![G::H(0),G::CX(0,1),G::H(1)];
@@ -1861,5 +1880,12 @@ fn hoare_cps_sparse_source_admission(){
             println!("CPS_SPARSE_SOURCE_ADMISSION case=MOGrover05 status=READY live={} next_id={} k={} factors={} phase_terms={}",c.guard.ids.len(),c.ps.v.next_id,c.k,c.guard.factors.len(),c.ps.p.terms.len());
         },
         None=>println!("CPS_SPARSE_SOURCE_ADMISSION case=MOGrover05 status=BLOCKED stage=rebased-composition")
+    }
+    match su.shared_then_adjoint_affine(&sb){
+        Ok((c,rank,pins))=>{
+            assert_eq!((rank,pins,c.guard.ids.len(),c.n(),c.q(),c.k),(19,9,67,ua.n(),b.n(),ua.k+b.k));
+            println!("CPS_SPARSE_AFFINE_ADMISSION case=MOGrover05 status=READY rank={rank} pins={pins} live={} next_id={} k={} factors={} phase_terms={}",c.guard.ids.len(),c.ps.v.next_id,c.k,c.guard.factors.len(),c.ps.p.terms.len());
+        },
+        Err(e)=>println!("CPS_SPARSE_AFFINE_ADMISSION case=MOGrover05 status=BLOCKED detail={e}")
     }
 }

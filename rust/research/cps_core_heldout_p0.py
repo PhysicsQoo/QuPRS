@@ -92,6 +92,13 @@ for ci,(case,hashes) in enumerate(BLOBS.items()):
         assert len({tuple(r["inputs_sha256"]) for r in group})==1
         assert len({r["initial_sha256"] for r in group if "initial_sha256" in r})<=1
         by_mode={r["mode"]:r for r in group}
+        # Preserve every previously admitted native verdict, not merely the
+        # permissive screening condition UNKNOWN-or-expected.
+        if family=="BV":
+            assert all(by_mode[m]["verdict"]==expected for m in MODES if m!="autoq"),by_mode
+        if case=="Grover/04":
+            assert all(by_mode[m]["verdict"]==expected for m in ("wmc","hybrid","wmc-dag","hybrid-dag")),by_mode
+        assert by_mode["autoq"]["verdict"]==expected,by_mode
         for flat,dag in (("wmc","wmc-dag"),("hybrid","hybrid-dag")):
             a,b=by_mode[flat],by_mode[dag]
             if a["verdict"]!="UNKNOWN" and b["verdict"]!="UNKNOWN":

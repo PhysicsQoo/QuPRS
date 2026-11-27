@@ -13,6 +13,9 @@ struct CpsCore {
 }
 type CoreBool = rustc_hash::FxHashSet<Vec<u32>>;
 const CORE_TERMS:usize=256;
+// Bounded phase-only admission experiment: MOGrover04 reached 258
+// phase terms with max output 27. Keep Boolean and guard caps unchanged.
+const CORE_PHASE_TERMS:usize=512;
 fn core_bit(v:u32)->Option<u64>{if v<63{Some(1u64<<v)}else{None}}
 fn core_mask(m:&[u32])->Option<u64>{
     m.iter().try_fold(0u64,|a,&v|Some(a|core_bit(v)?))
@@ -26,7 +29,7 @@ fn core_phase8(c:&quprs::PhaseCoeff)->Option<u8>{
     Some((num/den).rem_euclid(8) as u8)
 }
 fn core_terms_ok(ps:&PathSum)->bool{
-    ps.p.terms.len()<=CORE_TERMS&&ps.f.functions.iter().all(|p|p.len()<=CORE_TERMS)
+    ps.p.terms.len()<=CORE_PHASE_TERMS&&ps.f.functions.iter().all(|p|p.len()<=CORE_TERMS)
 }
 fn core_anf(p:&CoreBool)->Option<Anf>{
     p.iter().map(|m|core_mask(m)).collect()
@@ -116,7 +119,7 @@ impl CpsCore{
             let repl=core_anf(repl)?;
             gs=gs.iter().map(|g|substitute_guard(g,v,&repl)).collect::<Option<Vec<_>>>()?;
             ps.v.path_vars.remove(&v);
-            if p.terms.len()>CORE_TERMS||f.functions.iter().any(|q|q.len()>CORE_TERMS){return None;}
+            if p.terms.len()>CORE_PHASE_TERMS||f.functions.iter().any(|q|q.len()>CORE_TERMS){return None;}
         }
         for (m,c) in p.terms{ps.p.add_term(m,c);}
         ps.f=f;
@@ -761,7 +764,8 @@ impl CpsCore {
             let before=ps.v.path_vars.len();
             g.apply(&mut ps,false);
             if ps.v.path_vars.len()!=before+usize::from(h){return Err(detail("path-count-contract",&ps));}
-            if !core_terms_ok(&ps){return Err(detail("native-polynomial-cap",&ps));}
+            if ps.p.terms.len()>CORE_PHASE_TERMS{return Err(detail("phase-term-cap",&ps));}
+            if ps.f.functions.iter().any(|p|p.len()>CORE_TERMS){return Err(detail("boolean-term-cap",&ps));}
             if h{k=k.checked_add(1).ok_or_else(||detail("scale-overflow",&ps))?;}
         }
         let guard=NativeGuardFrame::from_factors(&ps,self.guard.factors().cloned().collect())

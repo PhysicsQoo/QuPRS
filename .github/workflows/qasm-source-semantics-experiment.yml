@@ -176,6 +176,7 @@ jobs:
           CPS_CORE_SOURCE_DIR="$src" timeout 90s "$(cat evidence/release-bin.path)" --exact exact_property_cnf::hoare_cps_core_heldout_predicates --nocapture | tee evidence/cps-core-heldout-predicates.log
           grep -F 'CPS_HELDOUT_PREDICATE_SUMMARY predicates=12' evidence/cps-core-heldout-predicates.log
           timeout 580s python3 rust/research/cps_core_heldout_p0.py "$(cat evidence/release-bin.path)" "$RUNNER_TEMP/cps-gpmc" "$src/build/cli/autoq" "$src" evidence/cps-core-heldout | tee evidence/cps-core-heldout.log
+          # The harness now requires the admitted BV04/05 and Grover04 verdicts.
           grep -F 'CPS_HELDOUT_SUMMARY {"arms": 108, "cases": 6, "obligations": 18' evidence/cps-core-heldout.log
       - uses: actions/upload-artifact@v4
         if: always()

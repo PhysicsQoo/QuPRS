@@ -284,6 +284,20 @@ impl WmcManager {
         Ok(())
     }
 
+    /// Research adapter: use the same trace/ANF encoding, and add exact
+    /// zero constraints obtained by summing half-phase integrators.
+    /// Caller owns count restoration; ordinary encode_trace is unchanged.
+    #[doc(hidden)]
+    pub fn encode_trace_with_zero_constraints(&mut self, ps: &PathSum, rows: &[Vec<Monomial>]) -> Result<()> {
+        assert!(rows.iter().flatten().flatten().all(|v| ps.v.path_vars.contains(v)));
+        self.encode_trace(ps)?;
+        for row in rows {
+            let lit = self.encode_anf(row);
+            self.clauses.push(vec![-lit]);
+        }
+        Ok(())
+    }
+
     pub fn to_dimacs_string(&self, tool_name: &str) -> String {
         self.try_to_dimacs_string(tool_name).expect("Unsupported WMC solver")
     }

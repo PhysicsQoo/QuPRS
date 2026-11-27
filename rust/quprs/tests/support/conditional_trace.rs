@@ -3136,3 +3136,121 @@ fn exact_trace_interval_reference(){
     assert_eq!(ideal_trace_squared_interval(&(one.clone(),zero.clone()),2,1,&Rat::zero()),(half.clone(),half));
     println!("CRR_INTERVAL_REFERENCE controls=4 exact_serialized_center=true input_bound_conditional=true external_solver_error_included=false");
 }
+
+
+// Research-only late HH split: integrate the half-phase Fourier variable,
+// retain its Boolean relation instead of substituting a costly pivot.
+// Original trace normalization remains fixed and raw count is restored.
+fn extract_lift_integrators(ps:&PathSum,pairs:&[(u32,u32)])->(PathSum,Vec<Vec<Monomial>>){
+    let mut view=ps.clone();
+    let mut rows:Vec<Vec<Monomial>>=Vec::new();
+    for &(u,z) in pairs{
+        if !view.v.path_vars.contains(&z)||!view.get_reducible_vars().contains(&z)||
+            rows.iter().flatten().any(|m|m.contains(&z)){
+            println!("CRR_HANDOFF_PAIR u={u} z={z} status=not_integrator");continue;
+        }
+        let support:Vec<_>=view.p.terms.iter().filter(|(m,_)|m.contains(&z)).map(|(m,c)|(m.clone(),c.clone())).collect();
+        if support.is_empty()||support.iter().any(|(_,c)|!c.is_pure_half()){
+            println!("CRR_HANDOFF_PAIR u={u} z={z} status=not_pure_half support={}",support.len());continue;
+        }
+        let mut row:Poly=Poly::default();
+        for (m,_) in &support{
+            toggle(&mut row,m.iter().copied().filter(|&v|v!=z).collect());
+        }
+        // A constant zero row is just a free sum. Do not introduce a
+        // Boolean variable for a tautology; still restore its factor 2.
+        for (m,_) in support{view.p.terms.remove(&m);}
+        assert!(view.v.path_vars.remove(&z));
+        let mut row:Vec<_>=row.into_iter().collect();row.sort_unstable();
+        assert!(row.iter().flatten().all(|v|view.v.path_vars.contains(v)));
+        println!("CRR_HANDOFF_PAIR u={u} z={z} status=extracted guard_terms={}",row.len());
+        rows.push(row);
+    }
+    assert_eq!(ps.v.path_vars.len(),view.v.path_vars.len()+rows.len());
+    (view,rows)
+}
+
+pub(super) fn lift_trace_handoff(ps:&PathSum,pairs:&[(u32,u32)],case:&str,construct_s:f64,control:bool){
+    use std::time::{Instant,Duration};
+    use num_bigint::BigInt;
+    use num_traits::{Signed,ToPrimitive};
+    assert!(Trace::from_native(ps).is_some());
+    let twice=(ps.v.num_qubits+ps.v.path_vars.len()) as i32;
+    let start=Instant::now();
+    let (view,rows)=extract_lift_integrators(ps,pairs);
+    let extract_s=start.elapsed().as_secs_f64();
+    if control{assert_eq!(rows.len(),pairs.len());}
+    let run=|arm:&str|->Option<(Count,quprs::precision_count::PrintedVerdict)>{
+        let start=Instant::now();
+        let (mgr,v,c,m,o)=match arm{
+            "original"=>{
+                let (mgr,v,c)=route_encode(ps);(mgr,v,c,0,0)
+            }
+            "lazy"=>{
+                let (mgr,v,c,m,o,_)=lazy_prepare(ps);(mgr,v,c,m,o)
+            }
+            "extracted"=>{
+                let mut mgr=quprs::wmc::WmcManager::new(&view);
+                mgr.enable_precise_gpmc_weights(256);
+                mgr.encode_trace_with_zero_constraints(&view,&rows).expect("exact guard encode");
+                let dimacs=mgr.try_to_dimacs_string("gpmc").expect("serialize");
+                let h:Vec<_>=dimacs.lines().find(|l|l.starts_with("p cnf ")).unwrap().split_whitespace().collect();
+                (mgr,h[2].parse().unwrap(),h[3].parse().unwrap(),rows.len(),0)
+            }
+            _=>unreachable!()
+        };
+        let prep=start.elapsed().as_secs_f64()+if arm=="extracted"{extract_s}else{0.0};
+        let begin=Instant::now();
+        match mgr.solve_with_deadline_distance_printed_precision("gpmc",Some(begin+Duration::from_secs(12)),90){
+            Ok(raw)=>{
+                let (count,verdict)=restore_count(raw,m,o,twice);
+                println!("CRR_HANDOFF_CALL case={case} arm={arm} status=complete verdict={verdict:?} vars={v} clauses={c} multiplier_power={m} omega={o} twice={twice} construct_s={construct_s} prepare_s={prep} solve_s={} total_s={} real={} imag={}",begin.elapsed().as_secs_f64(),construct_s+prep+begin.elapsed().as_secs_f64(),count.real,count.imag);
+                Some((count,verdict))
+            }
+            Err(e)=>{
+                println!("CRR_HANDOFF_CALL case={case} arm={arm} status=incomplete vars={v} clauses={c} multiplier_power={m} construct_s={construct_s} prepare_s={prep} solve_s={} error={e:#}",begin.elapsed().as_secs_f64());None
+            }
+        }
+    };
+    let a=run("original");let b=run("extracted");
+    let c=if control{None}else{run("lazy")};
+    let scale=Rat::from_integer(BigInt::from(1u8)<<(twice as usize/2));
+    let compare=|x:&Option<(Count,quprs::precision_count::PrintedVerdict)>,y:&Option<(Count,quprs::precision_count::PrintedVerdict)>,label:&str|{
+        if let (Some((x,v)),Some((y,w)))=(x,y){
+            let delta=((&x.real-&y.real).abs()+(&x.imag-&y.imag).abs())/&scale;
+            assert!(delta<=Rat::new(BigInt::from(1u8),BigInt::from(10u8).pow(50)), "count parity {case} {label}");
+            assert_eq!(v,w,"verdict parity {case} {label}");
+            println!("CRR_HANDOFF_COMPARE case={case} pair={label} status=matched normalized_l1={:.5e}",delta.to_f64().unwrap_or(f64::INFINITY));
+        }else{
+            println!("CRR_HANDOFF_COMPARE case={case} pair={label} status=incomplete");
+            assert!(!control,"mandatory control incomplete");
+        }
+    };
+    compare(&a,&b,"original-extracted");
+    if !control{compare(&a,&c,"original-lazy");compare(&b,&c,"extracted-lazy");}
+}
+
+#[test]
+fn lift_trace_handoff_controls(){
+    // 1q identity and Z, each represented by a balanced inverse HH.
+    // Includes phase-bearing u, and nontrivial AND/XOR guard fixture.
+    for (name,flip) in [("identity",false),("z",true)]{
+        let mut ps=PathSum::new(1);
+        let u=ps.v.get_fresh_var();let z=ps.v.get_fresh_var();
+        ps.p.add_term(vec![0,z],PhaseCoeff::HALF);
+        ps.p.add_term(vec![u,z],PhaseCoeff::HALF);
+        if flip{ps.p.add_term(vec![u],PhaseCoeff::HALF);}
+        ps.f.functions[0]=[vec![u]].into_iter().collect();
+        lift_trace_handoff(&ps,&[(u,z)],name,0.0,true);
+    }
+    let mut ps=PathSum::new(2);
+    let u=ps.v.get_fresh_var();let z=ps.v.get_fresh_var();
+    for m in [vec![0,z],vec![0,1,z],vec![u,z]]{ps.p.add_term(m,PhaseCoeff::HALF);}
+    ps.p.add_term(vec![u],PhaseCoeff::QUARTER);
+    ps.f.functions[0]=[vec![u]].into_iter().collect();
+    lift_trace_handoff(&ps,&[(u,z)],"nonlinear",0.0,true);
+    // Negative control: an additional quarter invalidates integration.
+    ps.p.add_term(vec![z],PhaseCoeff::QUARTER);
+    let (_,rows)=extract_lift_integrators(&ps,&[(u,z)]);assert!(rows.is_empty());
+    println!("CRR_HANDOFF_CONTROLS count_pairs=3 rejected=1");
+}

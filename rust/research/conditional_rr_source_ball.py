@@ -10,7 +10,7 @@ from decimal import Decimal
 from fractions import Fraction
 from pathlib import Path
 from flint import arb, acb, fmpq, ctx
-ctx.prec=384
+ctx.prec=int(os.environ.get('CRR_BALL_BITS','384'))
 I=acb(0,1)
 ROOT=Path(__file__).resolve().parents[2]
 MAX_BLOCK=8
@@ -315,7 +315,7 @@ def main():
     cases={c["id"]:c for c in manifest["cohorts"]["table2_mqt"]["cases"]}
     negative={"qwalk-noancilla_5":"d927ecd21bf3676069d90a3ad3bc4e7ee434a0de",
               "qpeexact_24":"a3d3099816e51d98783176a1df64b077b92ab0b7"}
-    scope=(("qwalk-noancilla_5",5),("qpeexact_24",24))
+    scope=(("qwalk-noancilla_5",5),) if os.environ.get("CRR_BALL_QWALK_ONLY") else (("qwalk-noancilla_5",5),("qpeexact_24",24))
     for name,n in scope:
         c=cases[name]
         a,ha=load(c["source"],n)

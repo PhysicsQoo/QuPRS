@@ -1096,7 +1096,7 @@ fn policy_continue(ps:&mut PathSum,a:&[quprs::ir::QuantumOp],b:&[quprs::ir::Quan
         }
         gate.apply(ps,bra);ps.set_auto_reduce(true);
         done+=1;peak=peak.max(terms(ps));max_inc=max_inc.max(incidence(ps));
-        if terms(ps)>TERM_CAP{stop="term_cap";break;}
+        if terms(ps)>TERM_CAP{println!("CRR_POLICY_CAP step={done} bra={bra} index={j} gate={gate:?} terms={}",terms(ps));stop="term_cap";break;}
         lift_saturate(ps,&mut audit);
         peak=peak.max(terms(ps));max_inc=max_inc.max(incidence(ps));
         if terms(ps)>TERM_CAP{stop="term_cap";break;}
@@ -1111,6 +1111,10 @@ fn policy_continue(ps:&mut PathSum,a:&[quprs::ir::QuantumOp],b:&[quprs::ir::Quan
     // residual/source-trust gates must precede any count/verdict claim.
     if stop=="complete"{
         println!("CRR_POLICY_COMPLETE case={case} variant={variant} arm={arm} identity_shape={} hidden={} rr_approximate={}",ps.is_identity_up_to_phase(),internal(ps).len(),ps.rr_approximate);
+        if std::env::var_os("CRR_LIFT_HANDOFF").is_some(){
+            assert_eq!(audit.elim_removed,0,"untracked free-variable scale");
+            super::conditional_trace::lift_trace_handoff(ps,&pairs,variant,prefix_s+elapsed,false);
+        }
     }
 }
 #[test]

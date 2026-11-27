@@ -857,6 +857,8 @@ fn native_frontier_pilot(){
 fn native_growth_checkpoint(){
     use quprs::ir::QuantumOp::*;
     use similar::{Algorithm,DiffOp};
+    let whole=Instant::now();
+    let generic=std::env::var("CRR_GENERIC_ARM").ok();
     let case=std::env::var("CRR_CASE").unwrap();
     let variant=std::env::var("CRR_VARIANT").unwrap();
     let policy=std::env::var("CRR_POLICY").unwrap();
@@ -889,6 +891,15 @@ fn native_growth_checkpoint(){
     let mut peak=0;let mut done=0;let mut ka=0;let mut kb=0;
     for (bra,i) in order.iter().copied(){
         let op=if bra{&b[i]}else{&a[i]};
+        if let Some(arm)=generic.as_deref(){
+            if whole.elapsed().as_secs_f64()>15.0{
+                println!("CRR_GENERIC_STOP case={case} variant={variant} arm={arm} reason=wall_budget advanced={done} total={}",order.len());return;
+            }
+            if arm=="conditional"&&generic_lift_trigger(op,&ps,bra){
+                println!("CRR_GENERIC_TRIGGER case={case} variant={variant} step={done} bra={bra} index={i} gate={op:?}");
+                policy_continue(&mut ps,&a,&b,&order[done..],&case,&variant,"adaptive",whole.elapsed().as_secs_f64());return;
+            }
+        }
         let before=terms(&ps);let h=internal(&ps).len();
         let t=Instant::now();
         // Log first risky step before applying it; preserve evidence if
@@ -958,11 +969,19 @@ fn native_growth_checkpoint(){
             println!("CRR_GROWTH_STEP step={done} ket={ka} bra={kb} hidden={} terms={after} phase_terms={} output_terms={out_terms} max_degree={degree} before={before} elapsed_s={} rule_successes={} rr_approximate={}",internal(&ps).len(),ps.p.terms.len(),t.elapsed().as_secs_f64(),ps.stats.total_successes(),ps.rr_approximate);
         }
         if after>TERM_CAP{
+            if let Some(arm)=generic.as_deref(){
+                println!("CRR_GENERIC_STOP case={case} variant={variant} arm={arm} reason=term_cap advanced={done} total={} terms={after}",order.len());return;
+            }
             println!("CRR_GROWTH_STOP reason=term_cap step={done} total={} ket={ka} bra={kb} hidden={} terms={after} peak={peak} elapsed_s={}",order.len(),internal(&ps).len(),start.elapsed().as_secs_f64());
             return;
         }
     }
     ps.full_reduce();
+    if let Some(arm)=generic.as_deref(){
+        println!("CRR_GENERIC_CONSTRUCT case={case} variant={variant} arm={arm} status=complete advanced={done} total={} terms={} incidence={} hidden={} elapsed_s={}",order.len(),terms(&ps),incidence(&ps),internal(&ps).len(),whole.elapsed().as_secs_f64());
+        super::conditional_trace::generic_trace_handoff(&ps,&[],&case,&variant,arm,whole.elapsed().as_secs_f64());
+        return;
+    }
     let opts=VerificationOptions{method:VerificationMethod::ReductionRules,rr_tolerance:ps.rr_tolerance,timeout_secs:15,
         strategy:if schedule=="difference"{quprs::VerificationStrategy::Difference}else{quprs::VerificationStrategy::Naive},..VerificationOptions::default()};
     let original=check_equivalence_with_options(n,&a,&b,&opts).unwrap();
@@ -1084,7 +1103,7 @@ fn policy_continue(ps:&mut PathSum,a:&[quprs::ir::QuantumOp],b:&[quprs::ir::Quan
     let mut done=0;let mut stop="complete";
     let mut skipped=0;let mut bound_peak=0;
     for (bra,j) in remaining.iter().copied(){
-        if start.elapsed().as_secs_f64()>15.0{stop="wall_budget";break;}
+        if start.elapsed().as_secs_f64()+(if std::env::var_os("CRR_GENERIC_ARM").is_some(){prefix_s}else{0.0})>15.0{stop="wall_budget";break;}
         let gate=if bra{&b[j]}else{&a[j]};
         ps.set_auto_reduce(false);
         if !bra{
@@ -1148,6 +1167,15 @@ fn policy_continue(ps:&mut PathSum,a:&[quprs::ir::QuantumOp],b:&[quprs::ir::Quan
     // No verdict on partial state; no new solver lane or tolerance change.
     // If all gates finish, report native shape only. Existing strict
     // residual/source-trust gates must precede any count/verdict claim.
+    if let Ok(generic)=std::env::var("CRR_GENERIC_ARM"){
+        if stop=="complete" && audit.elim_removed==0{
+            super::conditional_trace::generic_trace_handoff(ps,&pairs,case,variant,&generic,prefix_s+elapsed);
+        }else{
+            let reason=if audit.elim_removed!=0{"untracked_elim"}else{stop};
+            println!("CRR_GENERIC_STOP case={case} variant={variant} arm={generic} reason={reason} continuation_advanced={done} continuation_total={}",remaining.len());
+        }
+        return;
+    }
     if stop=="complete"{
         println!("CRR_POLICY_COMPLETE case={case} variant={variant} arm={arm} identity_shape={} hidden={} rr_approximate={}",ps.is_identity_up_to_phase(),internal(ps).len(),ps.rr_approximate);
         if std::env::var_os("CRR_LIFT_HANDOFF").is_some(){
@@ -1194,4 +1222,20 @@ fn lift_input_bra_cx_roundtrip(){
     assert!(!ps.v.path_vars.contains(&u)&&!ps.v.path_vars.contains(&z));
     assert_eq!(ir(&ps,None),ir(&direct,None));
     println!("CRR_BRA_LIFT_CONTROL exact_roundtrip=true");
+}
+
+
+// Source-independent entry trigger. Preserve the original RR before
+// the first predicted costly operation; no QWalk-specific coordinate.
+fn generic_lift_trigger(op:&quprs::ir::QuantumOp,ps:&PathSum,bra:bool)->bool{
+    if !bra{
+        return phase_gate_bound(op,ps).is_some_and(|(q,w)|w>2048&&w>8*(ps.f.functions[q].len()+2));
+    }
+    if let quprs::ir::QuantumOp::CX(_,t)=op{
+        let x=*t as u32;
+        let p=ps.p.terms.keys().filter(|m|m.contains(&x)).count();
+        let f=ps.f.functions.iter().flatten().filter(|m|m.contains(&x)).count();
+        return terms(ps).saturating_add(2*p+f)>TERM_CAP;
+    }
+    false
 }

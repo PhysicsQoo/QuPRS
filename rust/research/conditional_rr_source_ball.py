@@ -369,4 +369,37 @@ def main():
             print("CRR_SOURCE_BALL "+json.dumps(out),flush=True)
             if n<=5:
                 assert out["status"]==("CERTIFIED_DISTANCE_EQ" if variant=="positive" else "CERTIFIED_DISTANCE_NEQ")
-if __name__=="__main__":main()
+
+def generic_source_parity():
+    from conditional_rr_stitch import GENERIC_CASES,GENERIC_NEGATIVE
+    controls()
+    manifest=json.loads((ROOT/"docs/development/paper-corpus-manifest.json").read_text())
+    cases={c["id"]:c for c in manifest["cohorts"]["table2_mqt"]["cases"]}
+    receipts=[dict(re.findall(r"(\w+)=([^ ]+)",l)) for l in Path(os.environ["CRR_GENERIC_LOG"]).read_text().splitlines() if l.startswith("CRR_GENERIC_CALL ") and "status=complete" in l]
+    mismatches=0
+    for name,variant in GENERIC_CASES:
+        c=cases[name];n=c["qubits"]
+        rows=[r for r in receipts if r["case"]==name and r["variant"]==variant]
+        if n>6 or not rows:
+            print("CRR_GENERIC_SOURCE_ADMISSION",name,variant,"unverified",flush=True);continue
+        target=c["transpiled"] if variant=="positive" else dict(path="benchmarks/MQTBench/Random_Rotation/"+Path(c["source"]["path"]).name,git_blob_sha1=GENERIC_NEGATIVE[name])
+        try:a,ha=load(c["source"],n);b,hb=load(target,n)
+        except ValueError as e:
+            print("CRR_GENERIC_SOURCE_ADMISSION",name,variant,"unsupported",str(e),flush=True);continue
+        d=1<<n;total=sum((dense_overlap(a,b,k,n) for k in range(d)),acb(0))/d
+        threshold=(1-EPS*EPS).sqrt()
+        verdict="Equivalent" if abs(total).lower()>threshold else "NotEquivalent" if abs(total).upper()<threshold else "INCONCLUSIVE"
+        def exact(s):
+            q=Fraction(s);return arb(fmpq(q.numerator,q.denominator))
+        for row in rows:
+            k=int(row["twice"]);scale=(arb(2)**(k//2))*(arb(2).sqrt() if k%2 else 1)
+            observed=acb(exact(row["real"]),exact(row["imag"]))/scale
+            delta=abs(observed-total).upper()
+            ok=delta<arb("1e-50") and row["verdict"]==verdict
+            mismatches+=int(not ok)
+            print("CRR_GENERIC_SOURCE_PARITY "+json.dumps(dict(case=name,variant=variant,arm=row["arm"],matched=bool(ok),source_verdict=verdict,delta=str(delta),source_sha256=ha,target_sha256=hb,columns=d)),flush=True)
+    assert mismatches==0,("independent source parity mismatch",mismatches)
+if __name__=="__main__":
+    if os.environ.get("CRR_GENERIC_LOG"):generic_source_parity()
+    else:main()
+

@@ -3254,3 +3254,30 @@ fn lift_trace_handoff_controls(){
     let (_,rows)=extract_lift_integrators(&ps,&[(u,z)]);assert!(rows.is_empty());
     println!("CRR_HANDOFF_CONTROLS count_pairs=3 rejected=1");
 }
+
+
+// One solver call per independently reconstructed arm. No selected
+// source verdict, no fallback pretending a censored run completed.
+pub(super) fn generic_trace_handoff(ps:&PathSum,pairs:&[(u32,u32)],case:&str,variant:&str,arm:&str,construct_s:f64){
+    use std::time::{Instant,Duration};
+    if Trace::from_native(ps).is_none()||ps.p.terms.len()+ps.f.functions.iter().map(|p|p.len()).sum::<usize>()>TERM_CAP{
+        println!("CRR_GENERIC_STOP case={case} variant={variant} arm={arm} reason=residual_admission");return;
+    }
+    let twice=(ps.v.num_qubits+ps.v.path_vars.len()) as i32;
+    let start=Instant::now();
+    let (view,rows)=extract_lift_integrators(ps,pairs);
+    let mut mgr=quprs::wmc::WmcManager::new(&view);
+    mgr.enable_precise_gpmc_weights(256);
+    mgr.encode_trace_with_zero_constraints(&view,&rows).expect("trace");
+    let dimacs=mgr.try_to_dimacs_string("gpmc").expect("serialize");
+    let h:Vec<_>=dimacs.lines().find(|l|l.starts_with("p cnf ")).unwrap().split_whitespace().collect();
+    let (v,c)=(h[2],h[3]);let prep=start.elapsed().as_secs_f64();
+    let begin=Instant::now();
+    match mgr.solve_with_deadline_distance_printed_precision("gpmc",Some(begin+Duration::from_secs(12)),90){
+        Ok(raw)=>{
+            let (count,verdict)=restore_count(raw,rows.len(),0,twice);
+            println!("CRR_GENERIC_CALL case={case} variant={variant} arm={arm} status=complete verdict={verdict:?} vars={v} clauses={c} pairs={} extracted={} twice={twice} construct_s={construct_s} prepare_s={prep} solve_s={} total_s={} real={} imag={}",pairs.len(),rows.len(),begin.elapsed().as_secs_f64(),construct_s+prep+begin.elapsed().as_secs_f64(),count.real,count.imag);
+        }
+        Err(e)=>println!("CRR_GENERIC_CALL case={case} variant={variant} arm={arm} status=incomplete vars={v} clauses={c} pairs={} extracted={} twice={twice} construct_s={construct_s} prepare_s={prep} solve_s={} error={e:#}",pairs.len(),rows.len(),begin.elapsed().as_secs_f64())
+    }
+}

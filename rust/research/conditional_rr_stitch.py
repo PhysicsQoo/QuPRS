@@ -624,8 +624,65 @@ def lift_handoff():
     assert sum(l.startswith("CRR_POLICY_SUMMARY ") for l in r.stdout.splitlines())==1
     if "CRR_POLICY_COMPLETE " in r.stdout:
         assert sum(l.startswith("CRR_HANDOFF_CALL ") for l in r.stdout.splitlines())==3
+
+# Ten source-locked coordinates; controls before historical timeouts.
+GENERIC_CASES=[("qwalk-noancilla_5","positive"),("qwalk-noancilla_5","random_rotation"),
+               ("ghz_32","positive"),("qnn_4","positive"),
+               ("grover-noancilla_6","positive"),("grover-noancilla_6","random_rotation"),
+               ("qnn_12","positive"),("qnn_12","random_rotation"),
+               ("wstate_16","positive"),("wstate_16","random_rotation")]
+GENERIC_NEGATIVE={"qwalk-noancilla_5":"d927ecd21bf3676069d90a3ad3bc4e7ee434a0de",
+                  "grover-noancilla_6":"eeef479a6c1cad09eda4ec24544f16fbbbd303ae",
+                  "qnn_12":"ea83ae373a3295e17d00257bda7a98128d299044",
+                  "wstate_16":"b3b203ece0681b2d5d0ce563e8b82c7fb1854192"}
+def generic_lift_cohort():
+    import resource
+    from decimal import Decimal,localcontext
+    from fractions import Fraction
+    import re
+    manifest=json.loads((ROOT/"docs/development/paper-corpus-manifest.json").read_text())
+    cases={c["id"]:c for c in manifest["cohorts"]["table2_mqt"]["cases"]}
+    def limit():resource.setrlimit(resource.RLIMIT_AS,(3*1024**3,3*1024**3))
+    def normalized(row,key):
+        q=Fraction(row[key]);k=int(row["twice"])
+        with localcontext() as ctx:
+            ctx.prec=150
+            return Decimal(q.numerator)/Decimal(q.denominator)/(Decimal(2)**(k//2)*(Decimal(2).sqrt() if k%2 else 1))
+    mismatches=0
+    for idx,(name,variant) in enumerate(GENERIC_CASES):
+        c=cases[name]
+        target=c["transpiled"] if variant=="positive" else dict(path="benchmarks/MQTBench/Random_Rotation/"+Path(c["source"]["path"]).name,git_blob_sha1=GENERIC_NEGATIVE[name])
+        paths=[]
+        for entry in (c["source"],target):
+            p=ROOT/entry["path"];data=p.read_bytes()
+            assert hashlib.sha1(f"blob {len(data)}\0".encode()+data).hexdigest()==entry["git_blob_sha1"]
+            print("CRR_GENERIC_SOURCE",name,variant,entry["path"],hashlib.sha256(data).hexdigest(),flush=True);paths.append(p)
+        results={}
+        for arm in (("original","conditional") if idx%2==0 else ("conditional","original")):
+            env=dict(os.environ,CRR_CASE=name,CRR_VARIANT=variant,CRR_SOURCE=str(paths[0]),CRR_TARGET=str(paths[1]),CRR_POLICY="strict",CRR_SCHEDULE="difference",CRR_GENERIC_ARM=arm,CRR_LIFT_INDEXED="1",CRR_BRA_RESCUE="1")
+            cmd=["timeout","--kill-after=2s","35s","cargo","test","--release","--locked","--manifest-path","rust/Cargo.toml","-p","quprs","--test","conditional_rr_experiment","conditional_stitch::native_growth_checkpoint","--","--exact","--nocapture"]
+            r=subprocess.run(cmd,cwd=ROOT,env=env,capture_output=True,text=True,preexec_fn=limit)
+            print(r.stdout,flush=True)
+            if r.returncode in (124,137) or "memory allocation" in r.stderr.lower():
+                print("CRR_GENERIC_CENSORED",name,variant,arm,r.returncode,r.stderr[-500:],flush=True);continue
+            assert r.returncode==0,(name,variant,arm,r.stderr[-4000:])
+            rows=[dict(re.findall(r"(\w+)=([^ ]+)",l)) for l in r.stdout.splitlines() if l.startswith("CRR_GENERIC_CALL ") and "status=complete" in l]
+            if rows:
+                assert len(rows)==1;results[arm]=rows[0]
+        if len(results)==2:
+            a,b=results["original"],results["conditional"]
+            with localcontext() as ctx:
+                ctx.prec=150
+                delta=sum(abs(normalized(a,k)-normalized(b,k)) for k in ("real","imag"))
+                ok=delta<Decimal("1e-50") and a["verdict"]==b["verdict"]
+            mismatches+=int(not ok)
+            print("CRR_GENERIC_COMPARE",name,variant,"matched" if ok else "MISMATCH","delta="+str(delta),flush=True)
+        else:print("CRR_GENERIC_COMPARE",name,variant,"incomplete","returned="+",".join(results),flush=True)
+    assert mismatches==0,("paired normalized count mismatch",mismatches)
+
 if __name__=="__main__":
-    if os.environ.get("CRR_LIFT_HANDOFF"):lift_handoff()
+    if os.environ.get("CRR_GENERIC_COHORT"):generic_lift_cohort()
+    elif os.environ.get("CRR_LIFT_HANDOFF"):lift_handoff()
     elif os.environ.get("CRR_LIFT_POLICY_COMPARISON"):lift_policy_comparison()
     elif os.environ.get("CRR_CONDITIONAL_LIFT"):conditional_lift_checkpoint()
     elif os.environ.get("CRR_HISTORICAL_CLOSEOUT"):historical_closeout()

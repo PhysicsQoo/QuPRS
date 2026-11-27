@@ -20,6 +20,7 @@ on:
       - rust/research/cpr_rr_first.py
       - rust/research/cpr_admission_a1.py
       - rust/research/cpr_admission_a1b.py
+      - rust/research/cpr_admission_a2.py
       - rust/quprs/tests/cpr_public_hybrid.rs
       - rust/research/conditional_rr_incidence.py
       - rust/research/conditional_rr_walltime.py
@@ -1335,10 +1336,10 @@ jobs:
           git rev-parse HEAD
           echo 'CRR_CORE_BRANCH_PREFLIGHT=PASS native_tests=NOT_RUN'
 
-  cpr-admission-a1b:
+  cpr-admission-a2:
     if: github.ref == 'refs/heads/experiment/cost-aware-pathsum'
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: 55
     env:
       QUPRS_SOLVER_PROVISION: external
       CARGO_TERM_COLOR: never
@@ -1354,16 +1355,18 @@ jobs:
           key: cpr-c3-main
       - name: Install native prerequisites
         run: sudo apt-get update && sudo apt-get install -y cmake pkg-config libgmp-dev libmpfr-dev zlib1g-dev
-      - name: Fixed first-phase deferral counterfactual
+      - name: Bounded non-growth admission pilot
         run: |
           set -euo pipefail
           mkdir -p evidence
           git rev-parse HEAD | tee evidence/source-head.txt
-          git diff 3510df59170e7534c890f04bfcb1bc1b8b963ca5 HEAD -- rust/quprs/tests/support/conditional_stitch.rs | tee evidence/a1b-diff.patch
-          git diff --exit-code 3510df59170e7534c890f04bfcb1bc1b8b963ca5 HEAD -- rust/quprs/src rust/quprs/tests/support/conditional_trace.rs rust/quprs/examples rust/research/cpr_rr_first.py docs/development/paper-corpus-manifest.json
+          git diff 621d5cee85ff6848e5a0bf4d5dce11ca5d7a7e1e HEAD -- rust/quprs/tests/support/conditional_stitch.rs | tee evidence/a2-diff.patch
+          git diff --exit-code 621d5cee85ff6848e5a0bf4d5dce11ca5d7a7e1e HEAD -- rust/quprs/src rust/quprs/tests/support/conditional_trace.rs rust/quprs/examples rust/research/cpr_rr_first.py docs/development/paper-corpus-manifest.json
           rustc -Vv > evidence/rustc.txt
           lscpu > evidence/cpu.txt
-          sha256sum rust/research/cpr_admission_a1b.py rust/quprs/tests/support/conditional_stitch.rs rust/Cargo.lock > evidence/source-sha256.txt
+          sha256sum rust/research/cpr_admission_a2.py rust/quprs/tests/support/conditional_stitch.rs rust/Cargo.lock > evidence/source-sha256.txt
+          cargo test --release --locked --manifest-path rust/Cargo.toml -p quprs --test conditional_rr_experiment conditional_stitch::cpr_a2_controls -- --exact --nocapture | tee evidence/a2-controls.log
+          grep -Fx CPR_A2_CONTROLS_PASS evidence/a2-controls.log
           cargo build --release --locked --manifest-path rust/Cargo.toml -p quprs --example cpr_native_runner --message-format=json > evidence/build.jsonl
           export CPR_BIN_CPR="$(python3 -c 'import json; r=[json.loads(l) for l in open("evidence/build.jsonl")]; p=[x["executable"] for x in r if x.get("reason")=="compiler-artifact" and x.get("target",{}).get("name")=="cpr_native_runner" and x.get("executable")]; assert len(p)==1,p; print(p[0])')"
           tmp="$(mktemp -d)"
@@ -1372,13 +1375,13 @@ jobs:
           sha256sum "$tmp/gpmc" | tee evidence/gpmc-sha256.txt
           export QUPRS_GPMC_PATH="$tmp/gpmc"
           set +e
-          timeout --kill-after=5s 1800s python3 rust/research/cpr_admission_a1b.py 2>&1 | tee evidence/a1b.log
+          timeout --kill-after=5s 2400s python3 rust/research/cpr_admission_a2.py 2>&1 | tee evidence/a2.log
           rc=${PIPESTATUS[0]}
           set -e
           python3 -m venv "$tmp/reference-venv"
           "$tmp/reference-venv/bin/pip" install --disable-pip-version-check python-flint==0.9.0
           set +e
-          CRR_GENERIC_LOG=evidence/a1b.log CRR_BALL_BITS=2048 timeout --kill-after=5s 240s "$tmp/reference-venv/bin/python" rust/research/cpr_admission_a1b.py 2>&1 | tee evidence/source-parity.log
+          CRR_GENERIC_LOG=evidence/a2.log CRR_BALL_BITS=2048 timeout --kill-after=5s 240s "$tmp/reference-venv/bin/python" rust/research/cpr_admission_a2.py 2>&1 | tee evidence/source-parity.log
           source_rc=${PIPESTATUS[0]}
           set -e
           find evidence -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > evidence/SHA256SUMS
@@ -1387,5 +1390,5 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: cpr-admission-a1b
+          name: cpr-admission-a2
           path: evidence/

@@ -918,12 +918,20 @@ pub(super) fn native_growth_checkpoint(){
         // Counterfactual only: defer at most the first ket-phase trigger.
         // This is not an admitted runtime cost policy.
         let mut defer_first=std::env::var_os("CPR_A1B_DEFER_FIRST_PHASE").is_some();
+        let mut adaptive_first=std::env::var_os("CPR_A2_ADMISSION").is_some();
         for (done,(bra,i)) in order.iter().copied().enumerate(){
             let op=if bra{&b[i]}else{&a[i]};
             if whole.elapsed().as_secs_f64()>15.0{
                 println!("CRR_GENERIC_STOP case={case} variant={variant} arm=conditional_router reason=wall_budget advanced={done} total={}",order.len());return;
             }
             if generic_lift_trigger(op,&ps,bra){
+                if adaptive_first&&!bra&&matches!(op,RZ(..)|P(..)|U1(..)){
+                    adaptive_first=false;
+                    let t=Instant::now();
+                    let (decision,nodes,delta)=cpr_a2_non_growth(&mut ps,op);
+                    println!("CPR_A2_DECISION case={case} variant={variant} step={done} index={i} decision={decision} nodes={nodes} delta={delta} probe_s={}",t.elapsed().as_secs_f64());
+                    if decision=="defer"{continue;}
+                }
                 if defer_first&&!bra&&matches!(op,RZ(..)|P(..)|U1(..)){
                     defer_first=false;
                     println!("CPR_A1B_DEFER case={case} variant={variant} step={done} index={i} terms={} live={} work={}",terms(&ps),ps.v.path_vars.len(),phase_gate_bound(op,&ps).unwrap().1);
@@ -1352,6 +1360,78 @@ fn cpr_admission_probe(before:&PathSum,op:&quprs::ir::QuantumOp,bra:bool,step:us
     println!("CPR_A1_RR arm={arm} terms={} phase={} incidence={} live={} rr_successes={} rr_s={rr_s} within_term_cap={} state_sha={}",
         terms(&ps),ps.p.terms.len(),incidence(&ps),ps.v.path_vars.len(),ps.stats.total_successes()-old,terms(&ps)<=TERM_CAP,cpr_admission_hash(&ps));
 }
+// A2 candidate: reuse native exact XOR expansion, with only touched phase
+// coefficients materialized. No PathSum clone and no replay.
+fn cpr_a2_non_growth(ps:&mut PathSum,op:&quprs::ir::QuantumOp)->(&'static str,usize,isize){
+    use quprs::ir::QuantumOp::*;
+    use rustc_hash::FxHashMap;
+    let (q,a,rz)=match op{
+        RZ(q,a)=>(*q,a,true),P(q,a)|U1(q,a)=>(*q,a,false),
+        _=>return ("unsupported",0,0),
+    };
+    if ps.rr_tolerance!=0.0||ps.rr_approximate||a.radians.is_some()||!a.symbols.is_empty(){
+        return ("unsupported",0,0);
+    }
+    let phase=(a.clone()/2).to_phase_coeff();
+    if !(phase.constant.denom as u64).is_power_of_two(){return ("unsupported",0,0);}
+    let scalar=if rz{(a.clone()/-4).to_phase_coeff()}else{PhaseCoeff::ZERO};
+    if !(scalar.constant.denom as u64).is_power_of_two(){return ("unsupported",0,0);}
+    let poly=&ps.f.functions[q];
+    let n=poly.len();let k=n.min(coeff_order(&phase,n));
+    // Native DFS order j visits C(n+1,j)-1 non-root nodes.
+    let nodes=expansion_bound(n+1,k,TERM_CAP+k+1).saturating_sub(k);
+    if nodes>TERM_CAP{return ("work_budget",nodes,0);}
+    let arith=quprs::pathsum::phase_poly::expand_xor_to_arithmetic(poly,k);
+    let mut updates=FxHashMap::<Monomial,PhaseCoeff>::default();
+    {
+        let mut add=|m:Monomial,c:PhaseCoeff|->bool{
+            if c.is_zero(){return true;}
+            let original=ps.p.terms.get(&m);
+            if original.is_some_and(|x|x.radians.is_some()||!x.symbols.is_empty()||!(x.constant.denom as u64).is_power_of_two()){
+                return false;
+            }
+            let value=updates.entry(m).or_insert_with(||original.cloned().unwrap_or(PhaseCoeff::ZERO));
+            if value.is_zero(){*value=c;}else{*value+=c;}
+            true
+        };
+        // Preserve native RZ scalar-before-polynomial update order.
+        if !add(vec![],scalar){return ("unsupported",nodes,0);}
+        for (m,factor) in arith{
+            if !add(m,phase.clone()*factor){return ("unsupported",nodes,0);}
+        }
+    }
+    let mut delta=0isize;
+    for (m,value) in &updates{
+        delta+=(!value.is_zero()) as isize-ps.p.terms.contains_key(m) as isize;
+    }
+    if delta>0{return ("growth",nodes,delta);}
+    for (m,value) in updates{
+        if value.is_zero(){ps.p.terms.remove(&m);}else{ps.p.terms.insert(m,value);}
+    }
+    ("defer",nodes,delta)
+}
+#[test]
+fn cpr_a2_controls(){
+    use quprs::{ir::QuantumOp,rational::Angle};
+    let mut ps=PathSum::new(4);
+    ps.f.functions[0]=[vec![0],vec![1],vec![2]].into_iter().collect();
+    let rz=QuantumOp::RZ(0,Angle::from_qasm_str("pi/4").unwrap());
+    let untouched=cpr_admission_hash(&ps);
+    assert_eq!(cpr_a2_non_growth(&mut ps,&rz).0,"growth");
+    assert_eq!(cpr_admission_hash(&ps),untouched);
+    QuantumOp::RZ(0,Angle::from_qasm_str("-pi/4").unwrap()).apply(&mut ps,false);
+    let mut direct=ps.clone();rz.apply(&mut direct,false);
+    assert_eq!(cpr_a2_non_growth(&mut ps,&rz).0,"defer");
+    assert_eq!(cpr_admission_hash(&ps),cpr_admission_hash(&direct));
+    let mut wide=PathSum::new(40);
+    wide.f.functions[0]=(0..33u32).map(|x|vec![x]).collect();
+    let untouched=cpr_admission_hash(&wide);
+    assert_eq!(cpr_a2_non_growth(&mut wide,&rz).0,"work_budget");
+    assert_eq!(cpr_admission_hash(&wide),untouched);
+    assert_eq!(cpr_a2_non_growth(&mut wide,&QuantumOp::CX(0,1)).0,"unsupported");
+    println!("CPR_A2_CONTROLS_PASS");
+}
+
 fn generic_lift_trigger(op:&quprs::ir::QuantumOp,ps:&PathSum,bra:bool)->bool{
     if !bra{
         return phase_gate_bound(op,ps).is_some_and(|(q,w)|w>2048&&w>8*(ps.f.functions[q].len()+2));

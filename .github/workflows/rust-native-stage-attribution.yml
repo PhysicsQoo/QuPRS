@@ -10,6 +10,7 @@ on:
       - 'rust/research/eq_dag_phase_screen.py'
       - 'rust/research/eq_dag_d1d*'
       - 'rust/research/eq_dag_d1e*'
+      - 'rust/research/eq_dag_d2a*'
       - '.github/workflows/rust-native-stage-attribution.yml'
 
 permissions:
@@ -204,7 +205,7 @@ jobs:
 
 
   eq-dag-d1e:
-    if: github.ref == 'refs/heads/experiment/eq-dag-encoder' && github.event_name == 'push'
+    if: github.ref == 'refs/heads/experiment/eq-dag-encoder' && github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -239,4 +240,43 @@ jobs:
         with:
           name: eq-dag-d1e-subset-root-screen
           path: eq-dag-d1e-evidence/
+          retention-days: 30
+
+  eq-dag-d2a:
+    if: github.ref == 'refs/heads/experiment/eq-dag-encoder' && github.event_name == 'push'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: eq-dag-d1d-heldout-mqt
+          run-id: 46004315659
+          github-token: ${{ github.token }}
+          path: d1d
+      - name: Generate actual DAG CNFs and replay all definitions
+        run: |
+          set -euo pipefail
+          (cd d1d && sha256sum -c SHA256SUMS)
+          python3 -u rust/research/eq_dag_d2a_rewrite.py d1d eq-dag-d2a-evidence | tee d2a.log
+      - name: Seal evidence
+        if: always()
+        run: |
+          mkdir -p eq-dag-d2a-evidence
+          test ! -f d2a.log || cp d2a.log eq-dag-d2a-evidence/
+          git rev-parse HEAD > eq-dag-d2a-evidence/head.txt
+          git rev-parse 'HEAD^{tree}' > eq-dag-d2a-evidence/tree.txt
+          cd eq-dag-d2a-evidence
+          find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 -r sha256sum > SHA256SUMS
+          sha256sum -c SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: eq-dag-d2a-rewritten-cnfs
+          path: eq-dag-d2a-evidence/
           retention-days: 30

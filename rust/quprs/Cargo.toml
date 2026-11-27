@@ -50,3 +50,6 @@ proptest = "1.0"
 default = ["high-precision-gpmc"]
 high-precision-gpmc = []
 browser-transport = []
+
+# Experimental branch only; never enabled by default.
+research-parity-e2e = ["high-precision-gpmc"]

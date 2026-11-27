@@ -744,26 +744,44 @@ fn check_equivalence_with_distance_mode(
         let _wmc_scope = diagnostics::span("wmc_total");
         let wmc_start = Instant::now();
         let mut wmc_mgr = WmcManager::new(&ps_miter);
-        // High-precision source weights are selected only for GPMC's
-        // projective-distance mode. All other modes retain their fast path.
-        #[cfg(feature="high-precision-gpmc")]
-        if tool_name == "gpmc" {
-            // Unweighted CNFs have no phase input to approximate. In
-            // particular, retain exact identity proofs for arbitrarily tight
-            // distance requests without asking MPFR for unused precision.
-            let bits = if ps_miter.p.terms.is_empty() {
-                96
-            } else {
-                crate::precise_weight::bits_for_distance(
-                    eps, ps_miter.p.terms.len(),
-                )?
-            };
-            wmc_mgr.enable_precise_gpmc_weights(bits);
-        }
+        // Explicit research binary only. No selection in default builds.
+        #[cfg(feature="research-parity-e2e")]
+        let research_parity = tool_name == "gpmc"
+            && !ps_miter.p.terms.is_empty()
+            && std::env::var("QUPRS_RESEARCH_PARITY_E2E").as_deref() == Ok("1");
+        #[cfg(not(feature="research-parity-e2e"))]
+        let research_parity = false;
+        if research_parity {
+            #[cfg(feature="research-parity-e2e")]
+            {
+                let _encode_scope = diagnostics::span("cnf_encode");
+                let (manager,work,bits)=WmcManager::research_parity_manager(&ps_miter,eps,3_000_000)?;
+                wmc_mgr=manager;
+                eprintln!("D4_PARITY_SELECTED work={work} bits={bits}");
+            }
+        } else {
+            // High-precision source weights are selected only for GPMC's
+            // projective-distance mode. All other modes retain their fast path.
+            #[cfg(feature="high-precision-gpmc")]
+            if tool_name == "gpmc" {
+                // Unweighted CNFs have no phase input to approximate. In
+                // particular, retain exact identity proofs for arbitrarily tight
+                // distance requests without asking MPFR for unused precision.
+                let bits = if ps_miter.p.terms.is_empty() {
+                    96
+                } else {
+                    crate::precise_weight::bits_for_distance(
+                        eps, ps_miter.p.terms.len(),
+                    )?
+                };
+                wmc_mgr.enable_precise_gpmc_weights(bits);
+            }
 
-        {
-            let _encode_scope = diagnostics::span("cnf_encode");
-            wmc_mgr.encode_trace(&ps_miter)?;
+            {
+                let _encode_scope = diagnostics::span("cnf_encode");
+                wmc_mgr.encode_trace(&ps_miter)?;
+            }
+
         }
 
         let num_active_vars = ps_miter.v.path_vars.len() - num_qubits;

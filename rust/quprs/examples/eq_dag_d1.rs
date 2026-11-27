@@ -66,7 +66,7 @@ fn main() -> Result<()> {
     ensure!(a.len()==7, "left right mode strategy timeout snapshot");
     let left=QuantumCircuit::from_qasm_file(&a[1])?;
     let right=QuantumCircuit::from_qasm_file(&a[2])?;
-    let method=match a[3].as_str() {"hybrid"=>VerificationMethod::Hybrid,"wmc_only"=>VerificationMethod::WmcOnly,_=>anyhow::bail!("invalid mode")};
+    let method=match a[3].as_str() {"hybrid"=>VerificationMethod::Hybrid,"wmc_only"=>VerificationMethod::WmcOnly,"rr_only"=>VerificationMethod::ReductionRules,_=>anyhow::bail!("invalid mode")};
     let strategy=match a[4].as_str() {"proportional"=>VerificationStrategy::Proportional,"naive"=>VerificationStrategy::Naive,"straightforward"=>VerificationStrategy::Straightforward,"difference"=>VerificationStrategy::Difference,_=>anyhow::bail!("invalid strategy")};
     let opts=VerificationOptions{method,strategy,timeout_secs:a[5].parse()?,..VerificationOptions::default()};
     let res=quprs::verification::check_equivalence(&left,&right,&opts)?;

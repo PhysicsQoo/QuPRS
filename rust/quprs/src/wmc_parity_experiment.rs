@@ -65,6 +65,11 @@ fn coefficient(turn:Rational,rad:Option<&BigRational>)->PhaseCoeff {
 impl WmcManager {
     #[doc(hidden)]
     pub fn research_parity_cnf(ps:&PathSum,epsilon:f64,cap:usize)->Result<(String,usize,usize)> {
+        let (w,work,bits)=Self::research_parity_manager(ps,epsilon,cap)?;
+        Ok((w.try_to_dimacs_string("gpmc")?,work,bits))
+    }
+
+    pub(crate) fn research_parity_manager(ps:&PathSum,epsilon:f64,cap:usize)->Result<(Self,usize,usize)> {
         #[cfg(feature="browser-transport")]
         ensure!(!crate::browser_transport::active(),"native experiment only");
         ensure!(ps.v.continuous_vars.is_empty(),"continuous variables unsupported");
@@ -120,7 +125,7 @@ impl WmcManager {
             };
             let a=w.var_map[&(i as u32)];w.clauses.extend([vec![-a,z],vec![a,-z]]);
         }
-        Ok((w.try_to_dimacs_string("gpmc")?,work,bits))
+        Ok((w,work,bits))
     }
 }
 #[cfg(test)]

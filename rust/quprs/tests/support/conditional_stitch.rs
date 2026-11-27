@@ -1387,11 +1387,19 @@ fn cpr_a2_non_growth(ps:&mut PathSum,op:&quprs::ir::QuantumOp)->(&'static str,us
         let mut add=|m:Monomial,c:PhaseCoeff|->bool{
             if c.is_zero(){return true;}
             let original=ps.p.terms.get(&m);
-            if original.is_some_and(|x|x.radians.is_some()||!x.symbols.is_empty()||!(x.constant.denom as u64).is_power_of_two()){
-                return false;
-            }
+            if original.is_some_and(|x|!x.symbols.is_empty()){return false;}
             let value=updates.entry(m).or_insert_with(||original.cloned().unwrap_or(PhaseCoeff::ZERO));
-            if value.is_zero(){*value=c;}else{*value+=c;}
+            if value.is_zero(){*value=c;}else{
+                // Native addition keeps existing exact radians unchanged.
+                // Guard the rational addition before its approximate fallback.
+                let a=value.constant;let b=c.constant;
+                let n=(a.numer as i128)*(b.denom as i128)+(b.numer as i128)*(a.denom as i128);
+                let d=(a.denom as i128)*(b.denom as i128);
+                let (mut g,mut h)=(n.abs(),d);
+                while h!=0{let rem=g%h;g=h;h=rem;}
+                if n.abs()/g>100_000_000_000_000||d/g>100_000_000_000_000{return false;}
+                *value+=c;
+            }
             true
         };
         // Preserve native RZ scalar-before-polynomial update order.
@@ -1423,6 +1431,18 @@ fn cpr_a2_controls(){
     let mut direct=ps.clone();rz.apply(&mut direct,false);
     assert_eq!(cpr_a2_non_growth(&mut ps,&rz).0,"defer");
     assert_eq!(cpr_admission_hash(&ps),cpr_admission_hash(&direct));
+    // Mixed exact-radian and non-dyadic EXISTING coefficients: the
+    // incoming phase remains dyadic. Compare the full canonical native state.
+    for existing in [Angle::from_qasm_str("0.123456789012345678901").unwrap().to_phase_coeff(),
+                     PhaseCoeff::new_constant(Rational::new(1,3))]{
+        let mut mixed=PathSum::new(4);
+        mixed.f.functions[0]=[vec![0],vec![1],vec![2]].into_iter().collect();
+        QuantumOp::RZ(0,Angle::from_qasm_str("-pi/4").unwrap()).apply(&mut mixed,false);
+        mixed.p.add_term(vec![0],existing);
+        let mut expected=mixed.clone();rz.apply(&mut expected,false);
+        assert_eq!(cpr_a2_non_growth(&mut mixed,&rz).0,"defer");
+        assert_eq!(cpr_admission_hash(&mixed),cpr_admission_hash(&expected));
+    }
     let mut wide=PathSum::new(40);
     wide.f.functions[0]=(0..33u32).map(|x|vec![x]).collect();
     let untouched=cpr_admission_hash(&wide);

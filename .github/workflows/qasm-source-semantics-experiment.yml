@@ -1355,13 +1355,13 @@ jobs:
           key: cpr-c3-main
       - name: Install native prerequisites
         run: sudo apt-get update && sudo apt-get install -y cmake pkg-config libgmp-dev libmpfr-dev zlib1g-dev
-      - name: Bounded non-growth admission pilot
+      - name: Bounded non-growth admission mixed-coefficient repair
         run: |
           set -euo pipefail
           mkdir -p evidence
           git rev-parse HEAD | tee evidence/source-head.txt
-          git diff 621d5cee85ff6848e5a0bf4d5dce11ca5d7a7e1e HEAD -- rust/quprs/tests/support/conditional_stitch.rs | tee evidence/a2-diff.patch
-          git diff --exit-code 621d5cee85ff6848e5a0bf4d5dce11ca5d7a7e1e HEAD -- rust/quprs/src rust/quprs/tests/support/conditional_trace.rs rust/quprs/examples rust/research/cpr_rr_first.py docs/development/paper-corpus-manifest.json
+          git diff 5e7fda0296f68340b63c274be0c6b9aa6cc52f63 HEAD -- rust/quprs/tests/support/conditional_stitch.rs | tee evidence/a2-diff.patch
+          git diff --exit-code 5e7fda0296f68340b63c274be0c6b9aa6cc52f63 HEAD -- rust/quprs/src rust/quprs/tests/support/conditional_trace.rs rust/quprs/examples rust/research/cpr_rr_first.py docs/development/paper-corpus-manifest.json
           rustc -Vv > evidence/rustc.txt
           lscpu > evidence/cpu.txt
           sha256sum rust/research/cpr_admission_a2.py rust/quprs/tests/support/conditional_stitch.rs rust/Cargo.lock > evidence/source-sha256.txt

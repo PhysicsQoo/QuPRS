@@ -161,39 +161,57 @@ fn run_proportional(mut ps: PathSum, gates1: &[QuantumOp], gates2: &[QuantumOp])
 
 // Use diff algorithm to identify and process only differing parts
 fn run_difference(mut ps: PathSum, gates1: &[QuantumOp], gates2: &[QuantumOp]) -> PathSum {
+    visit_difference(gates1, gates2, |gate, bra| {
+        gate.apply(&mut ps, bra);
+        Ok::<(), std::convert::Infallible>(())
+    }).unwrap();
+    if ps.is_auto_reduce() {
+        ps.full_reduce();
+    }
+    ps
+}
+
+// Shared Myers traversal, no materialized side/index schedule.
+// Infallible visitor for ordinary verification, fallible visitor for CPR.
+#[inline]
+pub(crate) fn visit_difference<E>(
+    gates1: &[QuantumOp], gates2: &[QuantumOp],
+    mut visit: impl FnMut(&QuantumOp, bool) -> Result<(), E>,
+) -> Result<(), E> {
+    if gates2.is_empty() {
+        for gate in gates1 { visit(gate, false)?; }
+        return Ok(());
+    }
     let diff_ops = similar::capture_diff_slices(Algorithm::Myers, gates1, gates2);
 
     for op in diff_ops {
         match op {
             DiffOp::Equal { old_index, new_index, len } => {
                 for i in 0..len {
-                    gates1[old_index + i].apply(&mut ps, false);
-                    gates2[new_index + i].apply(&mut ps, true);
+                    visit(&gates1[old_index + i], false)?;
+                    visit(&gates2[new_index + i], true)?;
                 }
             },
             DiffOp::Delete { old_index, old_len, .. } => {
                 for i in 0..old_len {
-                    gates1[old_index + i].apply(&mut ps, false);
+                    visit(&gates1[old_index + i], false)?;
                 }
             },
             DiffOp::Insert { new_index, new_len, .. } => {
                 for i in 0..new_len {
-                    gates2[new_index + i].apply(&mut ps, true);
+                    visit(&gates2[new_index + i], true)?;
                 }
             },
             DiffOp::Replace { old_index, old_len, new_index, new_len } => {
                 for i in 0..old_len {
-                    gates1[old_index + i].apply(&mut ps, false);
+                    visit(&gates1[old_index + i], false)?;
                 }
                 for i in 0..new_len {
-                    gates2[new_index + i].apply(&mut ps, true);
+                    visit(&gates2[new_index + i], true)?;
                 }
             },
         }
     }
 
-    if ps.is_auto_reduce() {
-        ps.full_reduce();
-    }
-    ps
+    Ok(())
 }

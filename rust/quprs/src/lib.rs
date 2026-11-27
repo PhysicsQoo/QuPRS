@@ -37,6 +37,9 @@ pub mod ir;
 pub mod rational; 
 pub mod reduction;
 pub mod strategy;
+// Private CPR builder; not selected by the public verifier until admission.
+#[allow(dead_code)]
+mod cpr;
 pub mod stats;    
 pub mod wmc;
 pub mod precision_count;

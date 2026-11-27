@@ -1,0 +1,289 @@
+{
+  "schema": "eq-dag-d1-v1",
+  "baseline": "b398f07d6845efc23540549ccbfec717c27b1722",
+  "tree": "1dc21015f0f4f69f057c4685b886b686d82b882d",
+  "notes": "10 historical CI pairs, 4 additional paper pairs, 3 source-locked float64 negative witness controls; new strategies for additional pairs are screening choices. RR default tolerances; no hard cases omitted from report after selection.",
+  "cases": [
+    {
+      "id": "ghz_32",
+      "family": "ghz",
+      "expected": "EQ",
+      "expectation": "paper source/transpiled pair; projective tolerance, not exact certificate",
+      "strategy": "straightforward",
+      "left": {
+        "path": "benchmarks/MQTBench/h,ry,rz,cx/ghz_nativegates_ibm_qiskit_opt0_32.qasm",
+        "git_blob_sha1": "dc87f6aa2dde89a153685bd2b16c446bbc30c261"
+      },
+      "right": {
+        "path": "benchmarks/MQTBench/ghz_nativegates_ibm_qiskit_opt0_32.qasm",
+        "git_blob_sha1": "07c16aaefc4b33750e86a73a0cf276fafe59f8cd"
+      },
+      "timeout": 30
+    },
+    {
+      "id": "graphstate_16",
+      "family": "graphstate",
+      "expected": "EQ",
+      "expectation": "paper source/transpiled pair; projective tolerance, not exact certificate",
+      "strategy": "naive",
+      "left": {
+        "path": "benchmarks/MQTBench/graphstate_nativegates_ibm_qiskit_opt0_16.qasm",
+        "git_blob_sha1": "ab34308febb31ea9a49e9761a988aad7017f3487"
+      },
+      "right": {
+        "path": "benchmarks/MQTBench/h,ry,rz,cx/graphstate_nativegates_ibm_qiskit_opt0_16.qasm",
+        "git_blob_sha1": "c2c6f9d04f6a8c2778415572aa247ee93e138c09"
+      },
+      "timeout": 30
+    },
+    {
+      "id": "grover-noancilla_4",
+      "family": "grover-noancilla",
+      "expected": "EQ",
+      "expectation": "paper source/transpiled pair; projective tolerance, not exact certificate",
+      "strategy": "proportional",
+      "left": {
+        "path": "benchmarks/MQTBench/h,ry,rz,cx/grover-noancilla_nativegates_ibm_qiskit_opt0_4.qasm",
+        "git_blob_sha1": "6ebf83dd8e0b85a274bef3eb2485df279564cb30"
+      },
+      "right": {
+        "path": "benchmarks/MQTBench/grover-noancilla_nativegates_ibm_qiskit_opt0_4.qasm",
+        "git_blob_sha1": "0babf2aa735c17cf1e201baeea2874fe3c3ffcf8"
+      },
+      "timeout": 30
+    },
+    {
+      "id": "qaoa_7",
+      "family": "qaoa",
+      "expected": "EQ",
+      "expectation": "paper source/transpiled pair; projective tolerance, not exact certificate",
+      "strategy": "proportional",
+      "left": {
+        "path": "benchmarks/MQTBench/qaoa_nativegates_ibm_qiskit_opt0_7.qasm",
+        "git_blob_sha1": "4c314c32caef3d2577d7efe849635bcbc2b2335f"
+      },
+      "right": {
+        "path": "benchmarks/MQTBench/h,ry,rz,cx/qaoa_nativegates_ibm_qiskit_opt0_7.qasm",
+        "git_blob_sha1": "d4d115ba912d2d4129c238d8972b0a7dd0c4249c"
+      },
+      "timeout": 30
+    },
+    {
+      "id": "qaoa_11",
+      "family": "qaoa",
+      "expected": "EQ",
+      "expectation": "paper source/transpiled pair; projective tolerance, not exact certificate",
+      "strategy": "proportional",
+      "left": {
+        "path": "benchmarks/MQTBench/qaoa_nativegates_ibm_qiskit_opt0_11.qasm",
+        "git_blob_sha1": "2bb62b0695c877a8a2a670bd8c26c96aef17b35b"
+      },
+      "right": {
+        "path": "benchmarks/MQTBench/h,ry,rz,cx/qaoa_nativegates_ibm_qiskit_opt0_11.qasm",
+        "git_blob_sha1": "7401be04da003994b630b60fac36af6bc1322c71"
+      },
+      "timeout": 60
+    },
+    {
+      "id": "qft_16",
+      "family": "qft",
+      "expected": "EQ",
+      "expectation": "paper source/transpiled pair; projective tolerance, not exact certificate",
+      "strategy": "proportional",
+      "left": {
+        "path": "benchmarks/MQTBench/h,ry,rz,cx/qft_nativegates_ibm_qiskit_opt0_16.qasm",
+        "git_blob_sha1": "d321013120dbad7082892026e1ee7a70f9edc206"
+      },
+      "right": {
+        "path": "benchmarks/MQTBench/qft_nativegates_ibm_qiskit_opt0_16.qasm",
+        "git_blob_sha1": "398b32262259af75fcf44ab711b77281818d0cc7"
+      },
+      "timeout": 30
+    },
+    {
+      "id": "qft_22",
+      "family": "qft",
+      "expected": "EQ",
+      "expectation": "paper source/transpiled pair; projective tolerance, not exact certificate",
+      "strategy": "proportional",
+      "left": {
+        "path": "benchmarks/MQTBench/h,ry,rz,cx/qft_nativegates_ibm_qiskit_opt0_22.qasm",
+        "git_blob_sha1": "2f5346965f10b6b8fb7f83f751a4f7145843244f"
+      },
+      "right": {
+        "path": "benchmarks/MQTBench/qft_nativegates_ibm_qiskit_opt0_22.qasm",
+        "git_blob_sha1": "7566e9c039a50aa291f845e6770c8443c01decfb"
+      },
+      "timeout": 60
+    },
+    {
+      "id": "qpeexact_8",
+      "family": "qpeexact",
+      "expected": "EQ",
+      "expectation": "paper source/transpiled pair; projective tolerance, not exact certificate",
+      "strategy": "proportional",
+      "left": {
+        "path": "benchmarks/MQTBench/qpeexact_nativegates_ibm_qiskit_opt0_8.qasm",
+        "git_blob_sha1": "4582df5b4cefe3cc69227d29eb2894ccd1c5412a"
+      },
+      "right": {
+        "path": "benchmarks/MQTBench/h,ry,rz,cx/qpeexact_nativegates_ibm_qiskit_opt0_8.qasm",
+        "git_blob_sha1": "46a2b00a19bbc769aefa77eebb14fa262fd98302"
+      },
+      "timeout": 30
+    },
+    {
+      "id": "qwalk-noancilla_3",
+      "family": "qwalk-noancilla",
+      "expected": "EQ",
+      "expectation": "paper source/transpiled pair; projective tolerance, not exact certificate",
+      "strategy": "proportional",
+      "left": {
+        "path": "benchmarks/MQTBench/qwalk-noancilla_nativegates_ibm_qiskit_opt0_3.qasm",
+        "git_blob_sha1": "0960c698e44cb5320301f7bd4acdd892d9069db0"
+      },
+      "right": {
+        "path": "benchmarks/MQTBench/h,ry,rz,cx/qwalk-noancilla_nativegates_ibm_qiskit_opt0_3.qasm",
+        "git_blob_sha1": "ea56fe6eb2ff58503931784f0ceb9bc2bb59fab2"
+      },
+      "timeout": 30
+    },
+    {
+      "id": "vqe_4",
+      "family": "vqe",
+      "expected": "EQ",
+      "expectation": "paper source/transpiled pair; projective tolerance, not exact certificate",
+      "strategy": "proportional",
+      "left": {
+        "path": "benchmarks/MQTBench/vqe_nativegates_ibm_qiskit_opt0_4.qasm",
+        "git_blob_sha1": "20e9fd16e5f464338c72c5da8bede32225791414"
+      },
+      "right": {
+        "path": "benchmarks/MQTBench/h,ry,rz,cx/vqe_nativegates_ibm_qiskit_opt0_4.qasm",
+        "git_blob_sha1": "e42732073c416e61ffa5e0fe69dcb042f0c91cc7"
+      },
+      "timeout": 30
+    },
+    {
+      "id": "adder_8",
+      "family": "adder_8",
+      "expected": "EQ",
+      "expectation": "paper source/transpiled pair; projective tolerance, not exact certificate",
+      "strategy": "proportional",
+      "left": {
+        "path": "benchmarks/Feynman/adder_8.qasm",
+        "git_blob_sha1": "6e50a11c77830861cf5b309e2cd755f66633b121"
+      },
+      "right": {
+        "path": "benchmarks/Feynman/h,y,z,t,tdg,cx/adder_8.qasm",
+        "git_blob_sha1": "819faf91bdfb47506ad3dbfc6278c9052c3d007a"
+      },
+      "timeout": 30
+    },
+    {
+      "id": "gf2_4_mult",
+      "family": "gf2^4_mult",
+      "expected": "EQ",
+      "expectation": "paper source/transpiled pair; projective tolerance, not exact certificate",
+      "strategy": "proportional",
+      "left": {
+        "path": "benchmarks/Feynman/gf2^4_mult.qasm",
+        "git_blob_sha1": "ff3e384fd36cea71f4ca74b673cc570bac11a40f"
+      },
+      "right": {
+        "path": "benchmarks/Feynman/h,y,z,t,tdg,cx/gf2^4_mult.qasm",
+        "git_blob_sha1": "61de8c91e6ee46441f64c3775e0b64590ff5bb54"
+      },
+      "timeout": 30
+    },
+    {
+      "id": "tof_3",
+      "family": "tof_3",
+      "expected": "EQ",
+      "expectation": "paper source/transpiled pair; projective tolerance, not exact certificate",
+      "strategy": "proportional",
+      "left": {
+        "path": "benchmarks/Feynman/h,y,z,t,tdg,cx/tof_3.qasm",
+        "git_blob_sha1": "29bbf9c6304ae44cca84cb4a599b6d65636ac790"
+      },
+      "right": {
+        "path": "benchmarks/Feynman/tof_3.qasm",
+        "git_blob_sha1": "a918b651a16c9c600bb9c85f2c7546b21b200a04"
+      },
+      "timeout": 30
+    },
+    {
+      "id": "vbe_adder_3",
+      "family": "vbe_adder_3",
+      "expected": "EQ",
+      "expectation": "paper source/transpiled pair; projective tolerance, not exact certificate",
+      "strategy": "proportional",
+      "left": {
+        "path": "benchmarks/Feynman/h,y,z,t,tdg,cx/vbe_adder_3.qasm",
+        "git_blob_sha1": "b31b2a6d83c5ebfe8d6c5c1de2d217c7f9b0721b"
+      },
+      "right": {
+        "path": "benchmarks/Feynman/vbe_adder_3.qasm",
+        "git_blob_sha1": "792e739e413f42a3bfbe0a413e09741e87a9668f"
+      },
+      "timeout": 30
+    },
+    {
+      "id": "grover-noancilla_negative_4",
+      "family": "grover-noancilla",
+      "expected": "NEQ",
+      "expectation": "manifest float64 full-operator negative witness, not certified",
+      "reference_distance": 0.9266400086336638,
+      "strategy": "proportional",
+      "left": {
+        "path": "benchmarks/MQTBench/qiskit-2.6.1-opt0/h,ry,rz,cx/grover-noancilla_nativegates_ibm_qiskit_opt0_4.qasm",
+        "git_blob_sha1": "5fd20d5e80e909c33d95800405299465b6c6fc9f",
+        "sha256": "ab338d8c185c841e30a0001293697eeae2f989a10c06effaf09f5584223c5781"
+      },
+      "right": {
+        "path": "benchmarks/MQTBench/qiskit-2.6.1-opt0/Random_Rotation/grover-noancilla_nativegates_ibm_qiskit_opt0_4.qasm",
+        "git_blob_sha1": "464be4c1781d781a02549af6fa29ca510fe2a869",
+        "sha256": "43557c87d1830c4bda99b956e2e16ade646310b0b89f8a4f9dc3b11e90935db2"
+      },
+      "timeout": 30
+    },
+    {
+      "id": "qaoa_negative_7",
+      "family": "qaoa",
+      "expected": "NEQ",
+      "expectation": "manifest float64 full-operator negative witness, not certified",
+      "reference_distance": 0.9903500117668737,
+      "strategy": "proportional",
+      "left": {
+        "path": "benchmarks/MQTBench/qiskit-2.6.1-opt0/h,ry,rz,cx/qaoa_nativegates_ibm_qiskit_opt0_7.qasm",
+        "git_blob_sha1": "a4885bafbe8fe72ded93788f5f602f0cb3681cd1",
+        "sha256": "5b2d23a05302fc9a1deef4c937f68d29bbbf9a3c48edda05b0c0321b800b890d"
+      },
+      "right": {
+        "path": "benchmarks/MQTBench/qiskit-2.6.1-opt0/Random_Rotation/qaoa_nativegates_ibm_qiskit_opt0_7.qasm",
+        "git_blob_sha1": "ce7245bb330b0b7da9a21ea1966077ec5aaa5674",
+        "sha256": "c25cd0215b2c69f26fc569829fadf13ea6bf3ce2a73af7bba8f6553cea44baff"
+      },
+      "timeout": 30
+    },
+    {
+      "id": "qwalk-noancilla_negative_3",
+      "family": "qwalk-noancilla",
+      "expected": "NEQ",
+      "expectation": "manifest float64 full-operator negative witness, not certified",
+      "reference_distance": 0.9999658916725256,
+      "strategy": "proportional",
+      "left": {
+        "path": "benchmarks/MQTBench/qiskit-2.6.1-opt0/h,ry,rz,cx/qwalk-noancilla_nativegates_ibm_qiskit_opt0_3.qasm",
+        "git_blob_sha1": "56b39905de65f63ca5cec85e71cd926bc2c1a728",
+        "sha256": "4def4f0591b4f350acb00a1fe52c78245887af0f4bd8cc896fac7f589f6044e8"
+      },
+      "right": {
+        "path": "benchmarks/MQTBench/qiskit-2.6.1-opt0/Random_Rotation/qwalk-noancilla_nativegates_ibm_qiskit_opt0_3.qasm",
+        "git_blob_sha1": "e0577d70a842b916f61ef44e595ef2332324577e",
+        "sha256": "e12d5e603827136e44b10c05834afbefe49320636fd3278a673cfa6fbd4cc019"
+      },
+      "timeout": 30
+    }
+  ]
+}

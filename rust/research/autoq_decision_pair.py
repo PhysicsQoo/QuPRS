@@ -55,7 +55,7 @@ def classify(stdout,stderr,rc,shape):
     return "PROVED" if matches[0][2]=="OK" else "REFUTED"
 
 def main():
-    exe,fixtures,log,out=map(lambda s:pathlib.Path(s).resolve(),sys.argv[1:])
+    exe,fixtures,log,out=map(lambda s:pathlib.Path(s).resolve(),sys.argv[1:5])
     out.mkdir(parents=True,exist_ok=True)
     version=subprocess.run(["timeout","--kill-after=2s","10s",str(exe),"-v"],capture_output=True,text=True,check=True)
     assert re.findall(r"\b[0-9a-f]{40}\b",version.stdout+"\n"+version.stderr)==[PIN], "AutoQ binary pin mismatch"
@@ -105,6 +105,68 @@ def main():
     # Failure remains a diagnostic failure, never interpreted as a refutation.
     if receipt["agreed"]!=9:
         raise SystemExit("AQ-R7 compatibility incomplete or mismatch")
+    if len(sys.argv)==7:
+        ghz_pair(exe,pathlib.Path(sys.argv[5]).resolve(),pathlib.Path(sys.argv[6]).resolve(),out,source_hash)
+    elif len(sys.argv)!=5:
+        raise SystemExit("expected optional pinned source root and property log")
+
+
+GHZ_BLOBS = {
+    3: ("01a7d8579b1a6079fde76991cd3af5c4c7b3952c","ba24ec21eef82940d34ca90822aedc3650293ac5","f1f040ec26312825a56db1f0ac735f81cad5dd9f"),
+    4: ("f735cf6987e054b53d2682edb43abb00463182e9","b47769284fba9e93c8de087848c2b5188a418235","34b355874a3658e45307c44529473a93258e5bd3"),
+    5: ("b67b488134a71aabb55f8277d3e91c52f2fcd014","f4122a5fffab2806442e925a2d768f28ec26fa40","ad462048e1513e80d53c397d215ad1e2dafe6a3e"),
+    8: ("a712713768d9605514ff30208785b5bfdbffad06","7a2693425da63470feca65ca62d93e9d19d3a461","f2c88eaf5779c0bd340a501514432290369fdf7f"),
+}
+
+def ghz_pair(exe, source_root, native_log, out, binary_hash):
+    """Source-locked decision comparison; never infer speedup."""
+    markers = {}
+    for line in native_log.read_text().splitlines():
+        if line.startswith("AQ_GHZALL_SYMBOLIC "):
+            row = dict(token.split("=", 1) for token in line.split()[1:])
+            n = int(row["n"])
+            assert n not in markers
+            assert int(row["matched"]) == 2**n and int(row["full_pairs"]) == 4**n
+            assert int(row["symbolic_pairs"]) == 0 and int(row["plus_matches"]) == 2**(n-1)
+            assert all(row[k] == "true" for k in ("plus_only_refuted", "dense_oracle", "raw_residual_agree"))
+            markers[n] = row
+    assert set(markers) == set(GHZ_BLOBS), "missing native GHZall receipts"
+    rows = []
+    for n, hashes in GHZ_BLOBS.items():
+        folder = source_root / "benchmarks" / "all" / "GHZall" / f"{n:03d}"
+        pre, post, circuit = (folder / name for name in ("pre.hsl","post.hsl","circuit.qasm"))
+        original = post.read_bytes()
+        assert tuple(blob(p.read_bytes()) for p in (pre,post,circuit)) == hashes
+        parts = original.split(" ∪\n".encode())
+        assert len(parts) == 2 and b"cn |1i'>" in parts[1]
+        plus_only = replace_once(parts[0]+b"\n",b"cn := -1/sqrt2\n",b"")
+        for variant, data, expected in (("source",original,"PROVED"),
+                                        ("plus-only",plus_only,"REFUTED")):
+            key=f"ghzall{n:03d}-{variant}"
+            target=out/f"{key}.hsl"
+            target.write_bytes(data)
+            timing=out/f"{key}.resource.txt"
+            start=time.monotonic()
+            proc=subprocess.run(["/usr/bin/time","-f","wall_s=%e\nmax_rss_kib=%M","-o",str(timing),
+                                 "timeout","--kill-after=2s","10s",str(exe),"ver",str(pre),str(circuit),str(target)],
+                                capture_output=True,text=True,errors="replace")
+            (out/f"{key}.stdout").write_text(proc.stdout)
+            (out/f"{key}.stderr").write_text(proc.stderr)
+            actual=classify(proc.stdout,proc.stderr,proc.returncode,(n,n))
+            native = "PROVED" if variant=="source" and int(markers[n]["matched"])==2**n else (
+                "REFUTED" if variant=="plus-only" and markers[n]["plus_only_refuted"]=="true" else "UNKNOWN")
+            row=dict(n=n,variant=variant,autoq=actual,native=native,expected=expected,
+                     autoq_pin=PIN,autoq_binary_sha256=binary_hash,source_blobs=hashes,
+                     post_sha256=sha(data),returncode=proc.returncode,
+                     wall_s=time.monotonic()-start,resource=timing.read_text() if timing.exists() else None,
+                     verdict_agreement=actual==native==expected)
+            rows.append(row)
+            print("AQ_GHZALL_AUTOQ_PAIR "+json.dumps(row),flush=True)
+    receipt=dict(scope="decision compatibility; no matched runtime claim",cases=len(rows),
+                 agreed=sum(r["verdict_agreement"] for r in rows),rows=rows)
+    (out/"ghzall-summary.json").write_text(json.dumps(receipt,indent=2)+"\n")
+    print("AQ_GHZALL_AUTOQ_SUMMARY "+json.dumps({k:v for k,v in receipt.items() if k!="rows"}),flush=True)
+    assert receipt["agreed"]==8, "GHZall decision compatibility incomplete"
 
 if __name__=="__main__":
     main()

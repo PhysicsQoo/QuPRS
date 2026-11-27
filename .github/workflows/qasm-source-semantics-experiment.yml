@@ -103,6 +103,9 @@ jobs:
           cargo test --locked --manifest-path rust/Cargo.toml -p quprs \
             --test property_hoare_experiment -- --nocapture \
             2>&1 | tee evidence/property-hoare.log
+          test "$(grep -c '^AQ_MOBV_RR ' evidence/property-hoare.log)" -eq 18
+          grep -Fx 'AQ_MOBV_ADMISSION k=8 n=17 status=BLOCKED reason=source_width_cap skipped_arms=6' evidence/property-hoare.log
+          test "$(grep -c '^AQ_MOBV_ORACLE ' evidence/property-hoare.log)" -eq 3
 
       - name: Check pinned paper-source native PathSum admission
         run: |
@@ -823,7 +826,7 @@ jobs:
           sha256sum "$src/build/cli/autoq" "$src/libz3.so.4.12" | tee evidence/aq-autoq/binary-sha256.txt
           ldd "$src/build/cli/autoq" | tee evidence/aq-autoq/ldd.txt
           python3 rust/research/autoq_decision_pair.py "$src/build/cli/autoq" \
-            evidence/hoare-exact-fixtures evidence/hoare-ganak-exact.log evidence/aq-autoq \
+            evidence/hoare-exact-fixtures evidence/hoare-ganak-exact.log evidence/aq-autoq "$src" evidence/property-hoare.log \
             2>&1 | tee evidence/aq-autoq/decision.log
 
       - name: Preserve diagnostic logs

@@ -7371,15 +7371,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - case: vqe8
-            digits: 130
-          - case: feynman_mod_mult_55
-            digits: 130
-          - case: feynman_hwb6
-            digits: 130
-          - case: qaoa11
-            digits: 130
+        include: ${{ fromJSON(github.event_name == 'push' && '[{"case":"qaoa11","digits":130}]' || '[{"case":"vqe8","digits":130},{"case":"feynman_mod_mult_55","digits":130},{"case":"feynman_hwb6","digits":130},{"case":"qaoa11","digits":130}]') }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -7419,6 +7411,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+          mkdir -p .frontier-holdout-original
           for spec in '15140185389 8c9c49e09c2ebb921989c22330f6a82bd3c310db9a5258a36c756d70f2c865a0 source' '15157442076 7b8ecb9cb08bd8683ee819bc9b84526e3a4e9db29337472b21ab575f79af5100 witness'; do
             read -r id digest dir <<< "$spec"
             zip="$RUNNER_TEMP/$id.zip"

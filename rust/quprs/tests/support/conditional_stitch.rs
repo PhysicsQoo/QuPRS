@@ -896,6 +896,55 @@ fn native_growth_checkpoint(){
         if before>=1024||done%32==0{
             println!("CRR_GROWTH_BEGIN step={done} ket={ka} bra={kb} side_bra={bra} index={i} terms={before} hidden={h} gate={op:?}");
         }
+        if std::env::var_os("CRR_LIFT_CHECKPOINT").is_some() && !bra && i==528 {
+            assert_eq!(policy,"strict");assert_eq!(schedule,"difference");
+            let RZ(q,theta)=op else{panic!("historical gate changed")};
+            assert_eq!(*q,1);
+            let mut direct=ps.clone();
+            let t=Instant::now();op.apply(&mut direct,false);let direct_s=t.elapsed().as_secs_f64();
+            let mut lifted=ps.clone();let anf=lifted.f.functions[*q].len();
+            let t=Instant::now();let (u,z)=lift_output(&mut lifted,*q);op.apply(&mut lifted,false);
+            let lift_s=t.elapsed().as_secs_f64();
+            let mut roundtrip=lifted.clone();let t=Instant::now();
+            assert!(roundtrip.get_reducible_vars().contains(&z));
+            assert!(roundtrip.try_reduce_hh(&[z]));
+            assert!(!roundtrip.v.path_vars.contains(&u)&&!roundtrip.v.path_vars.contains(&z));
+            assert_eq!(ir(&roundtrip,None),ir(&direct,None),"inverse HH phase/outputs/live mismatch");
+            let inverse_s=t.elapsed().as_secs_f64();
+            println!("CRR_LIFT_LOCAL case={case} variant={variant} index={i} angle={theta:?} anf={anf} before_terms={before} direct_terms={} lifted_terms={} direct_incidence={} lifted_incidence={} direct_hidden={} lifted_hidden={} direct_s={direct_s} lifted_s={lift_s} inverse_s={inverse_s} exact_native_roundtrip=true",terms(&direct),terms(&lifted),incidence(&direct),incidence(&lifted),internal(&direct).len(),internal(&lifted).len());
+            // Fixed bounded continuation, not a whole-circuit verdict. The
+            // direct arm already crossed the same TERM_CAP at this coordinate.
+            let mut audit=LiftAudit::default();let mut peak=terms(&lifted);
+            let start=Instant::now();let mut advanced=0;let mut stop="horizon";
+            for (bra,j) in order.iter().copied().skip(done+1).take(64){
+                if start.elapsed().as_secs_f64()>8.0{stop="wall_budget";break;}
+                let gate=if bra{&b[j]}else{&a[j]};
+                lifted.set_auto_reduce(false);
+                if !bra{
+                    if let RZ(q,_)|P(q,_)|S(q)|SDG(q)|T(q)|TDG(q)|RX(q,_)|RY(q,_)|U1(q,_)|U2(q,_,_)|U3(q,_,_,_)|U(q,_,_,_)=gate{
+                        // Conservative policy: compress a long output ANF
+                        // before any potentially non-half phase addition.
+                        if lifted.f.functions[*q].len()>=12 {
+                            if audit.lifts>=16{stop="lift_budget";break;}
+                            lift_output(&mut lifted,*q);audit.lifts+=1;
+                        }
+                    }
+                }
+                println!("CRR_LIFT_BEGIN advanced={advanced} side_bra={bra} index={j} terms={} gate={gate:?}",terms(&lifted));
+                gate.apply(&mut lifted,bra);
+                lifted.set_auto_reduce(true);
+                advanced+=1;peak=peak.max(terms(&lifted));
+                if terms(&lifted)>TERM_CAP{stop="term_cap";break;}
+                // Bounded strict RR. Original rule methods are reused;
+                // acceptance is a representation-cost policy, not new
+                // legality. No approximate matching or input pivots.
+                lift_saturate(&mut lifted,&mut audit);
+                peak=peak.max(terms(&lifted));
+                if terms(&lifted)>TERM_CAP{stop="term_cap";break;}
+            }
+            println!("CRR_LIFT_HORIZON case={case} variant={variant} stop={stop} advanced={advanced} terms={} incidence={} hidden={} peak={peak} trials={} accepts={} rejects={} extra_lifts={} elapsed_s={}",terms(&lifted),incidence(&lifted),internal(&lifted).len(),audit.trials,audit.accepts,audit.rejects,audit.lifts,start.elapsed().as_secs_f64());
+            return;
+        }
         op.apply(&mut ps,bra);
         done+=1;if bra{kb+=1;}else{ka+=1;}
         let after=terms(&ps);peak=peak.max(after);
@@ -915,4 +964,63 @@ fn native_growth_checkpoint(){
     let original=check_equivalence_with_options(n,&a,&b,&opts).unwrap();
     assert_eq!(ir(&ps,None),ir(original.final_pathsum(),None),"checkpoint replay drift");
     println!("CRR_GROWTH_COMPLETE case={case} variant={variant} policy={policy} schedule={schedule} step={done} hidden={} terms={} incidence={} peak={peak} native={} elapsed_s={}",internal(&ps).len(),terms(&ps),incidence(&ps),original.equivalent(),start.elapsed().as_secs_f64());
+}
+
+
+// Exact inverse HH: 1/2 sum_{u,z} (-1)^{z(u XOR f)} = 1
+// with u replacing f in the output. Fresh u,z add two balanced paths.
+fn lift_output(ps:&mut PathSum,q:usize)->(u32,u32){
+    let old=ps.f.functions[q].clone();
+    let u=ps.v.get_fresh_var();let z=ps.v.get_fresh_var();
+    let mut cross=vec![u,z];cross.sort_unstable();
+    ps.p.add_term(cross,PhaseCoeff::HALF);
+    for mut m in old{
+        m.push(z);m.sort_unstable();m.dedup();
+        ps.p.add_term(m,PhaseCoeff::HALF);
+    }
+    ps.f.functions[q]=[vec![u]].into_iter().collect();
+    (u,z)
+}
+#[derive(Default)]
+struct LiftAudit{trials:usize,accepts:usize,rejects:usize,lifts:usize}
+fn lift_saturate(ps:&mut PathSum,audit:&mut LiftAudit){
+    assert_eq!(ps.rr_tolerance,0.0);
+    for _ in 0..16{
+        let ids=ps.get_reducible_vars();
+        if ids.is_empty(){return;}
+        if ps.try_reduce_elim(&ids){continue;}
+        let mut changed=false;let mut local_trials=0;
+        for rule in [1,2]{
+            for &y in &ids{
+                if local_trials>=8{break;}
+                let ys:Vec<_>=ps.p.terms.iter().filter(|(m,_)|m.contains(&y)).collect();
+                if ys.is_empty(){continue;}
+                if rule==1{
+                    // Upper bound quadratic expansion of omega; cap
+                    // discovery work before invoking the original method.
+                    if ys.len()>24||!ys.iter().any(|(m,c)|m.len()==1&&(c.is_pure_quarter()||c.is_pure_fraction(3,4)))||
+                        ys.iter().any(|(m,c)|m.len()>1&&!c.is_pure_half()){continue;}
+                }else{
+                    if ys.len()>12||ys.iter().any(|(_,c)|!c.is_pure_half()){continue;}
+                    let phi:Anf=ys.iter().map(|(m,_)|m.iter().copied().filter(|v|*v!=y).collect()).collect();
+                    let Some(v)=phi.iter().filter(|m|m.len()==1&&phi.iter().all(|r|r==*m||!r.contains(&m[0]))).map(|m|m[0]).max() else{continue;};
+                    if v<ps.v.num_qubits as u32||!ps.v.path_vars.contains(&v){continue;}
+                    let affected=ps.p.terms.keys().chain(ps.f.functions.iter().flatten()).filter(|m|m.contains(&v)&&!m.contains(&y)).count();
+                    if affected.saturating_mul(1usize<<(phi.len()-1))>TERM_CAP{continue;}
+                }
+                local_trials+=1;audit.trials+=1;
+                let mut trial=ps.clone();
+                let ok=if rule==1{trial.try_reduce_omega(&[y])}else{trial.try_reduce_hh(&[y])};
+                if !ok{audit.rejects+=1;continue;}
+                assert!(!trial.rr_approximate);
+                assert_eq!(internal(&trial).len()+if rule==1{1}else{2},internal(ps).len());
+                if terms(&trial)<=TERM_CAP&&incidence(&trial)<=incidence(ps){
+                    *ps=trial;audit.accepts+=1;changed=true;break;
+                }
+                audit.rejects+=1;
+            }
+            if changed||local_trials>=8{break;}
+        }
+        if !changed{return;}
+    }
 }

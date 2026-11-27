@@ -557,8 +557,30 @@ def historical_closeout():
                     assert r.returncode==0,(name,variant,policy,schedule,r.stderr[-4000:])
                     assert sum(l.startswith(("CRR_GROWTH_STOP ","CRR_GROWTH_COMPLETE ")) for l in r.stdout.splitlines())==1
 
+
+def conditional_lift_checkpoint():
+    manifest=json.loads((ROOT/"docs/development/paper-corpus-manifest.json").read_text())
+    c=next(c for c in manifest["cohorts"]["table2_mqt"]["cases"] if c["id"]=="qwalk-noancilla_5")
+    for variant in ("positive","random_rotation"):
+        target=c["transpiled"] if variant=="positive" else dict(path="benchmarks/MQTBench/Random_Rotation/"+Path(c["source"]["path"]).name,git_blob_sha1="d927ecd21bf3676069d90a3ad3bc4e7ee434a0de")
+        paths=[]
+        for entry in (c["source"],target):
+            p=ROOT/entry["path"];data=p.read_bytes()
+            assert hashlib.sha1(f"blob {len(data)}\0".encode()+data).hexdigest()==entry["git_blob_sha1"]
+            print("CRR_LIFT_SOURCE",variant,entry["path"],hashlib.sha256(data).hexdigest(),flush=True);paths.append(p)
+        env=dict(os.environ,CRR_CASE=c["id"],CRR_VARIANT=variant,CRR_SOURCE=str(paths[0]),CRR_TARGET=str(paths[1]),CRR_POLICY="strict",CRR_SCHEDULE="difference",CRR_LIFT_CHECKPOINT="1")
+        cmd=["timeout","--kill-after=2s","30s","cargo","test","--release","--locked","--manifest-path","rust/Cargo.toml","-p","quprs","--test","conditional_rr_experiment","conditional_stitch::native_growth_checkpoint","--","--exact","--nocapture"]
+        r=subprocess.run(cmd,cwd=ROOT,env=env,capture_output=True,text=True)
+        print(r.stdout,flush=True)
+        if r.returncode in (124,137):
+            print("CRR_LIFT_CENSORED",variant,r.returncode,flush=True);continue
+        assert r.returncode==0,(variant,r.stderr[-4000:])
+        assert sum(l.startswith("CRR_LIFT_LOCAL ") for l in r.stdout.splitlines())==1
+        assert sum(l.startswith("CRR_LIFT_HORIZON ") for l in r.stdout.splitlines())==1
+
 if __name__=="__main__":
-    if os.environ.get("CRR_HISTORICAL_CLOSEOUT"):historical_closeout()
+    if os.environ.get("CRR_CONDITIONAL_LIFT"):conditional_lift_checkpoint()
+    elif os.environ.get("CRR_HISTORICAL_CLOSEOUT"):historical_closeout()
     elif os.environ.get("CRR_FRONTIER"):frontier_pilot()
     elif os.environ.get("CRR_QPE24_REUSE"):qpe24_reuse()
     elif os.environ.get("CRR_PIVOT"):pivot_pilot()

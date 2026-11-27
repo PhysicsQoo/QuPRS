@@ -234,7 +234,12 @@ impl PathSum {
             for term in &phi {
                 if term.len() == 1 {
                     let var = term[0];
-                    
+                    // HH substitutes a summed bit, not a fixed input coordinate.
+                    // An external-only constraint must remain in the residual.
+                    if (var as usize) < self.v.num_qubits {
+                        continue;
+                    }
+
                     // Validate: v cannot be present in other terms of phi.
                     // If it is, `replacement` would depend on `v`, causing infinite recursion
                     // or leaving `v` un-eliminated in F.
@@ -606,6 +611,118 @@ mod tests {
         
         assert!(!ps.v.path_vars.contains(&999), "Garbage variable 999 must be eliminated");
         assert!(ps.v.path_vars.contains(&0), "Input variable x_0 MUST NOT be removed");
+    }
+
+    #[test]
+    fn hh_rejects_external_only_without_mutating_state() {
+        for tol in [0.0, 1e-10] {
+            let mut ps = setup_test_env(1);
+            ps.rr_tolerance = tol;
+            let y = ps.v.get_fresh_var();
+            ps.p.add_term(vec![0,y], PhaseCoeff::HALF);
+            let before = ps.clone();
+            let candidates = ps.get_reducible_vars();
+            assert_eq!(candidates, vec![y]);
+            assert!(!ps.try_reduce_hh(&candidates));
+            assert_eq!(ps.v.path_vars, before.v.path_vars);
+            assert_eq!(ps.p.terms, before.p.terms);
+            assert_eq!(ps.f.functions, before.f.functions);
+            assert_eq!(ps.rr_approximate, before.rr_approximate);
+        }
+    }
+
+    // N3 source-locked H/CCX witness. All phases are exact half turns.
+    // Compare complete operators with the common denominator 2^3, not
+    // just trace or projective equivalence, and never invoke a solver.
+    #[test]
+    fn hh_reachable_external_pivot_preserves_operator() {
+        use crate::ir::QuantumOp::*;
+        let gates = [H(1), H(2), H(0), CCX(0,1,2), CCX(1,2,0), H(0), H(1), H(2)];
+        fn hidden(ps: &PathSum) -> Vec<u32> {
+            let mut vars: Vec<_> = ps.v.path_vars.iter().copied().filter(|&v| v >= 3).collect();
+            vars.sort_unstable();
+            vars
+        }
+        fn matrix(ps: &PathSum) -> [[i32; 8]; 8] {
+            let vars = hidden(ps);
+            let h = vars.len();
+            assert!(h <= 6 && h % 2 == 0);
+            assert!(ps.p.terms.values().all(|c| c.is_pure_half()));
+            assert_eq!(ps.f.functions.len(), 3);
+            let mut result = [[0; 8]; 8];
+            for x in 0usize..8 {
+                for y in 0usize..(1usize << h) {
+                    let bit = |v: u32| -> bool {
+                        if v < 3 { (x >> v) & 1 != 0 }
+                        else { (y >> vars.iter().position(|&id| id == v).expect("live variable")) & 1 != 0 }
+                    };
+                    let monomial = |m: &Monomial| m.iter().all(|&v| bit(v));
+                    let negative = ps.p.terms.keys().filter(|m| monomial(m)).count() % 2 != 0;
+                    let out = ps.f.functions.iter().enumerate().fold(0usize, |acc, (q, f)| {
+                        acc | ((f.iter().filter(|m| monomial(m)).count() % 2) << q)
+                    });
+                    result[x][out] += if negative { -1 } else { 1 };
+                }
+                for value in &mut result[x] { *value *= 1 << ((6-h)/2); }
+            }
+            result
+        }
+        // Independent integer gate matrices; H contributes one sqrt(2) denominator.
+        let mut expected = [[0i32;8];8];
+        for x in 0usize..8 {
+            let mut v = [0i32;8];
+            v[x] = 1;
+            for (kind, a, b, t) in [
+                (0,1,0,0),(0,2,0,0),(0,0,0,0),(1,0,1,2),
+                (1,1,2,0),(0,0,0,0),(0,1,0,0),(0,2,0,0),
+            ] {
+                let mut w = [0i32;8];
+                for y in 0usize..8 {
+                    if kind == 0 {
+                        let bit = 1usize << a;
+                        w[y & !bit] += v[y];
+                        w[y | bit] += if y & bit != 0 { -v[y] } else { v[y] };
+                    } else {
+                        let z = if y & (1usize << a) != 0 && y & (1usize << b) != 0 {
+                            y ^ (1usize << t)
+                        } else { y };
+                        w[z] += v[y];
+                    }
+                }
+                v = w;
+            }
+            expected[x] = v;
+        }
+        assert_eq!(expected.iter().flatten().filter(|&&v| v != 0).count(), 26);
+        assert_eq!((0..8).map(|i| expected[i][i]).sum::<i32>(), 40);
+        let initial = setup_test_env(3);
+        let mut raw = initial.clone();
+        for gate in &gates { gate.apply(&mut raw, false); }
+        assert_eq!(hidden(&raw).len(), 6);
+        assert_eq!(raw.get_reducible_vars(), vec![5,4,3]);
+        let mut rejected = raw.clone();
+        assert!(!rejected.try_reduce_hh(&[5]));
+        assert_eq!(rejected.p.terms, raw.p.terms);
+        assert_eq!(rejected.f.functions, raw.f.functions);
+        assert_eq!(rejected.v.path_vars, raw.v.path_vars);
+        let mut one = raw.clone();
+        assert!(one.try_reduce_hh(&raw.get_reducible_vars()));
+        assert!(one.v.path_vars.contains(&5));
+        assert!(!one.v.path_vars.contains(&4));
+        assert!(!one.v.path_vars.contains(&8));
+        assert_eq!(hidden(&one).len(), 4);
+        let mut auto = initial.clone();
+        auto.set_auto_reduce(true);
+        for gate in &gates { gate.apply(&mut auto, false); }
+        let mut strategy_input = initial;
+        strategy_input.set_auto_reduce(true);
+        let strategy = crate::VerificationStrategy::Difference.run(strategy_input, &gates, &[]);
+        assert_eq!(hidden(&auto).len(), 2);
+        assert_eq!(hidden(&strategy).len(), 2);
+        for state in [&raw, &rejected, &one, &auto, &strategy] {
+            assert!(!state.rr_approximate);
+            assert_eq!(matrix(state), expected);
+        }
     }
 
     #[test]

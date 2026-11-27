@@ -26,4 +26,11 @@ sign-commit = false
 pre-release-commit-message = "chore: release v{{version}}"
 
 [profile.release]
-debug = 1 
+debug = 1
+
+# Correctness tests retain CLI fault injection and arithmetic checks.
+# The source-locked CPR heavy gate also retains its 15-second budget.
+[profile.test]
+opt-level = 3
+debug-assertions = true
+overflow-checks = true

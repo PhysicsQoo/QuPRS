@@ -41,9 +41,16 @@ def stage(destination: Path) -> None:
     if (parsed["package"]["name"] != "quprs"
             or parsed["lib"]["name"] != "quprs"
             or parsed["package"]["publish"] is not True
-            or parsed["features"]["default"] != ["high-precision-gpmc"]
-            or set(parsed["features"]) != {"default", "high-precision-gpmc", "browser-transport"}
-            or parsed["features"]["browser-transport"] != []):
+            or parsed["features"] != {
+                "default": ["high-precision-gpmc"],
+                "high-precision-gpmc": [],
+                "browser-transport": [],
+                "experimental-cpr": ["high-precision-gpmc"],
+            }
+            or parsed.get("example") != [{
+                "name": "cpr_native_optin",
+                "required-features": ["experimental-cpr"],
+            }]):
         raise AssertionError("staged crate differs from the reviewed source manifest")
 
     lockfile = SOURCE / "Cargo.lock"

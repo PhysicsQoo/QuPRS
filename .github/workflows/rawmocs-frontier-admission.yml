@@ -476,7 +476,7 @@ jobs:
 
   v020-pinned-integration:
     if: github.event_name == 'push' || inputs.suite == 'v020-pinned-integration'
-    name: v0.2.0 extracted-source candidate QuPRS integration / ${{ matrix.case }}
+    name: v0.2.0 exact-main extracted-source QuPRS integration / ${{ matrix.case }}
     runs-on: ubuntu-24.04
     timeout-minutes: 12
     strategy:
@@ -491,7 +491,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: PhysicsQoo/RaWMoCS
-          ref: 5a16026285205e611af3451e76ac20eebc3b73cd
+          ref: e553bc7bd739ca912036d8fa9f3a1ddfe8d8859c
           path: .rawmocs-candidate
           persist-credentials: false
       - uses: actions/checkout@v4
@@ -521,7 +521,7 @@ jobs:
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = 0344851c7944d846ccdeae69404d3d4bef3e54d5
-          test "$(git -C .rawmocs-candidate rev-parse HEAD)" = 5a16026285205e611af3451e76ac20eebc3b73cd
+          test "$(git -C .rawmocs-candidate rev-parse HEAD)" = e553bc7bd739ca912036d8fa9f3a1ddfe8d8859c
           test "$(git -C .rawmocs-baseline rev-parse HEAD)" = b3d02b2720c2fae5231c0ed5cf44950164a5780d
           test "$(git -C .gpmc rev-parse HEAD)" = 89bbc89d0de918e7a5385740355df55765039230
           sudo apt-get -o Dir::Etc::sourcelist=/etc/apt/sources.list.d/ubuntu.sources -o Dir::Etc::sourceparts=- -o APT::Get::List-Cleanup=0 update
@@ -1026,7 +1026,7 @@ jobs:
 
   v020-rust-integration:
     if: github.event_name == 'push' || inputs.suite == 'v020-rust-integration'
-    name: v0.2.0 extracted-source candidate Rust FFI integration
+    name: v0.2.0 exact-main extracted-source Rust FFI integration
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     env:
@@ -1040,7 +1040,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: PhysicsQoo/RaWMoCS
-          ref: 5a16026285205e611af3451e76ac20eebc3b73cd
+          ref: e553bc7bd739ca912036d8fa9f3a1ddfe8d8859c
           path: .rawmocs-candidate
           persist-credentials: false
       - uses: actions/checkout@v4
@@ -1071,7 +1071,7 @@ jobs:
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = fc739c7e17512c6d2d13e52bd479fc372d68be03
-          test "$(git -C .rawmocs-candidate rev-parse HEAD)" = 5a16026285205e611af3451e76ac20eebc3b73cd
+          test "$(git -C .rawmocs-candidate rev-parse HEAD)" = e553bc7bd739ca912036d8fa9f3a1ddfe8d8859c
           test "$(git -C .rawmocs-baseline rev-parse HEAD)" = b3d02b2720c2fae5231c0ed5cf44950164a5780d
           test "$(git -C .gpmc rev-parse HEAD)" = 89bbc89d0de918e7a5385740355df55765039230
           sudo apt-get -o Dir::Etc::sourcelist=/etc/apt/sources.list.d/ubuntu.sources -o Dir::Etc::sourceparts=- -o APT::Get::List-Cleanup=0 update

@@ -4787,6 +4787,153 @@ theorem check_ledger_exact_free_composition {P A : Type} [Zero P] [Add P] [Zero 
         hb ht hc (Or.inr hk3) hadv
     · exact otherSound t next s hb ht hc hk1 hk3 hadv
 
+
+-- Every in-range coefficient is an actual entry, even if its
+-- interpreted numerical value happens to equal zero.
+theorem ledger_entry_coeff_in_range {P : Type} [Zero P]
+    (interpret : DecimalValue → DecimalValue → P) (es : List PhaseEntry)
+    (i : Nat) (h : i < es.length) :
+    ∃ pre e rest, es = pre ++ e :: rest ∧ pre.length = i ∧
+      ledgerEntryCoeff interpret es i = interpret e.turns e.radians := by
+  induction es generalizing i with
+  | nil =>
+    exact False.elim (Nat.not_lt_zero i h)
+  | cons e es ih =>
+    cases i with
+    | zero => exact ⟨[], e, es, rfl, rfl, rfl⟩
+    | succ i =>
+      have ht : i < es.length := Nat.lt_of_succ_lt_succ h
+      obtain ⟨pre, q, rest, he, hl, hc⟩ := ih i ht
+      refine ⟨e :: pre, q, rest, ?_, congrArg Nat.succ hl, hc⟩
+      exact congrArg (List.cons e) he
+
+theorem canonical_ledger_coeff_in_range {P : Type} [Zero P]
+    (interpret : DecimalValue → DecimalValue → P) (s : LedgerSnap)
+    (h : canonicalLedgerSnap s) (i : Nat) (hi : i < s.phaseSupport.length) :
+    ∃ es pre e rest, parseLedgerCoefficients s.phaseText = some es ∧
+      es.map PhaseEntry.source = s.phaseSupport ∧
+      es = pre ++ e :: rest ∧ pre.length = i ∧
+      ledgerExactCoeff interpret s.phaseText i = interpret e.turns e.radians := by
+  obtain ⟨es, he, hs, hn⟩ := canonical_ledger_coeff_count s h
+  have hidx : i < es.length := by rw [hn]; exact hi
+  obtain ⟨pre,e,rest,hlist,hl,hc⟩ := ledger_entry_coeff_in_range interpret es i hidx
+  exact ⟨es,pre,e,rest,he,hs,hlist,hl,
+    (ledger_exact_coefficient_lookup interpret s.phaseText es i he).trans hc⟩
+
+-- Shift an indexed polynomial by one entry without changing the
+-- order of its addition or any monomial activation.
+theorem ledger_phase_polynomial_shift {P : Type} [Zero P] [Add P]
+    (coeff : Nat → P) (i : Nat) (bits : List Bool) :
+    ledgerPhasePolynomial coeff (i+1) bits =
+      ledgerPhasePolynomial (fun j => coeff (j+1)) i bits := by
+  induction bits generalizing i with
+  | nil => rfl
+  | cons b bs ih =>
+    cases b with
+    | false =>
+      change ledgerPhasePolynomial coeff ((i+1)+1) bs =
+        ledgerPhasePolynomial (fun j => coeff (j+1)) (i+1) bs
+      exact ih (i+1)
+    | true =>
+      change coeff (i+1) + ledgerPhasePolynomial coeff ((i+1)+1) bs =
+        coeff (i+1) + ledgerPhasePolynomial (fun j => coeff (j+1)) (i+1) bs
+      rw [ih (i+1)]
+
+-- Direct polynomial evaluation visits each actual parsed entry.
+-- Unlike the total indexed lookup it has no missing-entry default.
+def ledgerDirectPolynomial {P : Type} [Zero P] [Add P]
+    (interpret : DecimalValue → DecimalValue → P) (v : Nat → Bool) :
+    List PhaseEntry → P
+  | [] => 0
+  | e :: es =>
+    if andValue (e.source.map v) then
+      interpret e.turns e.radians + ledgerDirectPolynomial interpret v es
+    else ledgerDirectPolynomial interpret v es
+
+theorem ledger_entry_polynomial_direct {P : Type} [Zero P] [Add P]
+    (interpret : DecimalValue → DecimalValue → P) (v : Nat → Bool)
+    (es : List PhaseEntry) :
+    ledgerPhasePolynomial (ledgerEntryCoeff interpret es) 0
+      (ledgerPhaseBits v (es.map PhaseEntry.source)) =
+      ledgerDirectPolynomial interpret v es := by
+  induction es with
+  | nil => rfl
+  | cons e es ih =>
+    have hshift := ledger_phase_polynomial_shift (ledgerEntryCoeff interpret (e :: es)) 0
+      (ledgerPhaseBits v (es.map PhaseEntry.source))
+    change ledgerPhasePolynomial (ledgerEntryCoeff interpret (e :: es)) 1
+      (ledgerPhaseBits v (es.map PhaseEntry.source)) =
+      ledgerPhasePolynomial (ledgerEntryCoeff interpret es) 0
+        (ledgerPhaseBits v (es.map PhaseEntry.source)) at hshift
+    change (if andValue (e.source.map v) then
+      interpret e.turns e.radians + ledgerPhasePolynomial (ledgerEntryCoeff interpret (e :: es)) 1
+        (ledgerPhaseBits v (es.map PhaseEntry.source))
+      else ledgerPhasePolynomial (ledgerEntryCoeff interpret (e :: es)) 1
+        (ledgerPhaseBits v (es.map PhaseEntry.source))) =
+      (if andValue (e.source.map v) then
+        interpret e.turns e.radians + ledgerDirectPolynomial interpret v es
+      else ledgerDirectPolynomial interpret v es)
+    rw [hshift, ih]
+
+theorem ledger_exact_polynomial_direct {P : Type} [Zero P] [Add P]
+    (interpret : DecimalValue → DecimalValue → P) (s : LedgerSnap)
+    (es : List PhaseEntry) (v : Nat → Bool)
+    (he : parseLedgerCoefficients s.phaseText = some es)
+    (hs : es.map PhaseEntry.source = s.phaseSupport) :
+    ledgerPhasePolynomial (ledgerExactCoeff interpret s.phaseText) 0
+      (ledgerPhaseBits v s.phaseSupport) = ledgerDirectPolynomial interpret v es := by
+  have hc : ledgerExactCoeff interpret s.phaseText = ledgerEntryCoeff interpret es :=
+    funext (fun i => ledger_exact_coefficient_lookup interpret s.phaseText es i he)
+  rw [hc, ← hs]
+  exact ledger_entry_polynomial_direct interpret v es
+
+def ledgerDirectValue {P A : Type} [Zero P] [Add P] [Zero A] [Add A]
+    (interpret : DecimalValue → DecimalValue → P) (ex : P → A)
+    (s : LedgerSnap) (es : List PhaseEntry) : A :=
+  sumBits s.live.length (fun bits =>
+    if ledgerGuardTruth (decodeLive s.live bits) s.constraints then
+      ex (ledgerDirectPolynomial interpret (decodeLive s.live bits) es)
+    else 0)
+
+theorem ledger_exact_value_direct {P A : Type} [Zero P] [Add P] [Zero A] [Add A]
+    (interpret : DecimalValue → DecimalValue → P) (ex : P → A)
+    (s : LedgerSnap) (es : List PhaseEntry)
+    (he : parseLedgerCoefficients s.phaseText = some es)
+    (hs : es.map PhaseEntry.source = s.phaseSupport) :
+    ledgerExactValue interpret ex s = ledgerDirectValue interpret ex s es := by
+  unfold ledgerExactValue ledgerPhaseValue ledgerDirectValue
+  apply sum_bits_congr
+  intro bits _
+  unfold ledgerPhaseTerm
+  rw [ledger_exact_polynomial_direct interpret s es (decodeLive s.live bits) he hs]
+
+-- The same actual coefficient entries evaluate both endpoints;
+-- the accepted rule and even exponent determine the scale.
+theorem ledger_accepted_free_direct {P A : Type} [Zero P] [Add P] [Zero A] [Add A]
+    (zl : ∀ a : A, 0+a=a) (zr : ∀ a : A, a+0=a)
+    (shuffle : ∀ a b c d : A, (a+b)+(c+d) = (a+c)+(b+d))
+    (interpret : DecimalValue → DecimalValue → P) (ex : P → A)
+    (scale : Nat → A → A) (h0 : ∀ a, scale 0 a = a)
+    (ha : ∀ i j a, scale i (scale j a) = scale (i+j) a)
+    (h2 : ∀ a, scale 2 a = a+a)
+    (t next : LedgerTally) (s : LedgerStep)
+    (hb : canonicalLedgerSnap s.before) (ht : canonicalLedgerSnap s.trial)
+    (hc : s.commit = true) (hk : s.kind = 1 ∨ s.kind = 3)
+    (h : ledgerAdvance t s = some next) :
+    ∃ es, parseLedgerCoefficients s.before.phaseText = some es ∧
+      parseLedgerCoefficients s.trial.phaseText = some es ∧
+      es.map PhaseEntry.source = s.before.phaseSupport ∧
+      es.map PhaseEntry.source = s.trial.phaseSupport ∧
+      ledgerDirectValue interpret ex s.before es =
+        scale (ledgerStepExponent s) (ledgerDirectValue interpret ex s.trial es) := by
+  have hp := ledger_advance_free_obligations t next s hc hk h
+  obtain ⟨es,he1,he2,hs1,hs2⟩ := ledger_free_exact_entries s.before s.trial hb ht hp.2.1
+  have hv := ledger_accepted_free_scale zl zr shuffle interpret ex scale h0 ha h2
+    t next s hb ht hc hk h
+  rw [ledger_exact_value_direct interpret ex s.before es he1 hs1,
+    ledger_exact_value_direct interpret ex s.trial es he2 hs2] at hv
+  exact ⟨es,he1,he2,hs1,hs2,hv⟩
+
 -- Localize any unexpected dependency to a definition vs theorem.
 #print axioms splitBytes
 #print axioms digits
@@ -5131,6 +5278,15 @@ theorem check_ledger_exact_free_composition {P A : Type} [Zero P] [Add P] [Zero 
 #print axioms replay_ledger_admitted_scale_from_zero
 #print axioms check_ledger_admitted_scale
 #print axioms check_ledger_exact_free_composition
+#print axioms ledger_entry_coeff_in_range
+#print axioms canonical_ledger_coeff_in_range
+#print axioms ledger_phase_polynomial_shift
+#print axioms ledgerDirectPolynomial
+#print axioms ledger_entry_polynomial_direct
+#print axioms ledger_exact_polynomial_direct
+#print axioms ledgerDirectValue
+#print axioms ledger_exact_value_direct
+#print axioms ledger_accepted_free_direct
 end QuPRS.CnfReplay
 
 def main (args : List String) : IO Unit := do

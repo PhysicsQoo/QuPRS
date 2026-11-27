@@ -284,7 +284,7 @@ jobs:
           retention-days: 30
 
   eq-dag-d3:
-    if: github.ref == 'refs/heads/experiment/eq-dag-encoder' && github.event_name == 'push'
+    if: github.ref == 'refs/heads/experiment/eq-dag-encoder' && github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-24.04
     timeout-minutes: 65
     permissions:
@@ -345,4 +345,68 @@ jobs:
         with:
           name: eq-dag-d3-matched-solver-ab
           path: eq-dag-d3-evidence/
+          retention-days: 30
+
+  eq-dag-d3b:
+    if: github.ref == 'refs/heads/experiment/eq-dag-encoder' && github.event_name == 'push'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 65
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: 'rust -> target'
+      - uses: actions/download-artifact@v4
+        with:
+          name: eq-dag-d1d-heldout-mqt
+          run-id: 46004315659
+          github-token: ${{ github.token }}
+          path: d1d
+      - uses: actions/download-artifact@v4
+        with:
+          name: eq-dag-d2a-rewritten-cnfs
+          run-id: 46007045267
+          github-token: ${{ github.token }}
+          path: d2a
+      - name: Validate original artifacts
+        run: |
+          (cd d1d && sha256sum -c SHA256SUMS)
+          (cd d2a && sha256sum -c SHA256SUMS)
+      - name: Install pinned GPMC and compile production count reader
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake pkg-config libgmp-dev libmpfr-dev zlib1g-dev
+          python3 scripts/install_gpmc_release.py --dest "$RUNNER_TEMP/gpmc"
+          QUPRS_SOLVER_PROVISION=external cargo build --locked --release --manifest-path rust/Cargo.toml -p quprs --example eq_dag_d3_count
+          ldd "$RUNNER_TEMP/gpmc"
+      - name: Matched three-way topology comparison
+        run: |
+          set -euo pipefail
+          python3 -u rust/research/eq_dag_d3b_topology.py d1d d2a "$RUNNER_TEMP/gpmc" rust/target/release/examples/eq_dag_d3_count eq-dag-d3b-evidence | tee d3b.log
+      - name: Seal evidence
+        if: always()
+        run: |
+          mkdir -p eq-dag-d3b-evidence
+          test ! -f d3b.log || cp d3b.log eq-dag-d3b-evidence/
+          git rev-parse HEAD > eq-dag-d3b-evidence/head.txt
+          git rev-parse 'HEAD^{tree}' > eq-dag-d3b-evidence/tree.txt
+          lscpu > eq-dag-d3b-evidence/cpu.txt
+          if test -x "$RUNNER_TEMP/gpmc"; then ldd "$RUNNER_TEMP/gpmc" > eq-dag-d3b-evidence/gpmc-ldd.txt; fi
+          cd eq-dag-d3b-evidence
+          find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 -r sha256sum > SHA256SUMS
+          sha256sum -c SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: eq-dag-d3b-balanced-topology
+          path: eq-dag-d3b-evidence/
           retention-days: 30

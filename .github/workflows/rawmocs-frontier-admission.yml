@@ -2194,22 +2194,13 @@ jobs:
         run: |
           set -euo pipefail
           timeout -k 2s 90s prlimit --as=3221225472 -- python research/rawmocs_integration/native_safety.py
-      - name: Matched default versus fixed mmap threshold retention diagnosis
+      - name: Bounded native worker lifetime versus persistent control
         env:
           PYTHONPATH: ${{ github.workspace }}:${{ github.workspace }}/src:${{ github.workspace }}/.rawmocs-candidate/crates/rawmocs-cli/tools
         run: |
           set -euo pipefail
-          # Counterbalanced execution order, fresh processes; no global policy change.
-          for item in default:direct fixed-mmap:adapter fixed-mmap:direct default:adapter; do
-            policy="${item%%:*}"
-            arm="${item#*:}"
-            tunable=""
-            if [ "$policy" = fixed-mmap ]; then tunable="glibc.malloc.mmap_threshold=131072"; fi
-            env -u MALLOC_MMAP_THRESHOLD_ -u MALLOC_TRIM_THRESHOLD_ -u MALLOC_TOP_PAD_ -u MALLOC_MMAP_MAX_ -u MALLOC_ARENA_MAX -u LD_PRELOAD \
-              P4_ALLOCATOR_POLICY="$policy" GLIBC_TUNABLES="$tunable" \
-              timeout -k 2s 100s prlimit --as=3221225472 -- python research/rawmocs_integration/native_retention.py "$arm"
-          done
-          python research/rawmocs_integration/native_retention.py compare
+          env -u GLIBC_TUNABLES -u MALLOC_MMAP_THRESHOLD_ -u MALLOC_TRIM_THRESHOLD_ -u MALLOC_TOP_PAD_ -u MALLOC_MMAP_MAX_ -u MALLOC_ARENA_MAX -u LD_PRELOAD \
+            timeout -k 2s 180s prlimit --as=3221225472 -- python research/rawmocs_integration/native_worker_lifetime.py
       - uses: actions/upload-artifact@v4
         if: always()
         with:

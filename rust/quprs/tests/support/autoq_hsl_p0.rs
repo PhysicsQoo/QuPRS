@@ -948,3 +948,112 @@ h qubits[9];
 h qubits[8];
 "####), // blobs 840fce2b3accaec44a355b8058bd249bd7c56b03 b56988b6db8f18a1512d3cd6551823589588b7f3 9d720831156dafbb4f0636958bbd0432632dcaee
 ];
+
+
+// C3 process-isolated whole-family runner. Test harness is only the transport;
+// no oracle work, precomputed pairing, shared preparation or hidden fallback.
+#[test]
+fn hoare_autoq_c3_arm(){
+    let Ok(case)=std::env::var("AQ_C3_CASE") else{return;};
+    use std::io::Write;
+    let mode=std::env::var("AQ_C3_MODE").unwrap();
+    let file=std::path::PathBuf::from(std::env::var_os("AQ_C3_CNF").unwrap());
+    let start=std::time::Instant::now();
+    let cap=std::time::Duration::from_millis(std::env::var("AQ_C3_BUDGET_MS").unwrap().parse().unwrap());
+    let deadline=start+cap;
+    assert!(["rr","wmc","hybrid","structural"].contains(&mode.as_str()));
+    let mut queries=0usize;let mut pairs=0usize;let mut visited=0usize;
+    let mut route="baseline";let mut rejected=false;
+    let mut witness=None;
+    let result=(||->Option<bool>{
+        let ghz=case.starts_with("ghz");
+        let plus=case.ends_with("-plus");let broken=case.ends_with("-broken");
+        let (n,pre,post,src)=if ghz{
+            let n:usize=case.strip_prefix("ghz")?.split('-').next()?.parse().ok()?;
+            let &(_,a,b,c)=AQ_GHZALL_SOURCES.iter().find(|r|r.0==n)?;
+            if !aq_ghzall_admit(n,a,b){return None;}
+            (n,a,b,c)
+        }else{
+            let &(_,a,b,c)=AQ_SOURCES.iter().find(|r|r.0==case.as_str())?;
+            let (_,aa)=aq_family(a)?;(aa.first()?.n,a,b,c)
+        };
+        let mut ops=factor_source_ops(src,n);
+        if quprs::qasm::parse_qasm_str_source_pinned(src).ok()? != (ops.clone(),n){return None;}
+        if broken{ops.pop()?;}
+        let mut ps=PathSum::new(n);ps.set_auto_reduce(false);
+        for g in &ops{g.apply(&mut ps,false);}
+        let h0=ops.iter().filter(|g|matches!(g,G::H(_))).count();
+        let (s,k)=if mode=="wmc"{(compact(&ps,n)?,h0)}else{
+            let (p,frame,scale,_)=native_rr_checkpoint(ps,n)?;
+            if frame.compact(&p)?!=Anf::from([0]){return None;}
+            (compact(&p,n)?,h0.checked_sub(scale as usize)?)
+        };
+        if mode=="structural"{
+            if ghz&&k==1{
+                if let Some(w)=aq_ghz_witness(&s){
+                    route="symbolic";
+                    if plus{witness=aq_ghz_minus_input(&w);return Some(witness.is_none());}
+                    return Some(true);
+                }
+            }
+            rejected=true;route="fallback";
+        }
+        if std::time::Instant::now()>=deadline{return None;}
+        // Strict baseline: original RR terminal check and existing exact
+        // overlap encoder. Sound cube screening and early existential match.
+        // No symbolic GHZ witness, dense oracle, or assumed label pairing.
+        let (aa,bb)=if ghz{
+            let total=1u64<<n;
+            let aa=(0..total).map(|x|AqState{n,k:0,terms:vec![AqTerm{pattern:AqPattern::Fixed(x),signed:1}]}).collect::<Vec<_>>();
+            let mut bb=Vec::new();
+            for i in 0..total/2{
+                for sign in [1,-1]{
+                    if plus&&sign<0{continue;}
+                    let a=i<<1;let b=(total-1)^a;
+                    bb.push(AqState{n,k:1,terms:vec![AqTerm{pattern:AqPattern::Fixed(a),signed:1},AqTerm{pattern:AqPattern::Fixed(b),signed:sign}]});
+                }
+            }
+            (aa,bb)
+        }else{(aq_family(pre)?.1,aq_family(post)?.1)};
+        if mode=="rr"&&s.h!=0{return None;}
+        let cubes:Vec<_>=bb.iter().map(aq_support_cube).collect();
+        for a in &aa{
+            if std::time::Instant::now()>=deadline{return None;}
+            let x=aq_fixed_input(a)?;
+            visited+=1;
+            let p=aq_output_cube(&s,x);
+            let mut matched=false;let mut unknown=false;
+            for (b,q) in bb.iter().zip(&cubes){
+                if std::time::Instant::now()>=deadline{return None;}
+                pairs+=1;
+                if (p.value^q.value)&p.mask&q.mask!=0{continue;}
+                let v=if mode!="wmc"&&s.h==0{
+                    aq_rr_terminal(&s,x,b)
+                }else if mode=="rr"{None}else{
+                    let (c,phase,primary)=aq_overlap(&s,x,b)?;
+                    let mut data=format!("p cnf {} {}\n",c.vars,c.clauses.len());
+                    for row in &c.clauses{for l in row{data.push_str(&format!("{l} "));}data.push_str("0\n");}
+                    std::fs::write(&file,data).ok()?;
+                    let rem=deadline.saturating_duration_since(std::time::Instant::now());
+                    if rem.is_zero(){return None;}
+                    queries+=1;
+                    println!("AQ_C3_QUERY {} {} {} {}",primary,k+b.k,phase.iter().map(ToString::to_string).collect::<Vec<_>>().join(","),rem.as_millis());
+                    std::io::stdout().flush().ok()?;
+                    let mut answer=String::new();
+                    if std::io::stdin().read_line(&mut answer).ok()?==0{return None;}
+                    match answer.trim(){"PROVED"=>Some(true),"REFUTED"=>Some(false),"UNKNOWN"=>None,_=>return None}
+                };
+                match v{Some(true)=>{matched=true;break;},Some(false)=>{},None=>{unknown=true;}}
+            }
+            if !matched{
+                if unknown{return None;}
+                witness=Some(x);return Some(false);
+            }
+        }
+        Some(true)
+    })();
+    let verdict=if std::time::Instant::now()>=deadline{"UNKNOWN"}else{
+        match result{Some(true)=>"PROVED",Some(false)=>"REFUTED",None=>"UNKNOWN"}
+    };
+    println!("AQ_C3_NATIVE case={case} mode={mode} verdict={verdict} route={route} rejected={rejected} queries={queries} pairs={pairs} visited={visited} witness={witness:?} native_ns={}",start.elapsed().as_nanos());
+}

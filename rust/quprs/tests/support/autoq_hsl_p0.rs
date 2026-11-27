@@ -87,7 +87,8 @@ fn aq_family(hsl:&str)->Option<(usize,Vec<AqState>)>{
     };
     let (var,w)=domain.strip_suffix('}')?.strip_prefix('|')?.split_once("|=")?;
     let w=w.parse::<usize>().ok()?;
-    if var.len()!=1||!var.as_bytes()[0].is_ascii_lowercase()||w==0||w>4{return None;}
+    let cap=if std::env::var_os("AQ_SHARED_FAMILY").is_some(){5}else{4};
+    if var.len()!=1||!var.as_bytes()[0].is_ascii_lowercase()||w==0||w>cap{return None;}
     let (header,expr)=prefix.rsplit_once('\n')?;
     if !expr.starts_with('{'){return None;}
     let mut rows=Vec::new();
@@ -1549,6 +1550,86 @@ fn hoare_autoq_shared_width_encoder(){
     println!("AQ_SHARED_WIDTH_BOUNDARY wide={wide} checks=5");
 }
 
+fn aq_shift_pattern(p:AqPattern,mask:u64)->AqPattern{
+    match p{
+        AqPattern::Fixed(v)=>AqPattern::Fixed(v^mask),
+        AqPattern::Except{offset,width,excluded,outside}=>{
+            let m=((1u64<<width)-1)<<offset;
+            AqPattern::Except{offset,width,excluded:excluded^((mask&m)>>offset),outside:outside^(mask&!m)}
+        }
+    }
+}
+fn aq_pattern_same(a:AqPattern,b:AqPattern)->bool{
+    match(a,b){
+        (AqPattern::Fixed(x),AqPattern::Fixed(y))=>x==y,
+        (AqPattern::Except{offset:a,width:b,excluded:c,outside:d},
+         AqPattern::Except{offset:e,width:f,excluded:g,outside:h})=>a==e&&b==f&&c==g&&d==h,
+        _=>false
+    }
+}
+fn aq_shift_same(a:&AqState,b:&AqState,mask:u64)->bool{
+    a.n==b.n&&a.k==b.k&&a.terms.len()==b.terms.len()&&
+    a.terms.iter().zip(&b.terms).all(|(x,y)|x.signed==y.signed&&
+        aq_pattern_same(aq_shift_pattern(x.pattern,mask),y.pattern))
+}
+fn aq_orbit_original_eq(s:&Symbolic,ops:&[G],aa:&[AqState],bb:&[AqState],
+                        deadline:std::time::Instant)->Option<usize>{
+    use quprs::{check_equivalence_with_options,EquivalenceStatus,VerificationOptions,VerificationMethod,VerificationStrategy};
+    use std::io::Write;
+    if aa.len()<2||aa.len()>32||aa.len()!=bb.len()||s.n>16{return None;}
+    if !ops.iter().all(|g|matches!(g,G::H(_)|G::X(_)|G::Z(_)|G::CX(..)|G::CZ(..)|G::CCX(..))){return None;}
+    let pairs=aq_discover_pairs(s,aa,bb)?;
+    if pairs.iter().copied().collect::<BTreeSet<_>>().len()!=bb.len(){return None;}
+    let inputs:Vec<u64>=aa.iter().map(aq_fixed_input).collect::<Option<_>>()?;
+    let by_input:BTreeMap<u64,usize>=inputs.iter().enumerate().map(|(i,&x)|(x,i)).collect();
+    if by_input.len()!=aa.len(){return None;}
+    let base=inputs[0];
+    let varying=inputs.iter().fold(0u64,|a,&x|a|(base^x));
+    if 1usize.checked_shl(varying.count_ones())?!=aa.len(){return None;}
+    let fixed=|b:&AqState|match b.terms.first()?.pattern{AqPattern::Fixed(z)=>Some(z),_=>None};
+    let mut generators=0usize;
+    for j in 0..s.n{
+        let dx=1u64<<j;
+        if varying&dx==0{continue;}
+        if std::time::Instant::now()>=deadline{return None;}
+        let i=*by_input.get(&(base^dx))?;
+        let dz=fixed(&bb[pairs[0]])?^fixed(&bb[pairs[i]])?;
+        if dz==0{return None;}
+        // Prove the target translation on every admitted label without
+        // enumerating amplitudes; pairing is unique by raw support cubes.
+        for (l,&x) in inputs.iter().enumerate(){
+            let m=*by_input.get(&(x^dx))?;
+            if !aq_shift_same(&bb[pairs[l]],&bb[pairs[m]],dz){return None;}
+        }
+        // Source-derived Pauli candidate: X on input translation, Z on
+        // added output translation bits. Candidate may fail; EQ is the gate.
+        let mut lhs=vec![G::X(j)];
+        for k in 0..s.n{if (dz&!dx)>>k&1!=0{lhs.push(G::Z(k));}}
+        lhs.extend(ops.iter().cloned());
+        let mut rhs=ops.to_vec();
+        let bad=std::env::var_os("AQ_CPS_ORBIT_BAD").is_some();
+        for k in 0..s.n{
+            if dz>>k&1!=0&&!(bad&&k==dz.trailing_zeros() as usize){rhs.push(G::X(k));}
+        }
+        let opt=VerificationOptions{method:VerificationMethod::ReductionRules,
+            strategy:VerificationStrategy::Difference,tool_name:"gpmc".into(),timeout_secs:1,
+            rr_tolerance:0.0,..VerificationOptions::default()};
+        let t=std::time::Instant::now();
+        let r=check_equivalence_with_options(s.n,&lhs,&rhs,&opt).ok()?;
+        let p=&r.final_ps;
+        let h=p.v.path_vars.iter().filter(|&&id|id as usize>=p.v.num_qubits).count();
+        let exact=r.status==EquivalenceStatus::Equivalent&&!r.rr_approximate&&!r.solver_invoked&&h==0&&p.p.terms.is_empty();
+        println!("AQ_CPS_ORBIT_CERT bit={j} dx={dx} dz={dz} status={} exact={exact} hh={} elim={} omega={} ns={}",
+            r.status.as_str(),p.stats.hh.successes,p.stats.elim.successes,p.stats.omega.successes,t.elapsed().as_nanos());
+        let _=std::io::stdout().flush();
+        if !exact||std::time::Instant::now()>=deadline{return None;}
+        generators+=1;
+    }
+    if generators!=varying.count_ones() as usize{return None;}
+    Some(pairs[0])
+}
+
+
 #[test]
 fn hoare_autoq_shared_fixed_basis_arm(){
     let Ok(case)=std::env::var("AQ_C3_CASE")else{return;};
@@ -1568,6 +1649,70 @@ fn hoare_autoq_shared_fixed_basis_arm(){
         let post=std::fs::read_to_string(dir.join("post.hsl")).ok()?;
         let src=std::fs::read_to_string(dir.join("circuit.qasm")).ok()?;
         let (_,a)=aq_family(&pre)?;let (_,b)=aq_family(&post)?;
+        if a.len()>1&&std::env::var_os("AQ_SHARED_FAMILY").is_some(){
+            if mode!="wmc"||a.len()!=b.len()||a.len()>32{return None;}
+            let n=a[0].n;
+            if a.iter().chain(&b).any(|z|z.n!=n){return None;}
+            let (ops,qn)=quprs::qasm::parse_qasm_str_source_pinned(&src).ok()?;
+            if qn!=n||factor_source_ops(&src,n)!=ops{return None;}
+            let h0=ops.iter().filter(|g|matches!(g,G::H(_))).count();
+            raw_h=Some(h0);admission="family-build";
+            let mut ps=PathSum::new(n);ps.set_auto_reduce(false);
+            for g in &ops{
+                if std::time::Instant::now()>=deadline{return None;}
+                g.apply(&mut ps,false);
+                if ps.p.terms.len()+ps.f.functions.iter().map(|a|a.len()).sum::<usize>()>30000{return None;}
+            }
+            let raw=compact(&ps,n)?;
+            if raw.h!=h0{return None;}
+            let checkpoint=format!("n={n} h={h0} scale_exp={h0} guard=1 family={} output={:?} phase={:?}\n",a.len(),raw.output,raw.phase);
+            std::fs::write(file.with_extension("initial.txt"),checkpoint).ok()?;
+            residual_h=Some(h0);rr_steps=Some(0);scale2=Some(0);
+            // Existing exact support-pairing is an admission condition.
+            // Ambiguity is UNKNOWN, never a negative verdict.
+            let pairs=aq_discover_pairs(&raw,&a,&b)?;
+            let mut jobs:Vec<(usize,usize)>=pairs.into_iter().enumerate().collect();
+            let request=std::env::var("AQ_SHARED_FAMILY").ok().as_deref()==Some("orbit");
+            let t=std::time::Instant::now();
+            let admitted=if request{
+                if let Some(j)=aq_orbit_original_eq(&raw,&ops,&a,&b,deadline){
+                    jobs=vec![(0,j)];true
+                }else{false}
+            }else{false};
+            println!("AQ_SHARED_FAMILY_ROUTE requested={request} admitted={admitted} original={} representatives={} ns={}",a.len(),jobs.len(),t.elapsed().as_nanos());
+            std::io::stdout().flush().ok()?;
+            for (i,j) in jobs{
+                let x=aq_fixed_input(&a[i])?;
+                let bound=aq_fixed_pre_path(n,x,&ops,deadline)?;
+                let s=compact(&bound,n)?;
+                let cube=Cube{mask:(1u64<<n)-1,value:x};
+                // Verify the reused fixed-basis lowering is the restriction
+                // of the identical shared family checkpoint.
+                if s.h!=h0||s.phase!=specialize_phase(&raw.phase,cube)||
+                    s.output!=raw.output.iter().map(|f|specialize_bool(f,cube)).collect::<Vec<_>>(){return None;}
+                let target=&b[j];
+                let Some((c,phase,primary))=aq_overlap(&s,x,target)else{admission="encoder-not-admitted";return None;};
+                let mut data=format!("p cnf {} {}\n",c.vars,c.clauses.len());
+                for row in &c.clauses{for l in row{data.push_str(&format!("{l} "));}data.push_str("0\n");}
+                std::fs::write(&file,data).ok()?;
+                let rem=deadline.saturating_duration_since(std::time::Instant::now());
+                if rem.is_zero(){return None;}
+                admission="family-query";
+                println!("AQ_SHARED_FAMILY_QUERY input={i} target={j} h={} primary={primary} vars={} clauses={} k={}",s.h,c.vars,c.clauses.len(),h0+target.k);
+                queries+=1;
+                println!("AQ_C3_QUERY {} {} {} {}",primary,h0+target.k,phase.iter().map(ToString::to_string).collect::<Vec<_>>().join(","),rem.as_millis());
+                std::io::stdout().flush().ok()?;
+                let mut answer=String::new();
+                if std::io::stdin().read_line(&mut answer).ok()?==0{return None;}
+                match answer.trim(){
+                    "PROVED"=>{},
+                    "REFUTED"=>{witness=Some(x);return Some(false);},
+                    _=>return None
+                }
+            }
+            admission="family-complete";
+            return Some(true);
+        }
         if a.len()!=1||b.len()!=1||a[0].n!=b[0].n{return None;}
         let n=a[0].n;let x=aq_fixed_input(&a[0])?;let b=&b[0];
         let (ops,qn)=quprs::qasm::parse_qasm_str_source_pinned(&src).ok()?;

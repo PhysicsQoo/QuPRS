@@ -103,6 +103,7 @@ def arm(binary, solver, case, mode, folder):
     with (folder/"native.log").open("w") as log, (folder/"solver.jsonl").open("w") as sol:
         for line in proc.stdout:
             log.write(line)
+            if os.environ.get("AQ_SHARED_FAMILY"):log.flush()
             if "AQ_C3_QUERY " in line:
                 primary, k, phase, rem = line.split("AQ_C3_QUERY ",1)[1].split()
                 primary,k,rem = int(primary),int(k),int(rem)

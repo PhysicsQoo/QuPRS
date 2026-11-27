@@ -1540,20 +1540,19 @@ fn generic_lift_trigger(op:&quprs::ir::QuantumOp,ps:&PathSum,bra:bool)->bool{
      let (view,rows)=super::conditional_trace::extract_lift_integrators(&dep,&[(u1,z1),(u2,z2)]);
      assert_eq!(rows.len(),1);assert!(view.v.path_vars.contains(&z2));
      receipt("extract_guard_dependency",&dep,&view,0,1,&rows,"needs_scale");
-     // Native HH permits a pivot in the input domain. This synthetic
-     // counterexample deliberately demonstrates why a scalar cannot repair it.
+     // N3: external-only HH must be rejected without changing the residual.
+     // The historical failing-operator diagnostic is preserved at N1's SHA.
      let mut ext=PathSum::new(1);ext.set_auto_reduce(false);let y=ext.v.get_fresh_var();
      ext.p.add_term(vec![0,y],PhaseCoeff::HALF);
      let mut bad=ext.clone();assert!(bad.get_reducible_vars().contains(&y));
-     assert!(bad.try_reduce_hh(&[y]));assert!(bad.v.path_vars.contains(&0));
-     assert_eq!(internal(&ext).len(),internal(&bad).len()+1);
-     receipt("external_hh_counterexample",&ext,&bad,0,1,&[],"different_support");
+     assert!(!bad.try_reduce_hh(&[y]));assert!(bad.v.path_vars.contains(&0));
+     assert_eq!(ir(&ext,None),ir(&bad,None));
+     receipt("external_hh_counterexample",&ext,&bad,0,0,&[],"rejected_equal");
  }
 
 
-// N2: gate-reachable external HH witness; no synthetic state mutation.
-// This diagnostic passes only when the existing unsafe behavior is reproduced.
-// It is NOT a production correctness acceptance.
+// N3: gate-reachable witness must retain external constraint, then
+// use the next legal internal HH. Independent full operator comparison.
 #[test]
 fn cpr_reachable_external_hh_receipts() {
     use quprs::ir::QuantumOp::*;
@@ -1567,30 +1566,27 @@ fn cpr_reachable_external_hh_receipts() {
     assert!(!raw.rr_approximate);
     let candidates=raw.get_reducible_vars();
     assert_eq!(candidates,vec![5,4,3]);
+    let mut rejected=raw.clone();
+    assert!(!rejected.try_reduce_hh(&[5]));
+    assert_eq!(ir(&rejected,None),ir(&raw,None));
     let mut one=raw.clone();
     assert!(one.try_reduce_hh(&candidates));
-    assert!(!one.v.path_vars.contains(&5));
-    assert!(one.v.path_vars.contains(&0));
-    assert_eq!(internal(&one).len(),5);
+    assert!(one.v.path_vars.contains(&5));
+    assert!(!one.v.path_vars.contains(&4));
+    assert!(!one.v.path_vars.contains(&8));
+    assert_eq!(internal(&one).len(),4);
     assert!(!one.rr_approximate);
     let mut auto=initial.clone();
     auto.set_auto_reduce(true);
-    let mut prefix=initial.clone();
-    for gate in &gates[..7] {
-        gate.apply(&mut prefix,false);
-        gate.apply(&mut auto,false);
-        // Demonstrate that no previous auto reduction changes the state.
-        assert_eq!(ir(&auto,None),ir(&prefix,None));
-    }
-    gates[7].apply(&mut auto,false);
+    for gate in &gates { gate.apply(&mut auto,false); }
     let mut strategy_input=initial.clone();
     strategy_input.set_auto_reduce(true);
     let strategy=quprs::VerificationStrategy::Difference.run(strategy_input,&gates,&[]);
     assert_eq!(ir(&auto,None),ir(&strategy,None));
     assert!(!auto.rr_approximate);
-    assert_eq!(internal(&auto).len(),3);
-    for (name,state) in [("raw",&raw),("first_external_hh",&one),("auto_reduced",&auto),("difference_empty",&strategy)] {
-        println!("CPR_N2_RECEIPT {{\"case\":\"{name}\",\"state\":{}}}",ir(state,None));
+    assert_eq!(internal(&auto).len(),2);
+    for (name,state) in [("raw",&raw),("external_rejected",&rejected),("first_internal_hh",&one),("auto_reduced",&auto),("difference_empty",&strategy)] {
+        println!("CPR_N3_RECEIPT {{\"case\":\"{name}\",\"state\":{}}}",ir(state,None));
     }
-    println!("CPR_N2_NATIVE_REACHABILITY_PASS diagnostic_only=true");
+    println!("CPR_N3_NATIVE_PIVOT_PASS");
 }

@@ -234,7 +234,12 @@ impl PathSum {
             for term in &phi {
                 if term.len() == 1 {
                     let var = term[0];
-                    
+                    // HH substitutes a summed bit, not a fixed input coordinate.
+                    // An external-only constraint must remain in the residual.
+                    if (var as usize) < self.v.num_qubits {
+                        continue;
+                    }
+
                     // Validate: v cannot be present in other terms of phi.
                     // If it is, `replacement` would depend on `v`, causing infinite recursion
                     // or leaving `v` un-eliminated in F.
@@ -606,6 +611,24 @@ mod tests {
         
         assert!(!ps.v.path_vars.contains(&999), "Garbage variable 999 must be eliminated");
         assert!(ps.v.path_vars.contains(&0), "Input variable x_0 MUST NOT be removed");
+    }
+
+    #[test]
+    fn hh_rejects_external_only_without_mutating_state() {
+        for tol in [0.0, 1e-10] {
+            let mut ps = setup_test_env(1);
+            ps.rr_tolerance = tol;
+            let y = ps.v.get_fresh_var();
+            ps.p.add_term(vec![0,y], PhaseCoeff::HALF);
+            let before = ps.clone();
+            let candidates = ps.get_reducible_vars();
+            assert_eq!(candidates, vec![y]);
+            assert!(!ps.try_reduce_hh(&candidates));
+            assert_eq!(ps.v.path_vars, before.v.path_vars);
+            assert_eq!(ps.p.terms, before.p.terms);
+            assert_eq!(ps.f.functions, before.f.functions);
+            assert_eq!(ps.rr_approximate, before.rr_approximate);
+        }
     }
 
     #[test]

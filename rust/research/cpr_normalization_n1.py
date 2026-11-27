@@ -55,12 +55,12 @@ def main(path):
     assert len(rows)==len(expected) and {r["case"] for r in rows}==expected
     for r in rows:
         a=matrix(r["before"],[],r["k0"]);b=matrix(r["after"],r["rows"],r["k1"])
-        if r["expect"]=="different_support":
-            assert set(a[0])!=set(b[0]) and not equal(a,b)
+        if r["case"]=="external_hh_counterexample":
+            assert r["expect"]=="rejected_equal" and r["before"]==r["after"] and equal(a,b)
         else:
             assert equal(a,b),r["case"]
             if r["expect"]=="needs_scale":
                 assert not equal(a,matrix(r["after"],r["rows"],r["k0"])),r["case"]
         print("CPR_N1_ORACLE",json.dumps({"case":r["case"],"expect":r["expect"],"status":"PASS","denominator_before":a[1],"denominator_after":b[1],"support_before":len(a[0]),"support_after":len(b[0])}),flush=True)
-    print("CPR_N1_GATE",json.dumps({"checked":len(rows),"positive_equal":9,"external_pivot_negative":1,"scale_needed":3,"status":"PASS"}))
+    print("CPR_N1_GATE",json.dumps({"checked":len(rows),"positive_equal":9,"external_pivot_rejected":1,"scale_needed":3,"status":"PASS"}))
 if __name__=="__main__":main(sys.argv[1])

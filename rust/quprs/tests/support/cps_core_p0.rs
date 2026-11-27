@@ -98,6 +98,16 @@ impl CpsCore{
     // self=A, next=B, returns B A. Rebase *all* B IDs, including its
     // formal inputs, before any substitution: no sequential capture.
     fn then(&self,next:&Self)->Option<Self>{
+        self.then_diagnostic(next).ok()
+    }
+    fn then_diagnostic(&self,next:&Self)->Result<Self,String>{
+        if let Some(c)=self.then_legacy(next){return Ok(c);}
+        self.then_guard_interface(next).map_err(|reason|format!(
+            "guard-interface {reason} lhs_next={} lhs_live={} rhs_live={} rhs_inputs={} max_replacement={}",
+            self.ps.v.next_id,self.guard.ids.len(),next.guard.ids.len(),next.n(),
+            self.ps.f.functions.iter().map(|p|p.len()).max().unwrap_or(0)))
+    }
+    fn then_legacy(&self,next:&Self)->Option<Self>{
         if !self.valid()||!next.valid()||self.q()!=next.n(){return None;}
         let k=self.k.checked_add(next.k)?;
         let mut ps=PathSum::new(self.n());ps.set_auto_reduce(false);
@@ -125,6 +135,53 @@ impl CpsCore{
         ps.f=f;
         let mut factors=self.guard.factors().cloned().collect::<Vec<_>>();factors.extend(gs);
         Self::from_factors(ps,factors,k)
+    }
+    // Exact fallback when B's formal inputs occur only in its guard.
+    // Allocate only B's bound variables. Substitution into G_B is
+    // simultaneous in the final namespace, not sequential renaming.
+    // Keep native P/f and the derived scale; no extra coherent variables.
+    fn then_guard_interface(&self,next:&Self)->Result<Self,&'static str>{
+        if !self.valid()||!next.valid()||self.q()!=next.n(){return Err("invalid-input");}
+        let n=next.n();
+        if next.ps.p.terms.keys().chain(next.ps.f.functions.iter().flat_map(|p|p.iter()))
+            .any(|m|m.iter().any(|&id|(id as usize)<n)){return Err("formal-in-native-polynomial");}
+        let k=self.k.checked_add(next.k).ok_or("scale-overflow")?;
+        let mut ps=PathSum::new(self.n());ps.set_auto_reduce(false);
+        ps.v=self.ps.v.clone();ps.p=self.ps.p.clone();
+        let mut map=BTreeMap::new();
+        let mut repl=BTreeMap::<u32,Anf>::new();
+        for (i,f) in self.ps.f.functions.iter().enumerate(){
+            repl.insert(i as u32,core_anf(f).ok_or("invalid-replacement")?);
+        }
+        for &old in next.guard.ids.iter().filter(|&&id|(id as usize)>=n){
+            if ps.v.next_id>=63{return Err("bound-id-cap");}
+            let id=ps.v.get_fresh_var();
+            map.insert(old,id);
+            repl.insert(old,Anf::from([core_bit(id).ok_or("bound-id-cap")?]));
+        }
+        let (p,f)=core_rename(&next.ps,&map).ok_or("native-rename")?;
+        let mut factors=self.guard.factors().cloned().collect::<Vec<_>>();
+        let mut work=0usize;
+        for g in next.guard.factors(){
+            let mut out=Anf::new();
+            for &m in g{
+                let mut term=Anf::from([0]);
+                for id in 0..63u32{
+                    if m&(1u64<<id)==0{continue;}
+                    let sub=repl.get(&id).ok_or("unmapped-guard-id")?;
+                    work=work.checked_add(term.len().checked_mul(sub.len()).ok_or("guard-work")?).ok_or("guard-work")?;
+                    if work>2_000_000{return Err("guard-work");}
+                    term=mul_anf(&term,sub).ok_or("guard-substitution-cap")?;
+                    if term.is_empty(){break;}
+                }
+                for v in term{xor_insert(&mut out,v);}
+                if out.len()>CORE_TERMS{return Err("guard-substitution-cap");}
+            }
+            factors.push(out);
+        }
+        for (m,c) in p.terms{ps.p.add_term(m,c);}
+        ps.f=f;
+        Self::from_factors(ps,factors,k).ok_or("result-invariant")
     }
     // Old free inputs become bound; fresh free outputs are never
     // captured by the old input/path IDs. Keep k, not k+n.
@@ -253,6 +310,30 @@ fn hoare_cps_core_closure(){
         let left=ba.adjoint().unwrap();let right=b.adjoint().unwrap().then(&ad).unwrap();
         assert_eq!(left.k,right.k);assert_eq!(core_matrix(&left),core_matrix(&right));reverse+=1;
     }
+    // Guard-only simultaneous substitution is checked against independent
+    // exact matrix multiplication, including a transient-ID overflow and
+    // a >8-term replacement (neither affects B's phase/output).
+    let small=CpsCore::circuit(1,&[G::H(0)]).unwrap();
+    let bd=small.adjoint().unwrap();
+    let direct=small.then_guard_interface(&bd).unwrap();
+    assert_eq!(direct.k,small.k+bd.k);
+    assert_eq!(core_matrix(&direct),core_matrix(&small.then_legacy(&bd).unwrap()));
+    let mut ps=PathSum::new(1);ps.set_auto_reduce(false);
+    for _ in 0..3{ps.v.get_fresh_var();}
+    ps.f.functions[0]=(0..9u64).map(|m|(0..4u32).filter(|&i|m&(1u64<<i)!=0).collect()).collect();
+    let a=CpsCore::canonical(ps,Anf::from([0])).unwrap();
+    assert!(a.then_legacy(&bd).is_none());
+    let c=a.then(&bd).unwrap();
+    assert_eq!(c.k,a.k+bd.k);
+    assert_eq!(core_matrix(&c),core_product(&core_matrix(&a),&core_matrix(&bd)));
+    let mut near=a.clone();near.ps.v.next_id=61;
+    assert!(near.valid()&&near.then_legacy(&bd).is_none());
+    let c=near.then(&bd).unwrap();
+    assert_eq!(c.ps.v.next_id,63);
+    assert_eq!(core_matrix(&c),core_product(&core_matrix(&near),&core_matrix(&bd)));
+    assert!(a.then_guard_interface(&small).is_err());
+    assert!(a.then(&small).is_none());
+    println!("CPS_GUARD_INTERFACE small_parity=PASS wide_replacement=PASS transient_id=PASS formal_native_reject=PASS");
     // Original circuit embedding and gate lowering agree on each column.
     // Include an XOR output substitution with exact Z8 coefficient.
     let aops=vec![G::H(0),G::CX(0,1),G::H(1)];
@@ -1005,7 +1086,9 @@ fn hoare_cps_core_matched_worker(){
         };
         stage="label-certificate";if !core_label_support(&ua,&b){return None;}
         stage="adjoint";let bd=b.adjoint()?;
-        stage="composition";let mut c=ua.then(&bd)?;
+        stage="composition";let mut c=match ua.then_diagnostic(&bd){
+            Ok(v)=>v,Err(detail)=>{println!("CPS_COMPOSITION_DETAIL {detail}");return None;}
+        };
         let build_ns=t.elapsed().as_nanos();
         stage="initial-snapshot";let snap=guarded_snapshot(&c.ps,c.n(),&c.guard)?;
         std::fs::write(dir.join("initial.txt"),format!("k={}\n{snap:?}\n",c.k)).ok()?;

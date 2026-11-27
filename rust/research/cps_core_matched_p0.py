@@ -42,7 +42,7 @@ def worker(binary,solver,folder,mode):
         detail=[l.removeprefix("CPS_COMPOSITION_DETAIL ") for l in p.stdout.splitlines() if l.startswith("CPS_COMPOSITION_DETAIL ")]
         row=dict(verdict="UNKNOWN",reason="UNSUPPORTED",stage=m[1] if len(m)>1 else "unspecified")
         if detail:
-            assert len(detail)==1 and row["stage"]=="native-gate-composition",detail
+            assert len(detail)==1 and row["stage"] in ("native-gate-composition","composition"),detail
             row["composition_detail"]=detail[0]
         print(json.dumps(row));return
     status=m[0]

@@ -1469,3 +1469,120 @@ fn aq_hist_ray(hist:&BTreeMap<u64,Root>,b:&AqState,k:usize)->Option<bool>{
     let radical=a*b0+b0*c+c*d-a*d;
     Some(radical==0&&real==1i128.checked_shl((k+b.k).try_into().ok()?)?)
 }
+
+
+// Shared fixed-basis precondition lowering: G=1 specialized fragment,
+// not a verification mode. Keep original input IDs as unused RR placeholders.
+fn aq_fixed_pre_path(n:usize,x:u64,ops:&[G],deadline:std::time::Instant)->Option<PathSum>{
+    if n==0||n>16||x>>n!=0{return None;}
+    let mut ps=PathSum::new(n);ps.set_auto_reduce(false);
+    for (i,f) in ps.f.functions.iter_mut().enumerate(){
+        f.clear();if x>>i&1!=0{f.insert(vec![]);}
+    }
+    for g in ops{
+        if std::time::Instant::now()>=deadline{return None;}
+        g.apply(&mut ps,false);
+        if ps.p.terms.len()+ps.f.functions.iter().map(|a|a.len()).sum::<usize>()>30000{return None;}
+    }
+    Some(ps)
+}
+
+// Independent exact gate oracle: nonzero basis, entanglement, phase,
+// and coherent cancellation. Enumeration only in this bounded test.
+#[test]
+fn hoare_autoq_shared_fixed_basis_lowering(){
+    let circuits=vec![
+        vec![G::H(0),G::CX(0,1),G::Z(1)],
+        vec![G::H(1),G::H(1),G::X(0)],
+        vec![G::H(0),G::T(0),G::H(0),G::CZ(0,1)],
+    ];
+    let mut checks=0;
+    for ops in circuits{
+        for x in 0..4u64{
+            let ps=aq_fixed_pre_path(2,x,&ops,std::time::Instant::now()+std::time::Duration::from_secs(5)).unwrap();
+            let s=compact(&ps,2).unwrap();
+            assert_eq!(s.h,ops.iter().filter(|g|matches!(g,G::H(_))).count());
+            assert!(s.phase.keys().chain(s.output.iter().flatten()).all(|m|m&3==0));
+            let mut actual=vec![[0;4];4];
+            for y in 0..1u64<<s.h{
+                let (z,k)=path(&s,0,y);
+                actual[z as usize]=add(actual[z as usize],root(k));
+            }
+            assert_eq!(actual,dense_state(2,&ops,x));
+            checks+=1;
+        }
+    }
+    assert_eq!(checks,12);
+    println!("AQ_SHARED_FIXED_BASIS_ORACLE checks={checks}");
+}
+
+// Dedicated shared semantic entry: three policy modes, same source/spec.
+#[test]
+fn hoare_autoq_shared_fixed_basis_arm(){
+    let Ok(case)=std::env::var("AQ_C3_CASE")else{return;};
+    let Some(dir)=std::env::var_os("AQ_C3_SOURCE_DIR")else{return;};
+    use std::io::Write;
+    let dir=std::path::PathBuf::from(dir);
+    let mode=std::env::var("AQ_C3_MODE").unwrap();
+    assert!(["rr","wmc","hybrid"].contains(&mode.as_str()));
+    let file=std::path::PathBuf::from(std::env::var_os("AQ_C3_CNF").unwrap());
+    let start=std::time::Instant::now();
+    let deadline=start+std::time::Duration::from_millis(std::env::var("AQ_C3_BUDGET_MS").unwrap().parse().unwrap());
+    let(mut raw_h,mut residual_h,mut scale2,mut rr_steps)=(None,None,None,None);
+    let(mut queries,mut witness)=(0usize,None);
+    let mut admission="source-spec-not-admitted";
+    let result=(||->Option<bool>{
+        let pre=std::fs::read_to_string(dir.join("pre.hsl")).ok()?;
+        let post=std::fs::read_to_string(dir.join("post.hsl")).ok()?;
+        let src=std::fs::read_to_string(dir.join("circuit.qasm")).ok()?;
+        let (_,a)=aq_family(&pre)?;let (_,b)=aq_family(&post)?;
+        if a.len()!=1||b.len()!=1||a[0].n!=b[0].n{return None;}
+        let n=a[0].n;let x=aq_fixed_input(&a[0])?;let b=&b[0];
+        let (ops,qn)=quprs::qasm::parse_qasm_str_source_pinned(&src).ok()?;
+        if qn!=n||factor_source_ops(&src,n)!=ops{return None;}
+        let h0=ops.iter().filter(|g|matches!(g,G::H(_))).count();raw_h=Some(h0);
+        admission="build-resource";
+        let ps=aq_fixed_pre_path(n,x,&ops,deadline)?;
+        let raw=compact(&ps,n)?;
+        if raw.h!=h0||raw.phase.keys().chain(raw.output.iter().flatten()).any(|m|m&((1u64<<n)-1)!=0){return None;}
+        // Canonical ordered initial IR. Common scale and trivial survivor
+        // explicitly recorded. Driver compares its SHA256 across modes.
+        let checkpoint=format!("n={n} h={h0} scale_exp={h0} guard=1 pre={x} output={:?} phase={:?}\n",raw.output,raw.phase);
+        std::fs::write(file.with_extension("initial.txt"),checkpoint).ok()?;
+        admission="initial-admitted";
+        let (s,k)=if mode=="wmc"{scale2=Some(0);rr_steps=Some(0);(raw,h0)}else{
+            let (p,frame,scale,steps)=native_rr_checkpoint(ps,n)?;
+            scale2=Some(scale);rr_steps=Some(steps);
+            if frame.compact(&p)?!=Anf::from([0]){return None;}
+            (compact(&p,n)?,h0.checked_sub(scale as usize)?)
+        };
+        residual_h=Some(s.h);admission="residual-admitted";
+        if std::time::Instant::now()>=deadline{return None;}
+        // The source was specialized before RR; original input IDs now
+        // remain inert. Use the bound column for the same target obligation.
+        let verdict=if mode!="wmc"&&s.h==0{
+            if k!=0{return None;}
+            aq_rr_terminal(&s,x,b)
+        }else if mode=="rr"{admission="rr-not-decisive";None}
+        else{
+            let Some((c,phase,primary))=aq_overlap(&s,x,b)else{admission="encoder-not-admitted";return None;};
+            let mut data=format!("p cnf {} {}\n",c.vars,c.clauses.len());
+            for row in &c.clauses{for l in row{data.push_str(&format!("{l} "));}data.push_str("0\n");}
+            std::fs::write(&file,data).ok()?;
+            let rem=deadline.saturating_duration_since(std::time::Instant::now());
+            if rem.is_zero(){return None;}
+            queries+=1;
+            println!("AQ_C3_QUERY {} {} {} {}",primary,k+b.k,phase.iter().map(ToString::to_string).collect::<Vec<_>>().join(","),rem.as_millis());
+            std::io::stdout().flush().ok()?;
+            let mut answer=String::new();
+            if std::io::stdin().read_line(&mut answer).ok()?==0{return None;}
+            match answer.trim(){"PROVED"=>Some(true),"REFUTED"=>Some(false),"UNKNOWN"=>None,_=>return None}
+        };
+        if verdict==Some(false){witness=Some(x);}
+        verdict
+    })();
+    let verdict=if std::time::Instant::now()>=deadline{"UNKNOWN"}else{
+        match result{Some(true)=>"PROVED",Some(false)=>"REFUTED",None=>"UNKNOWN"}
+    };
+    println!("AQ_C3_NATIVE case={case} mode={mode} verdict={verdict} route=shared-fixed-basis queries={queries} witness={witness:?} raw_h={raw_h:?} residual_h={residual_h:?} scale2={scale2:?} rr_steps={rr_steps:?} admission={admission} native_ns={}",start.elapsed().as_nanos());
+}

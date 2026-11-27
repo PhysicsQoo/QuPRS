@@ -92,8 +92,9 @@ def arm(binary, solver, case, mode, folder):
     cnf = folder / "base.cnf"
     env = dict(os.environ, AQ_C3_CASE=case, AQ_C3_MODE=mode,
                AQ_C3_CNF=str(cnf), AQ_C3_BUDGET_MS=str(int(CAP*1000)))
-    proc = subprocess.Popen([str(binary), "--exact",
-        "exact_property_cnf::hoare_autoq_c3_arm", "--nocapture"],
+    native_test=os.environ.get("AQ_C3_NATIVE_TEST","exact_property_cnf::hoare_autoq_c3_arm")
+    assert native_test in ("exact_property_cnf::hoare_autoq_c3_arm","exact_property_cnf::hoare_autoq_shared_fixed_basis_arm")
+    proc = subprocess.Popen([str(binary), "--exact", native_test, "--nocapture"],
         stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
         text=True, bufsize=1, env=env)
     queries = 0

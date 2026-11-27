@@ -42,7 +42,7 @@ jobs:
           rustc --version | tee evidence/rustc-version.txt
           cargo --version | tee evidence/cargo-version.txt
           lscpu > evidence/cpu.txt
-          sha256sum rust/quprs/tests/support/autoq_hsl_p0.rs rust/quprs/tests/property_hoare_experiment.rs rust/research/autoq_grover_p0.py rust/research/autoq_c3_pilot.py rust/research/autoq_shared_width_p0.py rust/research/autoq_shared_family_p0.py rust/research/autoq_ss2_p0.py rust/research/autoq_ss3_p0.py > evidence/source-sha256.txt
+          sha256sum rust/quprs/tests/support/autoq_hsl_p0.rs rust/quprs/tests/property_hoare_experiment.rs rust/research/autoq_grover_p0.py rust/research/autoq_c3_pilot.py rust/research/autoq_shared_width_p0.py rust/research/autoq_shared_family_p0.py rust/research/autoq_ss2_p0.py rust/research/autoq_ss3_p0.py rust/quprs/tests/support/cps_core_p0.rs > evidence/source-sha256.txt
           sudo apt-get update
           sudo apt-get install -y cmake pkg-config libgmp-dev libmpfr-dev zlib1g-dev libboost-filesystem-dev libboost-test-dev libantlr4-runtime-dev
       - name: Provision pinned GPMC and qualify packed count
@@ -75,6 +75,8 @@ jobs:
           PY
           timeout 30s "$(cat evidence/property_hoare_experiment.path)" --exact exact_property_cnf::hoare_autoq_shared_fixed_basis_lowering --nocapture | tee evidence/shared-lowering.log
           grep -F 'AQ_SHARED_FIXED_BASIS_ORACLE checks=12' evidence/shared-lowering.log
+          timeout 60s "$(cat evidence/property_hoare_experiment.path)" --exact exact_property_cnf::hoare_cps_core_closure --nocapture | tee evidence/cps-core-closure.log
+          grep -F 'CPS_CORE_CLOSURE composition=128 adjoint=128 associativity=128 reverse=128' evidence/cps-core-closure.log
       - name: Verify wide encoder boundaries and original-source WMC pairs
         timeout-minutes: 10
         run: |

@@ -2794,6 +2794,7 @@ fn factor_source_ops(src:&str,n:usize)->Vec<G>{
         }
     }).collect()
 }
+include!("support/cps_core_p0.rs");
 include!("support/autoq_hsl_p0.rs");
 fn factor_target(k:usize,z:usize)->i128{
     let n=2*k-1;

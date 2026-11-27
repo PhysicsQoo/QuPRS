@@ -4934,6 +4934,82 @@ theorem ledger_accepted_free_direct {P A : Type} [Zero P] [Add P] [Zero A] [Add 
     ledger_exact_value_direct interpret ex s.trial es he2 hs2] at hv
   exact ⟨es,he1,he2,hs1,hs2,hv⟩
 
+
+-- Adversarial controls for the structural-only ledger checker.
+-- A zero phase with no effective constraint has one contribution
+-- per live assignment. These examples do not originate from Rust.
+def ledgerSubGapBefore : LedgerSnap :=
+  ⟨[48,59,48,59,126,59,126], 0, [0], [126], [126], [], [[]]⟩
+
+def ledgerSubGapAfter : LedgerSnap :=
+  ⟨[48,59,45,59,126,59,33], 0, [], [126], [33], [], []⟩
+
+def ledgerAliasGapBefore : LedgerSnap :=
+  ⟨[48,59,48,44,49,59,126,59,33], 0, [0,1], [126], [33], [], []⟩
+
+def ledgerAliasGapAfter : LedgerSnap :=
+  ⟨[48,59,48,59,126,59,33], 0, [0], [126], [33], [], []⟩
+
+def ledgerSubGapBytes : List Nat := [99,114,114,45,108,101,100,103,101,114,45,118,50,32,49,32,48,32,49,32,48,32,48,32,48,32,48,32,48,32,48,10,115,116,97,114,116,32,48,59,48,59,126,59,126,10,115,116,101,112,32,50,32,49,32,48,44,48,32,48,59,48,59,126,59,126,32,48,59,45,59,126,59,33,10,101,110,100,32,48,59,45,59,126,59,33,10]
+
+def ledgerAliasGapBytes : List Nat := [99,114,114,45,108,101,100,103,101,114,45,118,50,32,50,32,48,32,49,32,48,32,48,32,48,32,48,32,49,32,48,10,115,116,97,114,116,32,48,59,48,44,49,59,126,59,33,10,115,116,101,112,32,48,32,49,32,49,44,48,44,49,44,48,58,49,44,48,32,48,59,48,44,49,59,126,59,33,32,48,59,48,59,126,59,33,10,101,110,100,32,48,59,48,59,126,59,33,10]
+
+-- Natural numbers suffice as an exact additive model of the
+-- constant unit phase. No rational or complex approximation.
+def ledgerUnitCount (s : LedgerSnap) : Nat :=
+  ledgerExactValue (fun (_ _ : DecimalValue) => (0 : Nat))
+    (fun _ => (1 : Nat)) s
+
+theorem ledger_sub_gap_canonical :
+    canonicalLedgerSnap ledgerSubGapBefore ∧ canonicalLedgerSnap ledgerSubGapAfter := by
+  exact ⟨rfl, rfl⟩
+
+theorem ledger_alias_gap_canonical :
+    canonicalLedgerSnap ledgerAliasGapBefore ∧ canonicalLedgerSnap ledgerAliasGapAfter := by
+  exact ⟨rfl, rfl⟩
+
+-- The selected substitution row is identically zero, not an
+-- isolated pivot. The current checker only checks its index.
+set_option maxRecDepth 4096 in
+theorem ledger_sub_gap_accepted :
+    checkLedger ledgerSubGapBytes = true := by
+  rfl
+
+-- The alias links claim a source equality, but no constraint row
+-- exists at all. Current admission only checks the witness shape.
+set_option maxRecDepth 4096 in
+theorem ledger_alias_gap_accepted :
+    checkLedger ledgerAliasGapBytes = true := by
+  rfl
+
+theorem ledger_sub_gap_count :
+    ledgerUnitCount ledgerSubGapBefore = 2 ∧
+      ledgerUnitCount ledgerSubGapAfter = 1 := by
+  exact ⟨rfl,rfl⟩
+
+theorem ledger_alias_gap_count :
+    ledgerUnitCount ledgerAliasGapBefore = 4 ∧
+      ledgerUnitCount ledgerAliasGapAfter = 2 := by
+  exact ⟨rfl,rfl⟩
+
+theorem ledger_sub_gap_local :
+    ledgerAdvance {} ⟨2,true,[48,44,48],ledgerSubGapBefore,ledgerSubGapAfter⟩ =
+      some { sub := 1, stage := 2 } ∧
+    ledgerStepExponent ⟨2,true,[48,44,48],ledgerSubGapBefore,ledgerSubGapAfter⟩ = 0 ∧
+    ledgerUnitCount ledgerSubGapBefore ≠ ledgerUnitCount ledgerSubGapAfter := by
+  refine ⟨rfl,rfl,?_⟩
+  rw [ledger_sub_gap_count.1, ledger_sub_gap_count.2]
+  decide
+
+theorem ledger_alias_gap_local :
+    ledgerAdvance {} ⟨0,true,[49,44,48,44,49,44,48,58,49,44,48],ledgerAliasGapBefore,ledgerAliasGapAfter⟩ =
+      some { sub := 1, alias := 1, stage := 1 } ∧
+    ledgerStepExponent ⟨0,true,[49,44,48,44,49,44,48,58,49,44,48],ledgerAliasGapBefore,ledgerAliasGapAfter⟩ = 0 ∧
+    ledgerUnitCount ledgerAliasGapBefore ≠ ledgerUnitCount ledgerAliasGapAfter := by
+  refine ⟨rfl,rfl,?_⟩
+  rw [ledger_alias_gap_count.1, ledger_alias_gap_count.2]
+  decide
+
 -- Localize any unexpected dependency to a definition vs theorem.
 #print axioms splitBytes
 #print axioms digits
@@ -5287,6 +5363,21 @@ theorem ledger_accepted_free_direct {P A : Type} [Zero P] [Add P] [Zero A] [Add 
 #print axioms ledgerDirectValue
 #print axioms ledger_exact_value_direct
 #print axioms ledger_accepted_free_direct
+#print axioms ledgerSubGapBefore
+#print axioms ledgerSubGapAfter
+#print axioms ledgerAliasGapBefore
+#print axioms ledgerAliasGapAfter
+#print axioms ledgerSubGapBytes
+#print axioms ledgerAliasGapBytes
+#print axioms ledgerUnitCount
+#print axioms ledger_sub_gap_canonical
+#print axioms ledger_alias_gap_canonical
+#print axioms ledger_sub_gap_accepted
+#print axioms ledger_alias_gap_accepted
+#print axioms ledger_sub_gap_count
+#print axioms ledger_alias_gap_count
+#print axioms ledger_sub_gap_local
+#print axioms ledger_alias_gap_local
 end QuPRS.CnfReplay
 
 def main (args : List String) : IO Unit := do

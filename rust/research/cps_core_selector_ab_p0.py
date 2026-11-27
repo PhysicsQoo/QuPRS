@@ -6,6 +6,7 @@ Not a general performance acceptance or full-bin equality across representations
 import json
 import os
 import pathlib
+import re
 import statistics
 import subprocess
 import sys
@@ -14,14 +15,28 @@ from fractions import Fraction
 from autoq_decision_pair import PIN, blob
 from cps_core_matched_p0 import CAP, sha, timeout_row
 
-def main(binary,solver,root,out):
+SOURCE_BLOBS={
+    "MOGrover/05":("80afcc4cf62924cfc51b30a9acf6f22b21f70853","3ee12b92926da432290b0abd44106ad891e36304","bb7399ca0341c60457a741540fdb595ea022f375"),
+    "Grover/04":("3cb06685b906e4a7da6adab65bd6b472370fe800","c5a97b5c984fb0ea92bfaa624ee41fccf875ece6","2493f92a4ae9b335b30b86d5d17aa70902402b13"),
+    "MOGrover/04":("2b1c53ee628ef52edeeb09bf0dc70f1d601f968c","5e63ffba67c329e6fcb14693122c35cd0f004728","56e26972835eb604ee7ffd005ae0f10cdd081697"),
+}
+
+def main(binary,solver,root,out,case="MOGrover/05"):
     out.mkdir(parents=True,exist_ok=False)
     assert subprocess.check_output(["git","-C",str(root),"rev-parse","HEAD"],text=True).strip()==PIN
-    source=root/"benchmarks/all/MOGrover/05"
+    family,width=case.split("/")
+    width=int(width)
+    source=root/"benchmarks/all"/case
     pre,post,qasm=[(source/f).read_bytes() for f in ("pre.hsl","post.hsl","circuit.qasm")]
-    assert tuple(map(blob,(pre,post,qasm)))==("80afcc4cf62924cfc51b30a9acf6f22b21f70853","3ee12b92926da432290b0abd44106ad891e36304","bb7399ca0341c60457a741540fdb595ea022f375")
-    relative=post.replace(b"aH := 23161 /",b"aH := -23161 /")
-    global_=relative.replace(b"aL := -119 /",b"aL := 119 /")
+    assert tuple(map(blob,(pre,post,qasm)))==SOURCE_BLOBS[case]
+    hi,k=map(int,re.search(rb"aH := (\d+) / \(sqrt2 \^ (\d+)\)",post).groups())
+    lo,kl=map(int,re.search(rb"aL := -(\d+) / \(sqrt2 \^ (\d+)\)",post).groups())
+    assert k==kl and hi*hi+((1<<width)-1)*lo*lo==1<<k
+    label=width if family=="MOGrover" else 0
+    h=str(hi).encode();l=str(lo).encode()
+    assert post.count(b"aH := "+h+b" /")==post.count(b"aL := -"+l+b" /")==1
+    relative=post.replace(b"aH := "+h+b" /",b"aH := -"+h+b" /")
+    global_=relative.replace(b"aL := -"+l+b" /",b"aL := "+l+b" /")
     assert len({post,relative,global_})==3
     fixtures=(("source",post),("relative",relative),("global",global_))
     modes=("wmc","hybrid","wmc-dag","hybrid-dag")
@@ -34,7 +49,7 @@ def main(binary,solver,root,out):
     for period in range(2):
         for variant,target in (fixtures if period==0 else fixtures[::-1]):
             expected="REFUTED" if variant=="relative" else "PROVED"
-            mass=Fraction((1<<29)-2*23161**2,1<<29)**2*32 if variant=="relative" else Fraction(32)
+            mass=Fraction((1<<k)-2*hi**2,1<<k)**2*(1<<label) if variant=="relative" else Fraction(1<<label)
             for mode,route in (schedule if period==0 else schedule[::-1]):
                 folder=out/f"{period}-{variant}-{mode}-{route}"
                 folder.mkdir()
@@ -53,7 +68,7 @@ def main(binary,solver,root,out):
                     row=json.loads(p.stdout)
                 assert row["reason"] not in ("NATIVE_ERROR","INVALID_COUNT","SOLVER_ERROR","SOLVER_LAUNCH_ERROR"),row
                 resource=(folder/"resource.txt").read_text().split()
-                row.update(case="MOGrover/05",period=period,variant=variant,mode=mode,route=route,expected=expected,
+                row.update(case=case,period=period,variant=variant,mode=mode,route=route,expected=expected,
                            wall_s=wall,returncode=p.returncode,
                            max_individual_rss_kib=int(resource[-1]) if resource and resource[-1].isdigit() else None,
                            inputs_sha256=[sha(folder/f) for f in ("pre.hsl","post.hsl","circuit.qasm")])
@@ -86,16 +101,28 @@ def main(binary,solver,root,out):
             for route in routes:
                 g=[r for r in rows if (r["variant"],r["mode"],r["route"])==(variant,mode,route)]
                 definite=[r for r in g if r["verdict"]!="UNKNOWN"]
-                summary.append(dict(variant=variant,mode=mode,route=route,definite=len(definite),runs=len(g),
+                summary.append(dict(case=case,variant=variant,mode=mode,route=route,definite=len(definite),runs=len(g),
                     median_wall_all_s=statistics.median(r["wall_s"] for r in g),
                     median_wall_definite_s=statistics.median(r["wall_s"] for r in definite) if len(definite)==2 else None,
                     median_rss_kib=statistics.median(r["max_individual_rss_kib"] for r in g) if all(r["max_individual_rss_kib"] is not None for r in g) else None,
                     reasons=[r["reason"] for r in g],primary=[r.get("primary") for r in g],
                     clauses=[r.get("clauses") for r in g],encode_ns=[r.get("encode_ns") for r in g],
                     solver_s=[r.get("solver_s") for r in g]))
-    (out/"summary.json").write_text(json.dumps(dict(source_pin=PIN,binary_sha256=sha(binary),solver_sha256=sha(solver),cap_s=CAP,rows=rows,summary=summary),indent=2)+"\n")
+    # Compare each selector arm to its same-period baseline. Report losses
+    # without suppressing the rest of the screening or promoting selector.
+    pairs=[]
+    for variant,_ in fixtures:
+        for mode in modes:
+            for period in range(2):
+                pair={r["route"]:r for r in rows if (r["variant"],r["mode"],r["period"])==(variant,mode,period)}
+                a,b=pair["baseline"],pair["selector"]
+                outcome="LOSS" if a["verdict"]!="UNKNOWN" and b["verdict"]=="UNKNOWN" else "GAIN" if a["verdict"]=="UNKNOWN" and b["verdict"]!="UNKNOWN" else "BOTH_DEFINITE" if a["verdict"]!="UNKNOWN" else "BOTH_UNKNOWN"
+                pairs.append(dict(case=case,variant=variant,mode=mode,period=period,outcome=outcome,
+                    wall_ratio=b["wall_s"]/a["wall_s"] if outcome=="BOTH_DEFINITE" else None))
+    (out/"summary.json").write_text(json.dumps(dict(case=case,source_pin=PIN,binary_sha256=sha(binary),solver_sha256=sha(solver),cap_s=CAP,rows=rows,summary=summary,pairs=pairs),indent=2)+"\n")
     for r in summary:print("CPS_CORE9_AB_MEDIAN",json.dumps(r),flush=True)
-    print("CPS_CORE9_AB_SUMMARY",json.dumps(dict(arms=len(rows),periods=2,**{r:sum(x["verdict"]!="UNKNOWN" for x in rows if x["route"]==r) for r in routes})),flush=True)
+    print("CPS_CORE9_AB_SUMMARY",json.dumps(dict(arms=len(rows),periods=2,case=case,**{r:sum(x["verdict"]!="UNKNOWN" for x in rows if x["route"]==r) for r in routes})),flush=True)
+    print("CPS_CORE9_FAMILY_PAIRS",json.dumps(dict(case=case,**{k:sum(r["outcome"]==k for r in pairs) for k in ("LOSS","GAIN","BOTH_DEFINITE","BOTH_UNKNOWN")})),flush=True)
 
 if __name__=="__main__":
-    main(*map(lambda p:pathlib.Path(p).resolve(),sys.argv[1:5]))
+    main(*map(lambda p:pathlib.Path(p).resolve(),sys.argv[1:5]),*sys.argv[5:])

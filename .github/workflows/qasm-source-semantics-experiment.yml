@@ -291,13 +291,17 @@ jobs:
           print("CPS_CORE8_DIAGNOSTICS arms=12 contract=PASS")
           PY
           grep -Fx 'CPS_CORE8_DIAGNOSTICS arms=12 contract=PASS' evidence/cps-core8-diagnostics.log
-      - name: CORE-9b source selector matched screening
-        timeout-minutes: 5
+      - name: CORE-9c source selector family screening
+        timeout-minutes: 8
         run: |
           set -euo pipefail
           src="$RUNNER_TEMP/autoq-matched"
-          timeout 240s python3 rust/research/cps_core_selector_ab_p0.py "$(cat evidence/release-bin.path)" "$RUNNER_TEMP/cps-gpmc" "$src" evidence/cps-core9-ab | tee evidence/cps-core9-ab.log
-          grep -F 'CPS_CORE9_AB_SUMMARY {"arms": 48, "periods": 2,' evidence/cps-core9-ab.log
+          # MO05 screening already archived by CORE-9b; do not repeat it.
+          for family in Grover MOGrover; do
+            timeout 220s python3 rust/research/cps_core_selector_ab_p0.py "$(cat evidence/release-bin.path)" "$RUNNER_TEMP/cps-gpmc" "$src" "evidence/cps-core9-${family}04" "$family/04" | tee "evidence/cps-core9-${family}04.log"
+            grep -F 'CPS_CORE9_AB_SUMMARY {"arms": 48, "periods": 2,' "evidence/cps-core9-${family}04.log"
+            grep -F 'CPS_CORE9_FAMILY_PAIRS ' "evidence/cps-core9-${family}04.log"
+          done
       - uses: actions/upload-artifact@v4
         if: always()
         with:

@@ -535,6 +535,7 @@ mod tests {
         use crate::rational::{PhaseCoeff, Rational};
         use crate::gates::{QuantumGates, Side};
         let session = Session::start_with_rule_timing(true, true, true).unwrap();
+        let observation_start = Instant::now();
 
         let mut ps = PathSum::new(1);
         ps.v.path_vars.insert(9);
@@ -558,6 +559,7 @@ mod tests {
         assert!(omega.try_reduce_omega(&[7]));
         assert!(!omega.try_reduce_omega(&[]));
 
+        let observation_ns = observation_start.elapsed().as_nanos();
         let ledger = session.snapshot(1.0, 0.5);
         assert!(ledger.other_rule_timing_enabled);
         assert!(ledger.other_rule_timings.iter().any(|t|
@@ -568,11 +570,37 @@ mod tests {
         assert!(ledger.other_rule_timings.iter().any(|t| t.rule == "omega" && t.success));
         assert!(ledger.other_rule_timings.iter().any(|t| t.rule == "omega" && !t.success));
         for t in &ledger.other_rule_timings {
-            assert!(t.elapsed_ns > 0);
+            // A short operation may begin and end on the same clock tick.
+            // Check containment, not a fabricated strictly positive duration.
+            assert!(u128::from(t.elapsed_ns) <= observation_ns);
             assert!(matches!(t.rule, "candidate_discovery" | "hh" | "omega"));
         }
         drop(session);
         assert!(time_rule("hh", 0).is_none());
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn rule_timer_records_deliberately_positive_interval() {
+        // Independently exercise actual duration recording on a measurable
+        // interval; do not demand a positive tick from every tiny rule body.
+        let session = Session::start_with_rule_timing(true, false, true).unwrap();
+        let outer = Instant::now();
+        {
+            let mut guard = time_rule("hh", 2).unwrap();
+            std::thread::sleep(std::time::Duration::from_millis(2));
+            guard.mark_success();
+        }
+        let outer_ns = outer.elapsed().as_nanos();
+        let ledger = session.snapshot(1.0, 0.5);
+        assert_eq!(ledger.other_rule_timings.len(), 1);
+        let sample = &ledger.other_rule_timings[0];
+        assert_eq!(sample.rule, "hh");
+        assert_eq!(sample.candidate_count, 2);
+        assert!(sample.success);
+        assert!(!sample.within_reduction);
+        assert!(sample.elapsed_ns >= 1_000_000);
+        assert!(u128::from(sample.elapsed_ns) <= outer_ns);
     }
 
     #[test]

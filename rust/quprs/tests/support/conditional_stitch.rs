@@ -887,6 +887,33 @@ fn native_growth_checkpoint(){
     }
     let mut ps=PathSum::quantum_circuit(&[quprs::pathsum::Register::new("q",n)],None);
     ps.rr_tolerance=if policy=="strict"{0.0}else{1e-10};
+    // Acceptance-only hot path: identical scheduling, trigger, gate apply,
+    // term cap and wall cap; no observer allocations/formatting per gate.
+    // Frozen arm and historical diagnostic entry retain their exact loop.
+    if generic.as_deref()==Some("conditional_router")
+        &&std::env::var_os("CPR_RR_FIRST").is_some()
+        &&std::env::var_os("CRR_LIFT_CHECKPOINT").is_none(){
+        for (done,(bra,i)) in order.iter().copied().enumerate(){
+            let op=if bra{&b[i]}else{&a[i]};
+            if whole.elapsed().as_secs_f64()>15.0{
+                println!("CRR_GENERIC_STOP case={case} variant={variant} arm=conditional_router reason=wall_budget advanced={done} total={}",order.len());return;
+            }
+            if generic_lift_trigger(op,&ps,bra){
+                println!("CRR_GENERIC_TRIGGER case={case} variant={variant} step={done} bra={bra} index={i} gate={op:?}");
+                policy_continue(&mut ps,&a,&b,&order[done..],&case,&variant,"adaptive",whole.elapsed().as_secs_f64());return;
+            }
+            op.apply(&mut ps,bra);
+            let after=terms(&ps);
+            if after>TERM_CAP{
+                println!("CRR_GENERIC_STOP case={case} variant={variant} arm=conditional_router reason=term_cap advanced={} total={} terms={after}",done+1,order.len());return;
+            }
+        }
+        ps.full_reduce();
+        // Avoid the expensive diagnostic incidence walk before RR handoff.
+        let construct=whole.elapsed().as_secs_f64();
+        super::conditional_trace::generic_trace_handoff(&ps,&[],&case,&variant,"conditional_router",construct);
+        return;
+    }
     let start=Instant::now();
     let mut peak=0;let mut done=0;let mut ka=0;let mut kb=0;
     for (bra,i) in order.iter().copied(){

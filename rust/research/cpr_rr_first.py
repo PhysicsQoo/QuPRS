@@ -39,7 +39,7 @@ def binary_status(s):
     return None
 def native():
     bins={a:Path(os.environ["CPR_BIN_"+a.upper()]).resolve() for a in ARMS}
-    assert bins["frozen"]==bins["cpr"], "same binary, only shortcut opt-in differs"
+    assert bins["frozen"]==bins["cpr"], "same binary, only RR-first hot-path opt-in differs"
     for a,p in bins.items():
         assert p.is_file()
         emit("CPR_RRFIRST_BINARY",arm=a,path=str(p),sha256=hashlib.sha256(p.read_bytes()).hexdigest())
@@ -95,6 +95,11 @@ def native():
         if any(r.get("proof")=="rr_exact_projective" for r in rows["frozen"].values()):errors.append(["FROZEN_SHORTCUT_DRIFT",name,variant])
         if len(rows["frozen"])!=repeats or len(rows["cpr"])!=repeats:errors.append(["C3B_COMPLETION_NOT_REPRODUCED",name,variant])
         if len({r["binary_verdict"] for r in all_rows})>1:mismatches.append([name,variant])
+        for k in sorted(set(rows["frozen"])&set(rows["cpr"])):
+            f,c=rows["frozen"][k],rows["cpr"][k]
+            if c.get("proof")!="rr_exact_projective":
+                keys=("vars","clauses","pairs","extracted","twice")
+                if any(f.get(key)!=c.get(key) for key in keys):errors.append(["WMC_STRUCTURE_DRIFT",name,variant,k,{key:[f.get(key),c.get(key)] for key in keys}])
         for a,rs in rows.items():
             emit("CPR_RRFIRST_SUMMARY",case=name,variant=variant,arm=a,complete=len(rs),attempted=repeats,
                  median_total_s=statistics.median(float(r["total_s"]) for r in rs.values()) if rs else None,

@@ -1368,14 +1368,15 @@ jobs:
           test "$(cat evidence/main-head.txt)" = "b398f07d6845efc23540549ccbfec717c27b1722"
           git cat-file -e ff3c6bbfadc83997b302f2486b99487e819ee9ee^{commit}
           git diff ff3c6bbfadc83997b302f2486b99487e819ee9ee HEAD -- rust/quprs/tests/support/conditional_trace.rs | tee evidence/rr-first-diff.patch
-          test "$(git rev-parse HEAD:rust/quprs/tests/support/conditional_stitch.rs)" = "f98bd48d711c1d7bed70982699db4d8061b664e1"
+          git diff ff3c6bbfadc83997b302f2486b99487e819ee9ee HEAD -- rust/quprs/tests/support/conditional_stitch.rs | tee evidence/rr-hot-path-diff.patch
+          test "$(git rev-parse ff3c6bbfadc83997b302f2486b99487e819ee9ee:rust/quprs/tests/support/conditional_stitch.rs)" = "f98bd48d711c1d7bed70982699db4d8061b664e1"
           test "$(git rev-parse HEAD:rust/quprs/src/wmc.rs)" = "584b889dafa9b5f428bed31627883f76238f276b"
           test "$(git rev-parse HEAD:rust/research/cpr_router_acceptance.py)" = "7053f0f60c2dc0adc0763677c004f7b609ca3fba"
           test "$(git rev-parse HEAD:rust/research/conditional_rr_source_ball.py)" = "681783d4fd4f072bc4f596d54da33924883e25d4"
           test "$(git rev-parse HEAD:rust/research/conditional_rr_tensor_source.py)" = "f6a9372c0bbe147e96eeb7446f2875819f68be77"
           test "$(git rev-parse HEAD:docs/development/paper-corpus-manifest.json)" = "cdfb2cf1a88b1ae7c026f331463ba5588b453622"
-          printf '%s\n' 'C2_UNCHANGED_STITCH_SOLVER_ORACLE_MANIFEST_PASS 57cd6677a99114e2acf8b541294ccf4a982a0bdf' | tee evidence/frozen-policy.txt
-          sha256sum rust/quprs/tests/support/conditional_trace.rs rust/research/cpr_rr_first.py rust/quprs/tests/cpr_public_hybrid.rs rust/quprs/src/wmc.rs pinned-main/rust/quprs/src/lib.rs pinned-main/rust/quprs/src/wmc.rs rust/Cargo.lock pinned-main/rust/Cargo.lock > evidence/source-sha256.txt
+          printf '%s\n' 'C2_BASE_STITCH_UNCHANGED_SOLVER_ORACLE_MANIFEST_PASS 57cd6677a99114e2acf8b541294ccf4a982a0bdf' | tee evidence/frozen-policy.txt
+          sha256sum rust/quprs/tests/support/conditional_stitch.rs rust/quprs/tests/support/conditional_trace.rs rust/research/cpr_rr_first.py rust/quprs/tests/cpr_public_hybrid.rs rust/quprs/src/wmc.rs pinned-main/rust/quprs/src/lib.rs pinned-main/rust/quprs/src/wmc.rs rust/Cargo.lock pinned-main/rust/Cargo.lock > evidence/source-sha256.txt
           rustc -Vv > evidence/rustc.txt
           lscpu > evidence/cpu.txt
           tmp="$(mktemp -d)"

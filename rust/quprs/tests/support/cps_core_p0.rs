@@ -610,9 +610,12 @@ fn hoare_cps_core_source_lowering(){
     let mut predicates=0;let mut columns=0;let mut entries=0;
     for (case,pre,post,qasm) in AQ_SOURCES{
         let folder=match case{"bv03"=>"BV","grover03"=>"Grover","mogrover03"=>"MOGrover",_=>unreachable!()};
-        let folder=root.join("benchmarks").join("all").join(folder).join("003");
+        let folder=root.join("benchmarks").join("all").join(folder).join("03");
         for (file,embedded) in [("pre.hsl",pre),("post.hsl",post),("circuit.qasm",qasm)]{
-            assert_eq!(std::fs::read_to_string(folder.join(file)).unwrap(),embedded);
+            let path=folder.join(file);
+            let actual=std::fs::read_to_string(&path).unwrap_or_else(|e|panic!("pinned source read {}: {e}",path.display()));
+            assert_eq!(actual,embedded,"pinned source mismatch: {}",path.display());
+            println!("CPS_CORE_SOURCE_FILE case={case} file={file} bytes={} verified=true",actual.len());
         }
         let a=core_hsl_check(pre);let b=core_hsl_check(post);
         for c in [&a,&b]{

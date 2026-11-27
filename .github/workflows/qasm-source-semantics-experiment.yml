@@ -18,6 +18,7 @@ on:
       - rust/research/hoare_ganak_exact.py
       - rust/research/autoq_decision_pair.py
       - rust/research/autoq_c3_pilot.py
+      - rust/research/autoq_grover_p0.py
       - rust/research/hoare_projected_count.py
       - rust/research/hoare_sector_transport.py
       - rust/research/hoare_quokka_compare.py
@@ -803,8 +804,8 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
 
-      - name: AutoQ pinned executable decision compatibility and C3-R2
-        timeout-minutes: 25
+      - name: AutoQ pinned executable decision compatibility and C3-R2 / Grover P0
+        timeout-minutes: 30
         run: |
           set -euo pipefail
           mkdir -p evidence/aq-autoq
@@ -838,6 +839,12 @@ jobs:
           timeout 420s python3 rust/research/autoq_c3_pilot.py "$aq_bin" "$RUNNER_TEMP/aq-c3-gpmc" evidence/aq-c3 "$src/build/cli/autoq" "$src" \
             2>&1 | tee evidence/aq-c3.log
           grep -F 'AQ_C3_SUMMARY ' evidence/aq-c3.log
+          # Separate source-bound Grover pilot; reuse the same built tools and encoder.
+          timeout 220s python3 rust/research/autoq_grover_p0.py "$aq_bin" "$RUNNER_TEMP/aq-c3-gpmc" evidence/aq-grover "$src/build/cli/autoq" "$src" \
+            2>&1 | tee evidence/aq-grover.log
+          grep -F 'AQ_GROVER_SOURCE_ORACLE ' evidence/aq-grover.log
+          test "$(grep -c '^AQ_GROVER_ARM ' evidence/aq-grover.log)" -eq 40
+          grep -F 'AQ_GROVER_SUMMARY ' evidence/aq-grover.log
 
       - name: Preserve diagnostic logs
         if: always()

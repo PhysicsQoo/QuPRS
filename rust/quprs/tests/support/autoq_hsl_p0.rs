@@ -961,18 +961,31 @@ fn hoare_autoq_c3_arm(){
     let start=std::time::Instant::now();
     let cap=std::time::Duration::from_millis(std::env::var("AQ_C3_BUDGET_MS").unwrap().parse().unwrap());
     let deadline=start+cap;
-    assert!(["rr","wmc","hybrid","hybrid-support","structural"].contains(&mode.as_str()));
+    assert!(["rr","wmc","hybrid","hybrid-support","structural","hybrid-pre"].contains(&mode.as_str()));
     let mut queries=0usize;let mut pairs=0usize;let mut visited=0usize;
     let mut route="baseline";let mut rejected=false;
     let mut witness=None;
+    let (mut raw_h,mut residual_h,mut scale2,mut rr_steps)=(None,None,None,None);
+    let mut admission="not-admitted";
     let result=(||->Option<bool>{
         let ghz=case.starts_with("ghz");
+        let grover=case.starts_with("grover04-")||case.starts_with("grover05-");
+        let source_bytes;
+        let pre_bytes;
+        let post_bytes;
         let plus=case.ends_with("-plus");let broken=case.ends_with("-broken");
         let (n,pre,post,src)=if ghz{
             let n:usize=case.strip_prefix("ghz")?.split('-').next()?.parse().ok()?;
             let &(_,a,b,c)=AQ_GHZALL_SOURCES.iter().find(|r|r.0==n)?;
             if !aq_ghzall_admit(n,a,b){return None;}
             (n,a,b,c)
+        }else if grover{
+            let dir=std::path::PathBuf::from(std::env::var_os("AQ_C3_SOURCE_DIR")?);
+            pre_bytes=std::fs::read_to_string(dir.join("pre.hsl")).ok()?;
+            post_bytes=std::fs::read_to_string(dir.join("post.hsl")).ok()?;
+            source_bytes=std::fs::read_to_string(dir.join("circuit.qasm")).ok()?;
+            let n=if case.starts_with("grover04-"){7}else{9};
+            (n,pre_bytes.as_str(),post_bytes.as_str(),source_bytes.as_str())
         }else{
             let &(_,a,b,c)=AQ_SOURCES.iter().find(|r|r.0==case.as_str())?;
             let (_,aa)=aq_family(a)?;(aa.first()?.n,a,b,c)
@@ -981,13 +994,28 @@ fn hoare_autoq_c3_arm(){
         if quprs::qasm::parse_qasm_str_source_pinned(src).ok()? != (ops.clone(),n){return None;}
         if broken{ops.pop()?;}
         let mut ps=PathSum::new(n);ps.set_auto_reduce(false);
-        for g in &ops{g.apply(&mut ps,false);}
+        if grover {
+            let (_,a)=aq_family(pre)?;let (_,b)=aq_family(post)?;
+            if a.len()!=1||b.len()!=1||a[0].n!=n||b[0].n!=n||aq_fixed_input(&a[0])!=Some(0){return None;}
+        }
+        if mode=="hybrid-pre"{
+            if !grover{return None;}
+            // Reuse the historical factor_export pre-specialization, fixed zero basis only.
+            for f in &mut ps.f.functions{f.clear();}
+            route="pre-specialized";
+        }
+        admission="source-spec-admitted";
         let h0=ops.iter().filter(|g|matches!(g,G::H(_))).count();
-        let (s,k)=if mode=="wmc"{(compact(&ps,n)?,h0)}else{
-            let (p,frame,scale,_)=native_rr_checkpoint(ps,n)?;
+        raw_h=Some(h0);
+        for g in &ops{g.apply(&mut ps,false);}
+        let (s,k)=if mode=="wmc"{scale2=Some(0);rr_steps=Some(0);(compact(&ps,n)?,h0)}else{
+            let (p,frame,scale,steps)=native_rr_checkpoint(ps,n)?;
+            scale2=Some(scale);rr_steps=Some(steps);
             if frame.compact(&p)?!=Anf::from([0]){return None;}
             (compact(&p,n)?,h0.checked_sub(scale as usize)?)
         };
+        residual_h=Some(s.h);
+        admission="residual-admitted";
         if mode=="structural"{
             if ghz&&k==1{
                 if let Some(w)=aq_ghz_witness(&s){
@@ -1054,7 +1082,7 @@ fn hoare_autoq_c3_arm(){
                 let v=if mode!="wmc"&&s.h==0{
                     aq_rr_terminal(&s,x,b)
                 }else if mode=="rr"{None}else{
-                    let (c,phase,primary)=aq_overlap(&s,x,b)?;
+                    let Some((c,phase,primary))=aq_overlap(&s,x,b)else{admission="encoder-not-admitted";return None;};
                     let mut data=format!("p cnf {} {}\n",c.vars,c.clauses.len());
                     for row in &c.clauses{for l in row{data.push_str(&format!("{l} "));}data.push_str("0\n");}
                     std::fs::write(&file,data).ok()?;
@@ -1079,5 +1107,5 @@ fn hoare_autoq_c3_arm(){
     let verdict=if std::time::Instant::now()>=deadline{"UNKNOWN"}else{
         match result{Some(true)=>"PROVED",Some(false)=>"REFUTED",None=>"UNKNOWN"}
     };
-    println!("AQ_C3_NATIVE case={case} mode={mode} verdict={verdict} route={route} rejected={rejected} queries={queries} pairs={pairs} visited={visited} witness={witness:?} native_ns={}",start.elapsed().as_nanos());
+    println!("AQ_C3_NATIVE case={case} mode={mode} verdict={verdict} route={route} rejected={rejected} queries={queries} pairs={pairs} visited={visited} witness={witness:?} raw_h={raw_h:?} residual_h={residual_h:?} scale2={scale2:?} rr_steps={rr_steps:?} admission={admission} native_ns={}",start.elapsed().as_nanos());
 }

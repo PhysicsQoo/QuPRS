@@ -2188,11 +2188,21 @@ jobs:
           echo "a11704d97a21c7642054c31caaa733e734a0505860fb63a1acd94b22a906ee9f  $zip" | sha256sum -c -
           unzip -q "$zip" -d .p4-safety-input
       - name: Regression and bounded resource safety in a disposable worker
+        if: github.event_name == 'workflow_dispatch'
         env:
           PYTHONPATH: ${{ github.workspace }}:${{ github.workspace }}/src:${{ github.workspace }}/.rawmocs-candidate/crates/rawmocs-cli/tools
         run: |
           set -euo pipefail
           timeout -k 2s 90s prlimit --as=3221225472 -- python research/rawmocs_integration/native_safety.py
+      - name: Diagnose repeated RSS at native core and QuPRS adapter boundaries
+        env:
+          PYTHONPATH: ${{ github.workspace }}:${{ github.workspace }}/src:${{ github.workspace }}/.rawmocs-candidate/crates/rawmocs-cli/tools
+        run: |
+          set -euo pipefail
+          for arm in direct adapter; do
+            timeout -k 2s 100s prlimit --as=3221225472 -- python research/rawmocs_integration/native_retention.py "$arm"
+          done
+          python research/rawmocs_integration/native_retention.py compare
       - uses: actions/upload-artifact@v4
         if: always()
         with:

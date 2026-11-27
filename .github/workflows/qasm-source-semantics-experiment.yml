@@ -1359,7 +1359,7 @@ jobs:
           key: cpr-c3-main
       - name: Install native prerequisites
         run: sudo apt-get update && sudo apt-get install -y cmake pkg-config libgmp-dev libmpfr-dev zlib1g-dev
-      - name: Focused strict RR-first paired validation
+      - name: Fixed RR-first repeat and pooled GHZ/QPE non-regression validation
         run: |
           set -euo pipefail
           mkdir -p evidence
@@ -1376,7 +1376,7 @@ jobs:
           test "$(git rev-parse HEAD:rust/research/conditional_rr_tensor_source.py)" = "f6a9372c0bbe147e96eeb7446f2875819f68be77"
           test "$(git rev-parse HEAD:docs/development/paper-corpus-manifest.json)" = "cdfb2cf1a88b1ae7c026f331463ba5588b453622"
           printf '%s\n' 'C2_BASE_STITCH_UNCHANGED_SOLVER_ORACLE_MANIFEST_PASS 57cd6677a99114e2acf8b541294ccf4a982a0bdf' | tee evidence/frozen-policy.txt
-          sha256sum rust/quprs/examples/cpr_native_public.rs rust/quprs/examples/cpr_native_runner.rs rust/quprs/tests/conditional_rr_experiment.rs rust/quprs/tests/support/conditional_stitch.rs rust/quprs/tests/support/conditional_trace.rs rust/research/cpr_rr_first.py rust/quprs/tests/cpr_public_hybrid.rs rust/quprs/src/wmc.rs pinned-main/rust/quprs/src/lib.rs pinned-main/rust/quprs/src/wmc.rs rust/Cargo.lock pinned-main/rust/Cargo.lock > evidence/source-sha256.txt
+          sha256sum rust/research/cpr_rr_first_prior_pairs.json rust/quprs/examples/cpr_native_public.rs rust/quprs/examples/cpr_native_runner.rs rust/quprs/tests/conditional_rr_experiment.rs rust/quprs/tests/support/conditional_stitch.rs rust/quprs/tests/support/conditional_trace.rs rust/research/cpr_rr_first.py rust/quprs/tests/cpr_public_hybrid.rs rust/quprs/src/wmc.rs pinned-main/rust/quprs/src/lib.rs pinned-main/rust/quprs/src/wmc.rs rust/Cargo.lock pinned-main/rust/Cargo.lock > evidence/source-sha256.txt
           rustc -Vv > evidence/rustc.txt
           lscpu > evidence/cpu.txt
           tmp="$(mktemp -d)"
@@ -1408,7 +1408,6 @@ jobs:
           grep -Fx 'CPR_ROUTER_CONTROLS_PASS' evidence/controls.log
           "$control_bin" conditional_trace::cpr_rr_first_controls --exact --nocapture | tee evidence/rr-controls.log
           grep -Fx 'CPR_RR_FIRST_CONTROLS_PASS' evidence/rr-controls.log
-          CPR_MEMORY_DIAGNOSTIC_RUN=1 timeout --kill-after=5s 120s python3 rust/research/cpr_rr_first.py 2>&1 | tee evidence/memory-diagnostic.log
           set +e
           timeout --kill-after=5s 2100s python3 rust/research/cpr_rr_first.py 2>&1 | tee evidence/matched.log
           cohort_status=${PIPESTATUS[0]}

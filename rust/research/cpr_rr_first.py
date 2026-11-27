@@ -19,6 +19,7 @@ ARMS=["main","frozen","cpr"]
 EASY={e[:2] for e in c3a_entries()}
 def repetitions(name,variant):
     if (name,variant)==("ghz_32","positive"):return 12
+    if (name,variant)==("qpeexact_8","random_rotation"):return 24
     return 6 if (name,variant) in EASY else 4
 def cohort_arms(name,variant):
     return ARMS if (name,variant) in EASY else ARMS[1:]
@@ -44,6 +45,10 @@ def native():
         assert p.is_file()
         emit("CPR_RRFIRST_BINARY",arm=a,path=str(p),sha256=hashlib.sha256(p.read_bytes()).hexdigest())
     errors=[]; regressions=[]; mismatches=[]; perf_blocks=[]; total=0
+    prior_doc=json.loads((Path(__file__).parent/"cpr_rr_first_prior_pairs.json").read_text())
+    assert prior_doc["run"]==45970719734 and prior_doc["head"]=="f25655cdea55e2e3452dbc29e15fb8a3e73ea524"
+    prior=prior_doc["rows"]
+    assert len(prior)==54
     for name,variant,n,source,target in entries():
         paths=[]
         for entry in (source,target):
@@ -130,6 +135,22 @@ def native():
                     passed=delta<=allowed
                     emit("CPR_RRFIRST_PERF_METRIC",case=name,variant=variant,baseline=a,metric=metric,status="WITHIN_BUDGET" if passed else "BLOCKED",baseline_median=statistics.median(before),candidate_median=statistics.median(after),paired_delta_median=delta,allowed_delta=allowed,paired_deltas=deltas)
                     if not passed:perf_blocks.append([name,variant,a,metric,delta,allowed])
+            # Fixed replication, not replacement of a failed sample.
+            # Pool only within-run paired differences, never cross-run times.
+            if (name,variant) in {("ghz_32","positive"),("qpeexact_8","random_rotation")} and a=="main":
+                previous=[r for r in prior if (r["case"],r["variant"])==(name,variant)]
+                old_a={r["repeat"]:r for r in previous if r["arm"]==a}
+                old_c={r["repeat"]:r for r in previous if r["arm"]=="cpr"}
+                expected_old=12 if name=="ghz_32" else 6
+                assert len(old_a)==len(old_c)==expected_old and set(old_a)==set(old_c)
+                for metric,fraction,floor in [("total_s",0.05,0.000025),("rss_kib",0.05,512)]:
+                    base=[old_a[i][metric] for i in sorted(old_a)]+[float(rows[a][i][metric]) for i in both]
+                    deltas=[old_c[i][metric]-old_a[i][metric] for i in sorted(old_a)]+[float(rows["cpr"][i][metric])-float(rows[a][i][metric]) for i in both]
+                    delta=statistics.median(deltas)
+                    allowed=max(floor,fraction*statistics.median(base))
+                    passed=len(both)==repeats and delta<=allowed
+                    emit("CPR_RRFIRST_POOLED_GATE",case=name,variant=variant,metric=metric,status="WITHIN_BUDGET" if passed else "BLOCKED",prior_pairs=expected_old,new_pairs=len(both),paired_delta_median=delta,allowed_delta=allowed,paired_deltas=deltas)
+                    if not passed:perf_blocks.append([name,variant,a,"pooled_"+metric,delta,allowed])
             emit("CPR_RRFIRST_PAIR",case=name,variant=variant,baseline=a,paired=len(both),lost=lost,gained=gained,
                  internal_ratios=[float(rows[a][i]["total_s"])/float(rows["cpr"][i]["total_s"]) for i in both],
                  outer_ratios=[rows[a][i]["outer_s"]/rows["cpr"][i]["outer_s"] if rows["cpr"][i]["outer_s"]>0 else None for i in both])

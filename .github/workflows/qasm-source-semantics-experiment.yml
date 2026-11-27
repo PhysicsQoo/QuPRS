@@ -77,6 +77,7 @@ jobs:
           grep -F 'AQ_SHARED_FIXED_BASIS_ORACLE checks=12' evidence/shared-lowering.log
           timeout 60s "$(cat evidence/property_hoare_experiment.path)" --exact exact_property_cnf::hoare_cps_core_closure --nocapture | tee evidence/cps-core-closure.log
           grep -F 'CPS_CORE_CLOSURE composition=128 adjoint=128 associativity=128 reverse=128' evidence/cps-core-closure.log
+          grep -F 'rejection_controls=9' evidence/cps-core-closure.log
       - name: Verify wide encoder boundaries and original-source WMC pairs
         timeout-minutes: 10
         run: |

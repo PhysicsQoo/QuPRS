@@ -16,7 +16,8 @@ fn core_mask(m:&[u32])->Option<u64>{
     m.iter().try_fold(0u64,|a,&v|Some(a|core_bit(v)?))
 }
 fn core_phase8(c:&quprs::PhaseCoeff)->Option<u8>{
-    if c.radians.is_some()||!c.symbols.is_empty()||c.constant.denom<=0{return None;}
+    if c.radians.is_some()||!c.symbols.is_empty()||c.constant.denom<=0||c.constant.denom>8||c.constant.numer<0||c.constant.numer>=c.constant.denom{return None;}
+    if c.constant!=quprs::Rational::new(c.constant.numer,c.constant.denom){return None;}
     let num=8i128*i128::from(c.constant.numer);
     let den=i128::from(c.constant.denom);
     if num%den!=0{return None;}
@@ -56,9 +57,9 @@ impl CpsCore{
         if n>16||q>16||ps.rr_approximate||ps.rr_tolerance!=0.0||
             !ps.v.continuous_vars.is_empty()||!core_terms_ok(ps)||
             (0..n).any(|i|!live.contains(&(i as u32)))||
-            live.iter().any(|&v|v>=63||v>=ps.v.next_id)||
+            ps.v.next_id>63||live.iter().any(|&v|v>=63||v>=ps.v.next_id)||
             ps.f.registers.iter().map(|r|r.size).sum::<usize>()!=q||
-            self.guard.compact(ps).is_none(){return false;}
+            self.guard.compact(ps).is_none()||NativeGuardFrame::new(ps,self.guard.extra.clone()).is_none(){return false;}
         let mono_ok=|m:&Vec<u32>|m.windows(2).all(|w|w[0]<w[1])&&m.iter().all(|v|live.contains(v));
         ps.f.functions.iter().all(|p|p.iter().all(&mono_ok))&&
             ps.p.terms.iter().all(|(m,c)|mono_ok(m)&&core_phase8(c).is_some())
@@ -80,6 +81,7 @@ impl CpsCore{
         let k=self.k.checked_add(next.k)?;
         let mut ps=PathSum::new(self.n());ps.set_auto_reduce(false);
         ps.v=self.ps.v.clone();ps.p=self.ps.p.clone();
+        if ps.v.next_id.checked_add(u32::try_from(next.guard.ids.len()).ok()?)?>63{return None;}
         let mut map=BTreeMap::new();
         for &old in &next.guard.ids{
             let id=ps.v.get_fresh_var();core_bit(id)?;map.insert(old,id);
@@ -220,6 +222,11 @@ fn hoare_cps_core_closure(){
     let mut dangling=PathSum::new(1);dangling.f.functions[0].insert(vec![19]);
     assert!(CpsCore::new(dangling,Anf::from([0]),0).is_none());
     let mut overflow=h.clone();overflow.k=i32::MAX;assert!(overflow.then(&h).is_none());
+    let mut bad_id=h.clone();bad_id.ps.v.next_id=u32::MAX;assert!(!bad_id.valid());assert!(bad_id.then(&h).is_none());
+    let mut bad_guard=h.clone();bad_guard.guard.extra.insert(1u64<<62);assert!(!bad_guard.valid());
+    let mut near_cap=h.clone();near_cap.ps.v.next_id=63;assert!(near_cap.valid());assert!(near_cap.then(&h).is_none());
+    let mut malformed=PathSum::new(1);let mut phase=quprs::PhaseCoeff::HALF;phase.constant.numer=2;phase.constant.denom=4;
+    malformed.p.terms.insert(vec![0],phase);assert!(CpsCore::new(malformed,Anf::from([0]),0).is_none());
     assert_eq!((comp,adj,assoc,reverse),(128,128,128,128));
-    println!("CPS_CORE_CLOSURE composition={comp} adjoint={adj} associativity={assoc} reverse={reverse} entries={entries} rectangular={rectangular} negative_scale={negative} zero_guards={zeros} circuit_columns=4 strict_eq=1 rejection_controls=5");
+    println!("CPS_CORE_CLOSURE composition={comp} adjoint={adj} associativity={assoc} reverse={reverse} entries={entries} rectangular={rectangular} negative_scale={negative} zero_guards={zeros} circuit_columns=4 strict_eq=1 rejection_controls=9");
 }

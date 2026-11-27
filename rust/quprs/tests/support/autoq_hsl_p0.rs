@@ -108,15 +108,58 @@ fn aq_family(hsl:&str)->Option<(usize,Vec<AqState>)>{
     }
     Some((w,rows))
 }
-fn aq_label_support(b:&AqState,w:usize,label:u64)->bool{
-    let mask=(1u64<<w)-1;
-    b.terms.iter().all(|t|match t.pattern{
-        AqPattern::Fixed(v)=>v&mask==label,
-        AqPattern::Except{offset,outside,..}=>offset>=w&&outside&mask==label,
-    })
+// Sound, conservative support abstraction: every nonzero basis component
+// agrees with the returned partial assignment. No amplitudes are enumerated.
+fn aq_support_cube(b:&AqState)->Cube{
+    let all=(1u64<<b.n)-1;
+    let mut mask=all;let mut value=0;let mut first=true;
+    for term in &b.terms{
+        let (m,v)=match term.pattern{
+            AqPattern::Fixed(v)=>(all,v),
+            AqPattern::Except{offset,width,excluded,outside}=>{
+                if width==1 {(all,outside|((excluded^1)<<offset))}
+                else {(all&!(((1u64<<width)-1)<<offset),outside)}
+            }
+        };
+        if first{mask=m;value=v;first=false;}
+        else{mask &= m & !(value^v);}
+    }
+    Cube{mask,value:value&mask}
 }
-fn aq_label_preserved(s:&Symbolic,w:usize)->bool{
-    s.output.iter().take(w).enumerate().all(|(i,p)|*p==Anf::from([1u64<<i]))
+fn aq_fixed_input(a:&AqState)->Option<u64>{
+    match a.terms.as_slice(){
+        [AqTerm{pattern:AqPattern::Fixed(v),..}]=>Some(*v),
+        _=>None
+    }
+}
+fn aq_output_cube(s:&Symbolic,x:u64)->Cube{
+    let input=Cube{mask:(1u64<<s.n)-1,value:x};
+    let (mut mask,mut value)=(0u64,0u64);
+    for (i,p) in s.output.iter().enumerate(){
+        let t=specialize_bool(p,input);
+        if t.is_empty(){mask|=1<<i;}
+        else if t.len()==1&&t.contains(&0){mask|=1<<i;value|=1<<i;}
+    }
+    Cube{mask,value}
+}
+// No assumed label position, same-index pairing, or phase/ray oracle.
+// Exclude a candidate only by a contradictory fixed output coordinate.
+// When the remaining target is unique, ordinary overlap proves/refutes it;
+// ambiguous or empty candidate sets are NOT_ADMITTED here, not false.
+fn aq_discover_pairs(s:&Symbolic,aa:&[AqState],bb:&[AqState])->Option<Vec<usize>>{
+    if aa.is_empty()||bb.is_empty()||aa.iter().chain(bb).any(|a|a.n!=s.n){return None;}
+    if bb.len()==1{return Some(vec![0;aa.len()]);}
+    let targets:Vec<_>=bb.iter().map(aq_support_cube).collect();
+    let mut pairs=Vec::with_capacity(aa.len());
+    for a in aa{
+        let p=aq_output_cube(s,aq_fixed_input(a)?);
+        let mut compatible=targets.iter().enumerate().filter(|(_,q)|
+            (p.value^q.value)&p.mask&q.mask==0).map(|(i,_)|i);
+        let j=compatible.next()?;
+        if compatible.next().is_some(){return None;}
+        pairs.push(j);
+    }
+    Some(pairs)
 }
 
 fn aq_pattern_lit(c:&mut Cnf,p:&AqPattern,z:&[Lit])->Lit{
@@ -196,7 +239,7 @@ fn aq_export(dir:&std::path::Path){
         let width=aa[0].n;
         assert!(aa.iter().chain(&bb).all(|a|a.n==width));
         let ops=factor_source_ops(src,width);
-        let (native_ops,n)=quprs::qasm::parse_qasm_str(src).expect("native QASM parse");
+        let (native_ops,n)=quprs::qasm::parse_qasm_str_source_pinned(src).expect("source-pinned native QASM parse");
         assert_eq!((native_ops,n),(ops.clone(),width));
         let mut ps=PathSum::new(n);ps.set_auto_reduce(false);
         for g in &ops{g.apply(&mut ps,false);}
@@ -208,10 +251,24 @@ fn aq_export(dir:&std::path::Path){
         let residual=compact(&reduced,n).unwrap();
         let rr_ns=t.elapsed().as_nanos();
         let k0=h0.checked_sub(scale as usize).expect("scale");
-        assert!(aq_label_preserved(&raw,w)&&aq_label_preserved(&residual,w));
-        for (label,(a,b)) in aa.iter().zip(&bb).enumerate(){
-        let x=match a.terms.as_slice(){[AqTerm{pattern:AqPattern::Fixed(v),..}]=>*v,_=>panic!("fixed input only")};
-        assert!(aq_label_support(a,w,label as u64)&&aq_label_support(b,w,label as u64));
+        let discovery_start=std::time::Instant::now();
+        let pairs=aq_discover_pairs(&raw,&aa,&bb).expect("unique raw StateSet candidates");
+        assert_eq!(aq_discover_pairs(&residual,&aa,&bb).as_ref(),Some(&pairs));
+        let discovery_ns=discovery_start.elapsed().as_nanos();
+        // Actual source-derived StateSet: reverse post enumeration to catch
+        // accidental zip/same-index assumptions; duplicate target -> ambiguity.
+        if bb.len()>1{
+            let mut reversed=bb.clone();reversed.reverse();
+            let reverse_pairs=aq_discover_pairs(&raw,&aa,&reversed).unwrap();
+            assert_eq!(reverse_pairs,pairs.iter().map(|j|bb.len()-1-*j).collect::<Vec<_>>());
+            let mut ambiguous=bb.clone();ambiguous.push(bb[pairs[0]].clone());
+            assert!(aq_discover_pairs(&raw,&aa,&ambiguous).is_none());
+        }
+        println!("AQ_HSL_AUTO_PAIR family={family} possible_pairs={} selected_pairs={} raw_residual_agree=true discovery_ns={discovery_ns} source_pinned=true",
+            aa.len()*bb.len(),pairs.len());
+        for (label,a) in aa.iter().enumerate(){
+        let b=&bb[pairs[label]];
+        let x=aq_fixed_input(a).expect("fixed input only");
         let name=if w==0{family.to_owned()}else{format!("{family}-label{label}")};
         // Separate dense gate oracle; not used to select route.
         let dense=dense_state(n,&ops,x);
@@ -230,6 +287,20 @@ fn aq_export(dir:&std::path::Path){
                     target.terms[0].pattern=AqPattern::Fixed(v^1);
                 }else{target.terms[0].signed=-target.terms[0].signed;}
             }else if variant=="global-sign"{for t in &mut target.terms{t.signed=-t.signed;}}
+            // Sign mutations preserve the selected support cube. Recheck the
+            // pairing against the entire mutated target family, not just this
+            // target, so a StateSet refutation cannot miss an alternate match.
+            if bb.len()>1{
+                let mut targets=bb.clone();
+                for t in &mut targets{
+                    if variant=="relative-mutant"{
+                        assert!(t.terms.len()>1,"multi-state basis mutants need separate pairing");
+                        t.terms[0].signed=-t.terms[0].signed;
+                    }else if variant=="global-sign"{for a in &mut t.terms{a.signed=-a.signed;}}
+                }
+                assert_eq!(aq_discover_pairs(&raw,&aa,&targets).as_ref(),Some(&pairs));
+                assert_eq!(aq_discover_pairs(&residual,&aa,&targets).as_ref(),Some(&pairs));
+            }
             let expected=variant!="relative-mutant";
             let rr=aq_rr_terminal(&residual,x,&target);
             if let Some(v)=rr{assert_eq!(v,expected);}
@@ -254,7 +325,7 @@ fn aq_export(dir:&std::path::Path){
         }
         println!("AQ_HSL_NATIVE_EXPORT case={name} h0={h0} residual_h={} scale2={scale} rr_steps={steps}",residual.h);
         }
-        println!("AQ_HSL_FAMILY_ADMISSION family={family} labels={} label_bits={w} raw_and_rr_preserved=true dense_oracle=true",aa.len());
+        println!("AQ_HSL_FAMILY_ADMISSION family={family} labels={} label_bits={w} auto_pair=true raw_residual_agree=true dense_oracle=true",aa.len());
     }
     std::fs::write(dir.join("aq-hsl-p0.tsv"),manifest).unwrap();
     println!("AQ_HSL_NATIVE_EXPORT_SUMMARY families=3 columns=10 variants=30 arms=90");

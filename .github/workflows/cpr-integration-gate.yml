@@ -23,6 +23,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          fetch-depth: 0
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
@@ -38,6 +39,8 @@ jobs:
           git rev-parse 'HEAD^{tree}' | tee evidence/tree.txt
           rustc --version | tee evidence/rustc.txt
           sha256sum rust/quprs/src/{lib,cpr,cpr_optin,circuit,strategy,wmc,reduction}.rs rust/Cargo.toml rust/Cargo.lock rust/quprs/Cargo.toml rust/quprs/examples/cpr_native_optin.rs > evidence/source-sha256.txt
+          git cat-file -e '00496e7fef00c629912f5621d1a2e209d1b1978c^{commit}'
+          git merge-base --is-ancestor 00496e7fef00c629912f5621d1a2e209d1b1978c HEAD
           git diff --exit-code 00496e7fef00c629912f5621d1a2e209d1b1978c HEAD -- rust/quprs/src rust/quprs/tests rust/quprs/Cargo.toml rust/Cargo.lock rust/quprs/examples/cpr_native_optin.rs benchmarks/rust_core
           unset CRR_SOURCE CRR_TARGET QUPRS_GPMC_PATH QUPRS_GANAK_PATH
           # CLI fault injection requires debug assertions; the frozen CPR heavy gate

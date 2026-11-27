@@ -900,6 +900,10 @@ fn native_growth_checkpoint(){
             assert_eq!(policy,"strict");assert_eq!(schedule,"difference");
             let RZ(q,theta)=op else{panic!("historical gate changed")};
             assert_eq!(*q,1);
+            if let Ok(arm)=std::env::var("CRR_LIFT_POLICY"){
+                policy_continue(&mut ps,&a,&b,&order[done..],&case,&variant,&arm,start.elapsed().as_secs_f64());
+                return;
+            }
             let mut direct=ps.clone();
             let t=Instant::now();op.apply(&mut direct,false);let direct_s=t.elapsed().as_secs_f64();
             let mut lifted=ps.clone();let anf=lifted.f.functions[*q].len();
@@ -982,13 +986,14 @@ fn lift_output(ps:&mut PathSum,q:usize)->(u32,u32){
     (u,z)
 }
 #[derive(Default)]
-struct LiftAudit{trials:usize,accepts:usize,rejects:usize,lifts:usize}
+struct LiftAudit{trials:usize,accepts:usize,rejects:usize,lifts:usize,elim_removed:usize,hh:usize,omega:usize,preflight_defer:usize}
 fn lift_saturate(ps:&mut PathSum,audit:&mut LiftAudit){
     assert_eq!(ps.rr_tolerance,0.0);
     for _ in 0..16{
         let ids=ps.get_reducible_vars();
         if ids.is_empty(){return;}
-        if ps.try_reduce_elim(&ids){continue;}
+        let old_hidden=internal(ps).len();
+        if ps.try_reduce_elim(&ids){audit.elim_removed+=old_hidden-internal(ps).len();continue;}
         let mut changed=false;let mut local_trials=0;
         for rule in [1,2]{
             for &y in &ids{
@@ -1006,7 +1011,7 @@ fn lift_saturate(ps:&mut PathSum,audit:&mut LiftAudit){
                     let Some(v)=phi.iter().filter(|m|m.len()==1&&phi.iter().all(|r|r==*m||!r.contains(&m[0]))).map(|m|m[0]).max() else{continue;};
                     if v<ps.v.num_qubits as u32||!ps.v.path_vars.contains(&v){continue;}
                     let affected=ps.p.terms.keys().chain(ps.f.functions.iter().flatten()).filter(|m|m.contains(&v)&&!m.contains(&y)).count();
-                    if affected.saturating_mul(1usize<<(phi.len()-1))>TERM_CAP{continue;}
+                    if affected.saturating_mul(1usize<<(phi.len()-1))>TERM_CAP{audit.preflight_defer+=1;continue;}
                 }
                 local_trials+=1;audit.trials+=1;
                 let mut trial=ps.clone();
@@ -1015,7 +1020,7 @@ fn lift_saturate(ps:&mut PathSum,audit:&mut LiftAudit){
                 assert!(!trial.rr_approximate);
                 assert_eq!(internal(&trial).len()+if rule==1{1}else{2},internal(ps).len());
                 if terms(&trial)<=TERM_CAP&&incidence(&trial)<=incidence(ps){
-                    *ps=trial;audit.accepts+=1;changed=true;break;
+                    *ps=trial;audit.accepts+=1;if rule==1{audit.omega+=1;}else{audit.hh+=1;}changed=true;break;
                 }
                 audit.rejects+=1;
             }
@@ -1023,4 +1028,97 @@ fn lift_saturate(ps:&mut PathSum,audit:&mut LiftAudit){
         }
         if !changed{return;}
     }
+}
+
+
+// Bound the number of subsets visited by native arithmetic expansion.
+// Saturation is conservative, not a prediction of distinct merged terms.
+fn expansion_bound(s:usize,d:usize,cap:usize)->usize{
+    let mut c=1u128;let mut sum=0u128;
+    for j in 1..=s.min(d){
+        c=c*(s-j+1) as u128/j as u128;
+        sum+=c;if sum>=cap as u128{return cap;}
+    }
+    sum as usize
+}
+fn coeff_order(c:&PhaseCoeff,s:usize)->usize{
+    if c.is_zero(){return 0;}
+    let d=c.constant.denom as u64;
+    if c.radians.is_some()||!c.symbols.is_empty()||!d.is_power_of_two(){s}
+    else{d.trailing_zeros() as usize}
+}
+fn phase_gate_bound(op:&quprs::ir::QuantumOp,ps:&PathSum)->Option<(usize,usize)>{
+    use quprs::ir::QuantumOp::*;
+    let cap=1_000_000usize;
+    let (q,coeffs,cross)=match op{
+        RZ(q,a)|P(q,a)|U1(q,a)=>(*q,vec![(a.clone()/2).to_phase_coeff()],0),
+        S(q)|SDG(q)=>(*q,vec![PhaseCoeff::QUARTER],0),
+        T(q)|TDG(q)=>(*q,vec![PhaseCoeff::new_constant(Rational::new(1,8))],0),
+        RX(q,_)=>(*q,vec![PhaseCoeff::QUARTER,PhaseCoeff::THREE_QUARTERS],1),
+        RY(q,_)=>(*q,vec![PhaseCoeff::THREE_QUARTERS],1),
+        U2(q,_,l)|U3(q,_,_,l)|U(q,_,_,l)=>(*q,vec![(l.clone()/2).to_phase_coeff(),PhaseCoeff::THREE_QUARTERS],1),
+        _=>return None,
+    };
+    let s=ps.f.functions[q].len();
+    let work=coeffs.iter().map(|c|expansion_bound(s,coeff_order(c,s),cap)).sum::<usize>().saturating_add(cross*s);
+    Some((q,work))
+}
+fn policy_continue(ps:&mut PathSum,a:&[quprs::ir::QuantumOp],b:&[quprs::ir::QuantumOp],
+    remaining:&[(bool,usize)],case:&str,variant:&str,arm:&str,prefix_s:f64){
+    assert!(matches!(arm,"static"|"adaptive"));
+    let start=Instant::now();
+    let mut audit=LiftAudit::default();let mut pairs=Vec::new();
+    let mut peak=terms(ps);let mut max_inc=incidence(ps);
+    let mut done=0;let mut stop="complete";
+    let mut skipped=0;let mut bound_peak=0;
+    for (bra,j) in remaining.iter().copied(){
+        if start.elapsed().as_secs_f64()>15.0{stop="wall_budget";break;}
+        let gate=if bra{&b[j]}else{&a[j]};
+        ps.set_auto_reduce(false);
+        if !bra{
+            if let Some((q,work))=phase_gate_bound(gate,ps){
+                let s=ps.f.functions[q].len();bound_peak=bound_peak.max(work);
+                let should_lift=if arm=="static"{s>=12}else{
+                    // Avoid over-lifting low-order Clifford phases.
+                    // Count predicted expansion attempts, including repeated
+                    // unions; require substantial separation from lift cost.
+                    work>2048&&work>8*(s+2)
+                };
+                if should_lift{
+                    if pairs.len()>=32{stop="lift_budget";break;}
+                    let (u,z)=lift_output(ps,q);pairs.push((u,z));audit.lifts+=1;
+                    println!("CRR_POLICY_LIFT arm={arm} step={done} source_index={j} anf={s} expansion_bound={work} u={u} z={z} terms={}",terms(ps));
+                }else if s>=12{skipped+=1;}
+            }
+        }
+        if done%32==0||terms(ps)>=3000{
+            println!("CRR_POLICY_BEGIN arm={arm} step={done} bra={bra} index={j} terms={} hidden={} gate={gate:?}",terms(ps),internal(ps).len());
+        }
+        gate.apply(ps,bra);ps.set_auto_reduce(true);
+        done+=1;peak=peak.max(terms(ps));max_inc=max_inc.max(incidence(ps));
+        if terms(ps)>TERM_CAP{stop="term_cap";break;}
+        lift_saturate(ps,&mut audit);
+        peak=peak.max(terms(ps));max_inc=max_inc.max(incidence(ps));
+        if terms(ps)>TERM_CAP{stop="term_cap";break;}
+    }
+    let gone=pairs.iter().filter(|(u,z)|!ps.v.path_vars.contains(u)&&!ps.v.path_vars.contains(z)).count();
+    let partial=pairs.iter().filter(|(u,z)|ps.v.path_vars.contains(u)!=ps.v.path_vars.contains(z)).count();
+    let both=pairs.len()-gone-partial;
+    let elapsed=start.elapsed().as_secs_f64();
+    println!("CRR_POLICY_SUMMARY case={case} variant={variant} arm={arm} stop={stop} advanced={done} remaining={} terms={} incidence={} hidden={} peak={peak} max_inc={max_inc} lifts={} both_live={both} partial_live={partial} both_gone={gone} skipped_large_anf={skipped} bound_peak={bound_peak} trials={} accepts={} rejects={} omega={} hh={} elim_removed={} preflight_defer={} prefix_s={prefix_s} continuation_s={elapsed}",remaining.len(),terms(ps),incidence(ps),internal(ps).len(),audit.lifts,audit.trials,audit.accepts,audit.rejects,audit.omega,audit.hh,audit.elim_removed,audit.preflight_defer);
+    // No verdict on partial state; no new solver lane or tolerance change.
+    // If all gates finish, report native shape only. Existing strict
+    // residual/source-trust gates must precede any count/verdict claim.
+    if stop=="complete"{
+        println!("CRR_POLICY_COMPLETE case={case} variant={variant} arm={arm} identity_shape={} hidden={} rr_approximate={}",ps.is_identity_up_to_phase(),internal(ps).len(),ps.rr_approximate);
+    }
+}
+#[test]
+fn lift_policy_bounds(){
+    assert_eq!(expansion_bound(20,5,1_000_000),21699);
+    assert_eq!(expansion_bound(82,5,2048),2048);
+    assert_eq!(expansion_bound(70,1,2048),70);
+    assert_eq!(expansion_bound(12,2,2048),78);
+    assert_eq!(expansion_bound(0,5,2048),0);
+    assert_eq!(expansion_bound(12,0,2048),0);
 }

@@ -728,3 +728,209 @@ cx qubits[5], qubits[6];
 cx qubits[6], qubits[7];
 "####), // blobs a712713768d9605514ff30208785b5bfdbffad06 7a2693425da63470feca65ca62d93e9d19d3a461 f2c88eaf5779c0bd340a501514432290369fdf7f
 ];
+
+
+// C3 reuse gate: original RR only. Fix the symbolic pre ancilla before
+// applying gates while retaining input IDs (never summed integration vars).
+fn aq_mobv_build(k:usize,ops:&[G],restricted:bool)->PathSum{
+    let n=2*k+1;let mut ps=PathSum::new(n);
+    ps.set_auto_reduce(false);
+    if restricted{for f in ps.f.functions.iter_mut().skip(k){f.clear();}}
+    for g in ops{g.apply(&mut ps,false);}
+    ps
+}
+fn aq_mobv_rr(k:usize,ops:&[G],restricted:bool)->(usize,usize,u32,usize,&'static str,Option<u64>,u128){
+    let n=2*k+1;let t=std::time::Instant::now();
+    let ps=aq_mobv_build(k,ops,restricted);
+    let h0=ops.iter().filter(|g|matches!(g,G::H(_))).count();
+    let Some((p,frame,scale,steps))=native_rr_checkpoint(ps,n) else{
+        return (h0,h0,0,0,"UNKNOWN",None,t.elapsed().as_nanos());
+    };
+    assert_eq!(frame.compact(&p).unwrap(),Anf::from([0]));
+    let s=compact(&p,n).unwrap();
+    if s.h!=0||scale as usize!=h0{
+        return (h0,s.h,scale,steps,"UNKNOWN",None,t.elapsed().as_nanos());
+    }
+    let pre=Cube{mask:((1u64<<n)-1)^((1u64<<k)-1),value:0};
+    for (i,actual) in s.output.iter().enumerate(){
+        let want=if i==2*k{0}else{1u64<<(i%k)};
+        let mut diff=specialize_bool(actual,pre);
+        if !diff.insert(want){diff.remove(&want);}
+        if let Some(&x)=diff.iter().min_by_key(|m|m.count_ones()){
+            assert!(x<(1u64<<k));
+            assert!(diff.iter().fold(false,|v,m|v^(x&m==*m)));
+            return (h0,s.h,scale,steps,"REFUTED",Some(x),t.elapsed().as_nanos());
+        }
+    }
+    (h0,s.h,scale,steps,"PROVED",None,t.elapsed().as_nanos())
+}
+#[test]
+fn hoare_autoq_mobv_original_rr_reuse_gate(){
+    for (k,pre,post,src) in AQ_MOBV_SOURCES{
+        let n=2*k+1;
+        assert_eq!(pre.trim(),format!("Constants\nc1 := 1\nExtended Dirac\n{{c1 |i{}> : |i|={k}}}","0".repeat(k+1)));
+        assert_eq!(post.trim(),format!("Constants\nc1 := 1\nExtended Dirac\n{{c1 |ii1> : |i|={k}}}"));
+        let ops=factor_source_ops(src,n);
+        let (parsed,width)=quprs::qasm::parse_qasm_str_source_pinned(src).expect("source-pinned MOBV parse");
+        assert_eq!((parsed,width),(ops.clone(),n));
+        let pre_cube=Cube{mask:((1u64<<n)-1)^((1u64<<k)-1),value:0};
+        let raw=compact(&aq_mobv_build(k,&ops,false),n).unwrap();
+        let restricted=compact(&aq_mobv_build(k,&ops,true),n).unwrap();
+        assert_eq!(raw.h,restricted.h);
+        assert_eq!(raw.output.iter().map(|p|specialize_bool(p,pre_cube)).collect::<Vec<_>>(),restricted.output);
+        assert_eq!(specialize_phase(&raw.phase,pre_cube),restricted.phase);
+        let mut no_z=ops.clone();
+        let z=no_z.iter().position(|g|matches!(g,G::Z(_))).unwrap();no_z.remove(z);
+        let mut no_ccx=ops.clone();
+        let c=no_ccx.iter().position(|g|matches!(g,G::CCX(_,_,_))).unwrap();no_ccx.remove(c);
+        for (variant,gates,expected) in [("source",&ops,"PROVED"),("missing-z",&no_z,"REFUTED"),("missing-ccx",&no_ccx,"REFUTED")]{
+            for restricted in [false,true]{
+                let (h0,h,scale,steps,verdict,witness,elapsed)=aq_mobv_rr(k,gates,restricted);
+                assert!(verdict=="UNKNOWN"||verdict==expected);
+                if let Some(x)=witness{
+                    let v=dense_state(n,gates,x);
+                    let target=x|(x<<k)|(1u64<<(2*k));
+                    assert_eq!(v[target as usize],[0;4]);
+                    assert_eq!(v.iter().filter(|a|**a!=[0;4]).count(),1);
+                }
+                println!("AQ_MOBV_RR k={k} n={n} variant={variant} restricted={restricted} h0={h0} residual_h={h} scale2={scale} rr_steps={steps} verdict={verdict} witness={witness:?} elapsed_ns={elapsed} source_pinned=true");
+            }
+        }
+        let xs:Vec<u64>=if k<=5{(0..1u64<<k).collect()}else{vec![0,1,(1u64<<k)-1]};
+        for &x in &xs{
+            let v=dense_state(n,&ops,x);let z=x|(x<<k)|(1u64<<(2*k));
+            assert!(v.iter().enumerate().all(|(i,a)|if i==z as usize{
+                a[1..]==[0,0,0]&&i128::from(a[0]).abs()==1i128<<(k+1)
+            }else{*a==[0;4]}));
+        }
+        println!("AQ_MOBV_ORACLE k={k} inputs={} restricted_raw_agree=true",xs.len());
+    }
+}
+
+// AutoQ source pin 7eed39ad7ba5615a87c3f532a24f866e08967c12.
+const AQ_MOBV_SOURCES:[(usize,&str,&str,&str);4]=[
+    (3,r####"Constants
+c1 := 1
+Extended Dirac
+{c1 |i0000> : |i|=3}
+"####,r####"Constants
+c1 := 1
+Extended Dirac
+{c1 |ii1> : |i|=3}
+"####,r####"OPENQASM 2.0;
+include "qelib1.inc";
+qreg qubits[7];
+
+h qubits[6];
+h qubits[5];
+h qubits[4];
+h qubits[3];
+z qubits[6];
+ccx qubits[0], qubits[3], qubits[6];
+ccx qubits[1], qubits[4], qubits[6];
+ccx qubits[2], qubits[5], qubits[6];
+h qubits[6];
+h qubits[5];
+h qubits[4];
+h qubits[3];
+"####), // blobs dc3f455222fe91a8f297ee5834060cff4ddf0671 4d41e792b24a3859fe6b2d877480968ec864742a df5cab778713674b31590beb866ff8e497ed3273
+    (4,r####"Constants
+c1 := 1
+Extended Dirac
+{c1 |i00000> : |i|=4}
+"####,r####"Constants
+c1 := 1
+Extended Dirac
+{c1 |ii1> : |i|=4}
+"####,r####"OPENQASM 2.0;
+include "qelib1.inc";
+qreg qubits[9];
+
+h qubits[8];
+h qubits[7];
+h qubits[6];
+h qubits[5];
+h qubits[4];
+z qubits[8];
+ccx qubits[0], qubits[4], qubits[8];
+ccx qubits[1], qubits[5], qubits[8];
+ccx qubits[2], qubits[6], qubits[8];
+ccx qubits[3], qubits[7], qubits[8];
+h qubits[8];
+h qubits[7];
+h qubits[6];
+h qubits[5];
+h qubits[4];
+"####), // blobs 901a2b6196275d14b38eba0dd99d83fa05533201 2d356d0ddc17477d521c0f0067391cba12dab60f 9287d282a718d1799c46651215c4ff464ee44345
+    (5,r####"Constants
+c1 := 1
+Extended Dirac
+{c1 |i000000> : |i|=5}
+"####,r####"Constants
+c1 := 1
+Extended Dirac
+{c1 |ii1> : |i|=5}
+"####,r####"OPENQASM 2.0;
+include "qelib1.inc";
+qreg qubits[11];
+
+h qubits[10];
+h qubits[9];
+h qubits[8];
+h qubits[7];
+h qubits[6];
+h qubits[5];
+z qubits[10];
+ccx qubits[0], qubits[5], qubits[10];
+ccx qubits[1], qubits[6], qubits[10];
+ccx qubits[2], qubits[7], qubits[10];
+ccx qubits[3], qubits[8], qubits[10];
+ccx qubits[4], qubits[9], qubits[10];
+h qubits[10];
+h qubits[9];
+h qubits[8];
+h qubits[7];
+h qubits[6];
+h qubits[5];
+"####), // blobs ca282570ca1f3a08c468560b54a63059ffaf982b 32fac194a4042a42a2871c5ad2c99674bf92dc19 23c716a443c317b72568e1ed0b640aaf33f2707e
+    (8,r####"Constants
+c1 := 1
+Extended Dirac
+{c1 |i000000000> : |i|=8}
+"####,r####"Constants
+c1 := 1
+Extended Dirac
+{c1 |ii1> : |i|=8}
+"####,r####"OPENQASM 2.0;
+include "qelib1.inc";
+qreg qubits[17];
+
+h qubits[16];
+h qubits[15];
+h qubits[14];
+h qubits[13];
+h qubits[12];
+h qubits[11];
+h qubits[10];
+h qubits[9];
+h qubits[8];
+z qubits[16];
+ccx qubits[0], qubits[8], qubits[16];
+ccx qubits[1], qubits[9], qubits[16];
+ccx qubits[2], qubits[10], qubits[16];
+ccx qubits[3], qubits[11], qubits[16];
+ccx qubits[4], qubits[12], qubits[16];
+ccx qubits[5], qubits[13], qubits[16];
+ccx qubits[6], qubits[14], qubits[16];
+ccx qubits[7], qubits[15], qubits[16];
+h qubits[16];
+h qubits[15];
+h qubits[14];
+h qubits[13];
+h qubits[12];
+h qubits[11];
+h qubits[10];
+h qubits[9];
+h qubits[8];
+"####), // blobs 840fce2b3accaec44a355b8058bd249bd7c56b03 b56988b6db8f18a1512d3cd6551823589588b7f3 9d720831156dafbb4f0636958bbd0432632dcaee
+];

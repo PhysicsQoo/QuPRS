@@ -5187,6 +5187,10 @@ theorem ledger_sub_pivot_witness (s : LedgerStep) (y : Nat) (rhs : List (List Na
         cases tail with
         | cons extra rest => cases h
         | nil =>
+          change (if natMem z (removedIds s.before s.trial) && natLE s.before.n z then
+            (ledgerRowAt s.before.constraints i).bind (fun row =>
+              (ledgerIsolatedPivot z row).bind (fun q => some (z,q))) else none) =
+            some (y,rhs) at h
           cases hg : (natMem z (removedIds s.before s.trial) && natLE s.before.n z) with
           | false =>
             rw [ledger_bool_false _ _ _ hg] at h
@@ -5324,6 +5328,132 @@ theorem ledger_sub_unique_fiber {A : Type} [Zero A] [Add A]
   cases h : anfValue v rhs with
   | false => exact zr _
   | true => exact zl _
+
+
+-- Raw ANF transport deliberately retains repeated variables and
+-- repeated monomials. Its Boolean semantics is proved before any
+-- canonicalization, so parity and idempotence can be audited separately.
+theorem ledger_mono_append (v : Nat → Bool) (a b : List Nat) :
+    andValue ((a ++ b).map v) = (andValue (a.map v) && andValue (b.map v)) := by
+  induction a with
+  | nil => rfl
+  | cons x xs ih =>
+    change (v x && andValue ((xs ++ b).map v)) =
+      ((v x && andValue (xs.map v)) && andValue (b.map v))
+    rw [ih]
+    cases v x <;> cases andValue (xs.map v) <;> cases andValue (b.map v) <;> rfl
+
+theorem ledger_anf_append (v : Nat → Bool) (a b : List (List Nat)) :
+    anfValue v (a ++ b) = (anfValue v a).xor (anfValue v b) := by
+  induction a with
+  | nil =>
+    change anfValue v b = (false : Bool).xor (anfValue v b)
+    cases anfValue v b <;> rfl
+  | cons m ms ih =>
+    change (anfValue v (ms ++ b)).xor (andValue (m.map v)) =
+      ((anfValue v ms).xor (andValue (m.map v))).xor (anfValue v b)
+    rw [ih]
+    cases anfValue v ms <;> cases anfValue v b <;> cases andValue (m.map v) <;> rfl
+
+def ledgerAnfPrefix (m : List Nat) (a : List (List Nat)) : List (List Nat) :=
+  a.map (fun q => m ++ q)
+
+theorem ledger_anf_prefix (v : Nat → Bool) (m : List Nat) (a : List (List Nat)) :
+    anfValue v (ledgerAnfPrefix m a) = (andValue (m.map v) && anfValue v a) := by
+  induction a with
+  | nil =>
+    change false = (andValue (m.map v) && false)
+    cases andValue (m.map v) <;> rfl
+  | cons q qs ih =>
+    change (anfValue v (ledgerAnfPrefix m qs)).xor (andValue ((m ++ q).map v)) =
+      (andValue (m.map v) && (anfValue v qs).xor (andValue (q.map v)))
+    rw [ih, ledger_mono_append]
+    cases andValue (m.map v) <;> cases anfValue v qs <;> cases andValue (q.map v) <;> rfl
+
+def ledgerAnfMul : List (List Nat) → List (List Nat) → List (List Nat)
+  | [], _ => []
+  | m :: ms, a => ledgerAnfPrefix m a ++ ledgerAnfMul ms a
+
+theorem ledger_anf_mul (v : Nat → Bool) (a b : List (List Nat)) :
+    anfValue v (ledgerAnfMul a b) = (anfValue v a && anfValue v b) := by
+  induction a with
+  | nil => rfl
+  | cons m ms ih =>
+    change anfValue v (ledgerAnfPrefix m b ++ ledgerAnfMul ms b) =
+      ((anfValue v ms).xor (andValue (m.map v)) && anfValue v b)
+    rw [ledger_anf_append, ledger_anf_prefix, ih]
+    cases anfValue v ms <;> cases andValue (m.map v) <;> cases anfValue v b <;> rfl
+
+def ledgerSubMonoRaw (y : Nat) (rhs : List (List Nat)) : List Nat → List (List Nat)
+  | [] => [[]]
+  | x :: xs =>
+    if natMem x [y] then ledgerAnfMul rhs (ledgerSubMonoRaw y rhs xs)
+    else ledgerAnfPrefix [x] (ledgerSubMonoRaw y rhs xs)
+
+theorem ledger_sub_mono_raw_sound (y : Nat) (rhs : List (List Nat))
+    (m : List Nat) (v : Nat → Bool) :
+    anfValue v (ledgerSubMonoRaw y rhs m) =
+      andValue (m.map (setVal v y (anfValue v rhs))) := by
+  induction m with
+  | nil => rfl
+  | cons x xs ih =>
+    change anfValue v (if natMem x [y] then ledgerAnfMul rhs (ledgerSubMonoRaw y rhs xs)
+      else ledgerAnfPrefix [x] (ledgerSubMonoRaw y rhs xs)) =
+      (setVal v y (anfValue v rhs) x && andValue (xs.map (setVal v y (anfValue v rhs))))
+    cases he : natMem x [y] with
+    | true =>
+      rw [ledger_bool_true _ _ _ he, ledger_anf_mul, ih]
+      have hx : x = y := by
+        rcases List.mem_cons.mp ((nat_mem_iff x [y]).mp he) with hx | hx
+        · exact hx
+        · cases hx
+      rw [hx, set_val_eq]
+    | false =>
+      rw [ledger_bool_false _ _ _ he, ledger_anf_prefix, ih]
+      have hx : x ≠ y := by
+        intro hxy
+        have hm : natMem x [y] = true := (nat_mem_iff x [y]).mpr
+          (List.mem_cons.mpr (Or.inl hxy))
+        rw [he] at hm
+        cases hm
+      rw [set_val_ne v y x (anfValue v rhs) hx]
+      change ((v x && true) && andValue (xs.map (setVal v y (anfValue v rhs)))) =
+        (v x && andValue (xs.map (setVal v y (anfValue v rhs))))
+      rw [Bool.and_true]
+
+def ledgerSubAnfRaw (y : Nat) (rhs : List (List Nat)) :
+    List (List Nat) → List (List Nat)
+  | [] => []
+  | m :: ms => ledgerSubMonoRaw y rhs m ++ ledgerSubAnfRaw y rhs ms
+
+theorem ledger_sub_anf_raw_sound (y : Nat) (rhs row : List (List Nat)) (v : Nat → Bool) :
+    anfValue v (ledgerSubAnfRaw y rhs row) =
+      anfValue (setVal v y (anfValue v rhs)) row := by
+  induction row with
+  | nil => rfl
+  | cons m ms ih =>
+    change anfValue v (ledgerSubMonoRaw y rhs m ++ ledgerSubAnfRaw y rhs ms) =
+      (anfValue (setVal v y (anfValue v rhs)) ms).xor
+        (andValue (m.map (setVal v y (anfValue v rhs))))
+    rw [ledger_anf_append, ledger_sub_mono_raw_sound, ih]
+    cases anfValue (setVal v y (anfValue v rhs)) ms <;>
+      cases andValue (m.map (setVal v y (anfValue v rhs))) <;> rfl
+
+-- Even without normalizing the expansion, the selected pivot row
+-- becomes the identically false Boolean polynomial.
+theorem ledger_sub_pivot_raw_zero (y : Nat) (row rhs : List (List Nat))
+    (h : ledgerIsolatedPivot y row = some rhs) (v : Nat → Bool) :
+    anfValue v (ledgerSubAnfRaw y rhs row) = false := by
+  rw [ledger_sub_anf_raw_sound]
+  exact (ledger_pivot_extension y row rhs h v (anfValue v rhs)).mpr rfl
+
+theorem ledger_sub_raw_controls :
+    ledgerSubAnfRaw 2 [] [[2]] = [] ∧
+    ledgerSubAnfRaw 2 [[]] [[2]] = [[]] ∧
+    ledgerSubAnfRaw 2 [[0],[1]] [[2,3]] = [[0,3],[1,3]] ∧
+    ledgerSubAnfRaw 2 [[0]] [[0,2]] = [[0,0]] ∧
+    ledgerSubAnfRaw 2 [[0]] [[2],[0]] = [[0],[0]] := by
+  exact ⟨rfl,rfl,rfl,rfl,rfl⟩
 
 -- Localize any unexpected dependency to a definition vs theorem.
 #print axioms splitBytes
@@ -5711,6 +5841,18 @@ theorem ledger_sub_unique_fiber {A : Type} [Zero A] [Add A]
 #print axioms ledger_sub_rhs_retained
 #print axioms ledger_pivot_extension
 #print axioms ledger_sub_unique_fiber
+#print axioms ledger_mono_append
+#print axioms ledger_anf_append
+#print axioms ledgerAnfPrefix
+#print axioms ledger_anf_prefix
+#print axioms ledgerAnfMul
+#print axioms ledger_anf_mul
+#print axioms ledgerSubMonoRaw
+#print axioms ledger_sub_mono_raw_sound
+#print axioms ledgerSubAnfRaw
+#print axioms ledger_sub_anf_raw_sound
+#print axioms ledger_sub_pivot_raw_zero
+#print axioms ledger_sub_raw_controls
 end QuPRS.CnfReplay
 
 def main (args : List String) : IO Unit := do

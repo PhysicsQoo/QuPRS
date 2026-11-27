@@ -189,11 +189,17 @@ fn aq_lt(c:&mut Cnf,bits:&[Lit],bound:u64)->Lit{
     less
 }
 fn aq_overlap(s:&Symbolic,x:u64,b:&AqState)->Option<(Cnf,[Lit;3],usize)>{
-    if s.n!=b.n||s.h>32||s.n+s.h>63||b.terms.is_empty()||b.terms.len()>2{return None;}
+    // Opt-in admission experiment; the default and existing CNF caps remain.
+    // Monomial masks use at most 63 bits including inert input IDs;
+    // primary count is separately bounded, and packed WMC uses MPZ.
+    let wide=std::env::var("AQ_SHARED_WIDE").ok().as_deref()==Some("1");
+    let h_cap=if wide{48}else{32};
+    if s.n!=b.n||s.h>h_cap||s.n+s.h>63||b.terms.is_empty()||b.terms.len()>2{return None;}
     let selectors=usize::from(b.terms.len()==2);
     let mag=b.terms.iter().map(|t|t.signed.unsigned_abs()).max()?;
     let counter=(64-(mag-1).leading_zeros()) as usize;
-    let primary=s.h+selectors+counter;
+    let primary=s.h.checked_add(selectors)?.checked_add(counter)?;
+    if primary>63{return None;}
     let mut c=Cnf::new(primary);
     let bits:Vec<_>=(0..s.n).map(|i|if x>>i&1!=0{ONE}else{ZERO})
         .chain((0..s.h).map(|i|(i+2) as Lit)).collect();
@@ -1517,6 +1523,32 @@ fn hoare_autoq_shared_fixed_basis_lowering(){
 }
 
 // Dedicated shared semantic entry: three policy modes, same source/spec.
+// Boundary checks exercise the actual overlap encoder, not a dense 2^h oracle.
+// Only one new test: high path ID, deterministic CNF gate, exact phase buckets
+// are checked by the Python packed-count smoke using the same GPMC binary.
+#[test]
+fn hoare_autoq_shared_width_encoder(){
+    let wide=std::env::var("AQ_SHARED_WIDE").ok().as_deref()==Some("1");
+    let target=AqState{n:1,k:0,terms:vec![AqTerm{pattern:AqPattern::Fixed(1),signed:1}]};
+    for h in [32usize,33,47,48,49]{
+        let s=Symbolic{n:1,h,output:vec![Anf::from([1u64<<h])],phase:BTreeMap::new()};
+        let result=aq_overlap(&s,0,&target);
+        assert_eq!(result.is_some(),h<=if wide{48}else{32});
+        if let Some((c,phase,primary))=result{
+            assert_eq!(primary,h);
+            assert_eq!(phase,[ZERO,ZERO,ZERO]);
+            assert_eq!(c.vars,h+1);
+            assert_eq!(c.clauses,vec![vec![ONE],vec![(h+1) as Lit]]);
+            if let Some(dir)=std::env::var_os("AQ_SHARED_WIDTH_SMOKE_DIR"){
+                let mut data=format!("p cnf {} {}\n",c.vars,c.clauses.len());
+                for row in &c.clauses{for l in row{data.push_str(&format!("{l} "));}data.push_str("0\n");}
+                std::fs::write(std::path::PathBuf::from(dir).join(format!("h{h}.cnf")),data).unwrap();
+            }
+        }
+    }
+    println!("AQ_SHARED_WIDTH_BOUNDARY wide={wide} checks=5");
+}
+
 #[test]
 fn hoare_autoq_shared_fixed_basis_arm(){
     let Ok(case)=std::env::var("AQ_C3_CASE")else{return;};
@@ -1566,6 +1598,8 @@ fn hoare_autoq_shared_fixed_basis_arm(){
         }else if mode=="rr"{admission="rr-not-decisive";None}
         else{
             let Some((c,phase,primary))=aq_overlap(&s,x,b)else{admission="encoder-not-admitted";return None;};
+            println!("AQ_SHARED_WIDTH_ENCODING h={} primary={primary} vars={} clauses={} k={}",s.h,c.vars,c.clauses.len(),k+b.k);
+            std::io::stdout().flush().ok()?;
             let mut data=format!("p cnf {} {}\n",c.vars,c.clauses.len());
             for row in &c.clauses{for l in row{data.push_str(&format!("{l} "));}data.push_str("0\n");}
             std::fs::write(&file,data).ok()?;

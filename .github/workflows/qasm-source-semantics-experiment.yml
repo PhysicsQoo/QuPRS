@@ -42,7 +42,7 @@ jobs:
           rustc --version | tee evidence/rustc-version.txt
           cargo --version | tee evidence/cargo-version.txt
           lscpu > evidence/cpu.txt
-          sha256sum rust/quprs/tests/support/autoq_hsl_p0.rs rust/quprs/tests/property_hoare_experiment.rs rust/research/autoq_grover_p0.py rust/research/autoq_c3_pilot.py > evidence/source-sha256.txt
+          sha256sum rust/quprs/tests/support/autoq_hsl_p0.rs rust/quprs/tests/property_hoare_experiment.rs rust/research/autoq_grover_p0.py rust/research/autoq_c3_pilot.py rust/research/autoq_shared_width_p0.py > evidence/source-sha256.txt
           sudo apt-get update
           sudo apt-get install -y cmake pkg-config libgmp-dev libmpfr-dev zlib1g-dev libboost-filesystem-dev libboost-test-dev libantlr4-runtime-dev
       - name: Provision pinned GPMC and qualify packed count
@@ -75,11 +75,16 @@ jobs:
           PY
           timeout 30s "$(cat evidence/property_hoare_experiment.path)" --exact exact_property_cnf::hoare_autoq_shared_fixed_basis_lowering --nocapture | tee evidence/shared-lowering.log
           grep -F 'AQ_SHARED_FIXED_BASIS_ORACLE checks=12' evidence/shared-lowering.log
-      - name: Original AutoQ source comparison (existing candidate)
-        timeout-minutes: 19
+      - name: Verify wide encoder boundaries and original-source WMC pairs
+        timeout-minutes: 10
         run: |
           set -euo pipefail
-          mkdir -p evidence/aq-autoq
+          mkdir -p evidence/width-smoke
+          bin="$(cat evidence/property_hoare_experiment.path)"
+          AQ_SHARED_WIDE=0 "$bin" --exact exact_property_cnf::hoare_autoq_shared_width_encoder --nocapture | tee evidence/width-default.log
+          AQ_SHARED_WIDE=1 AQ_SHARED_WIDTH_SMOKE_DIR="$PWD/evidence/width-smoke" "$bin" --exact exact_property_cnf::hoare_autoq_shared_width_encoder --nocapture | tee evidence/width-wide.log
+          grep -F 'AQ_SHARED_WIDTH_BOUNDARY wide=false checks=5' evidence/width-default.log
+          grep -F 'AQ_SHARED_WIDTH_BOUNDARY wide=true checks=5' evidence/width-wide.log
           pin=7eed39ad7ba5615a87c3f532a24f866e08967c12
           src="$(mktemp -d)"
           trap 'rm -rf "$src"' EXIT
@@ -88,16 +93,8 @@ jobs:
           timeout 120s git -C "$src" fetch --depth=1 origin "$pin"
           git -C "$src" checkout --detach FETCH_HEAD
           test "$(git -C "$src" rev-parse HEAD)" = "$pin"
-          git -C "$src" rev-parse HEAD | tee evidence/aq-autoq/source.txt
-          dpkg-query -W libboost-filesystem-dev libboost-test-dev libantlr4-runtime-dev | tee evidence/aq-autoq/dependencies.txt
-          timeout 90s cmake -S "$src" -B "$src/build" -DCMAKE_BUILD_TYPE=Release -DUSE_SYSTEM_Z3=OFF 2>&1 | tee evidence/aq-autoq/configure.log
-          timeout 780s cmake --build "$src/build" --target autoq --parallel 2 2>&1 | tee evidence/aq-autoq/build.log
-          sha256sum "$src/build/cli/autoq" "$src/libz3.so.4.12" | tee evidence/aq-autoq/binary-sha256.txt
-          timeout 220s python3 rust/research/autoq_grover_p0.py "$(cat evidence/property_hoare_experiment.path)" "$RUNNER_TEMP/cps-gpmc" evidence/aq-grover "$src/build/cli/autoq" "$src" 2>&1 | tee evidence/aq-grover.log
-          grep -F 'AQ_GROVER_SOURCE_ORACLE ' evidence/aq-grover.log
-          test "$(grep -c '^AQ_GROVER_ARM ' evidence/aq-grover.log)" -eq 40
-          grep -F 'AQ_SHARED_INITIAL_IR ' evidence/aq-grover.log
-          grep -F 'AQ_GROVER_SUMMARY ' evidence/aq-grover.log
+          timeout 220s python3 rust/research/autoq_shared_width_p0.py "$bin" "$RUNNER_TEMP/cps-gpmc" evidence/aq-width "$src" evidence/width-smoke 2>&1 | tee evidence/aq-width.log
+          grep -F 'AQ_SHARED_WIDTH_SUMMARY ' evidence/aq-width.log
       - uses: actions/upload-artifact@v4
         if: always()
         with:

@@ -219,6 +219,54 @@ fn aq_overlap(s:&Symbolic,x:u64,b:&AqState)->Option<(Cnf,[Lit;3],usize)>{
     if c.vars>32768||c.clauses.len()>262144{return None;}
     Some((c,acc,primary))
 }
+
+// Research-only exact disjoint-class guard fusion. No change to the RR
+// engine, target scale, or phase-bucket protocol. None = original fallback.
+fn aq_overlap_fused(s:&Symbolic,x:u64,b:&AqState)->Option<(Cnf,[Lit;3],usize)>{
+    if s.n!=b.n||s.h>32||s.n+s.h>63||b.terms.len()!=2{return None;}
+    let [hi,lo]=b.terms.as_slice() else{return None;};
+    let AqPattern::Fixed(fixed)=hi.pattern else{return None;};
+    let AqPattern::Except{offset,width,excluded,outside}=lo.pattern else{return None;};
+    if width==0||offset.checked_add(width)?>b.n||b.n>=64||hi.signed==0||lo.signed==0{return None;}
+    let mask=((1u64<<width)-1)<<offset;
+    if excluded>=1u64<<width||outside&mask!=0||outside>>b.n!=0||
+       fixed!=(outside|(excluded<<offset)){return None;}
+    let h=hi.signed.unsigned_abs();let l=lo.signed.unsigned_abs();
+    let mag=h.max(l);
+    let counter=(64-(mag-1).leading_zeros()) as usize;
+    let primary=s.h+counter;
+    let mut c=Cnf::new(primary);
+    let bits:Vec<_>=(0..s.n).map(|i|if x>>i&1!=0{ONE}else{ZERO})
+        .chain((0..s.h).map(|i|(i+2) as Lit)).collect();
+    let z:Vec<_>=s.output.iter().map(|p|c.anf(p,&bits)).collect();
+    let mult:Vec<_>=(0..counter).map(|i|(s.h+i+2) as Lit).collect();
+    let eq=|c:&mut Cnf,bits:&[Lit],v:u64|->Lit{
+        bits.iter().enumerate().fold(ONE,|a,(i,&bit)|c.and(a,if v>>i&1!=0{bit}else{-bit}))
+    };
+    let low_cube=eq(&mut c,&z[..offset],outside);
+    let high_cube=eq(&mut c,&z[offset+width..],outside>>(offset+width));
+    let cube=c.and(low_cube,high_cube);
+    let e=eq(&mut c,&z[offset..offset+width],excluded);
+    let hlt=aq_lt(&mut c,&mult,h);
+    let llt=aq_lt(&mut c,&mult,l);
+    let inside=if h>=l{let extra=c.and(e,hlt);c.or(llt,extra)}
+        else{let extra=c.and(-e,llt);c.or(hlt,extra)};
+    let valid=c.and(cube,inside);
+    c.enforce(valid);
+    // Sign is relevant only on valid assignments.
+    let negative=match (hi.signed<0,lo.signed<0){
+        (true,true)=>ONE,(true,false)=>e,(false,true)=>-e,(false,false)=>ZERO
+    };
+    let mut acc=[ZERO,ZERO,negative];
+    for (&m,&k) in &s.phase{
+        let lit=c.monomial(m,&bits);
+        let w=std::array::from_fn(|i|if k>>i&1!=0{lit}else{ZERO});
+        acc=c.add3(acc,w);
+    }
+    if c.vars>32768||c.clauses.len()>262144{return None;}
+    Some((c,acc,primary))
+}
+
 fn aq_rr_terminal(s:&Symbolic,x:u64,b:&AqState)->Option<bool>{
     if s.h!=0{return None;}
     let (z,_)=path(s,x,0);
@@ -990,6 +1038,8 @@ fn hoare_autoq_c3_arm(){
             if frame.compact(&p)?!=Anf::from([0]){return None;}
             (compact(&p,n)?,h0.checked_sub(scale as usize)?)
         };
+        println!("AQ_CPS_RESIDUAL raw_h={h0} residual_h={} k={k} phase_terms={} output_terms={}",
+            s.h,s.phase.len(),s.output.iter().map(|p|p.len()).sum::<usize>());
         if mode=="structural"||mode=="structural-factor"{
             if ghz&&k==1{
                 if let Some(w)=aq_ghz_witness(&s){
@@ -1064,7 +1114,14 @@ fn hoare_autoq_c3_arm(){
                 let v=if candidate.is_some(){candidate}else if mode!="wmc"&&s.h==0{
                     aq_rr_terminal(&s,x,b)
                 }else if mode=="rr"{None}else{
-                    let (c,phase,primary)=aq_overlap(&s,x,b)?;
+                    let encode_start=std::time::Instant::now();
+                    let opt=std::env::var("AQ_CPS_FUSED").ok().as_deref()==Some("1");
+                    let (encoded,fused)=if opt{
+                        match aq_overlap_fused(&s,x,b){Some(v)=>(v,true),None=>(aq_overlap(&s,x,b)?,false)}
+                    }else{(aq_overlap(&s,x,b)?,false)};
+                    let (c,phase,primary)=encoded;
+                    println!("AQ_CPS_ENCODING fused={fused} requested={opt} primary={primary} vars={} clauses={} encode_ns={}",
+                        c.vars,c.clauses.len(),encode_start.elapsed().as_nanos());
                     let mut data=format!("p cnf {} {}\n",c.vars,c.clauses.len());
                     for row in &c.clauses{for l in row{data.push_str(&format!("{l} "));}data.push_str("0\n");}
                     std::fs::write(&file,data).ok()?;

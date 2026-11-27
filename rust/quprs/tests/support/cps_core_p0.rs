@@ -147,7 +147,7 @@ fn core_matrix(c:&CpsCore)->Vec<Vec<Root>>{
     assert!(c.valid());
     let n=c.n();let q=c.q();
     let ids:Vec<_>=c.guard.ids.iter().copied().filter(|&v|v as usize>=n).collect();
-    assert!(n<=3&&q<=3&&ids.len()<=18);
+    assert!(n<=3&&q<=8&&ids.len()<=18);
     let mut out=vec![vec![[0;4];1usize<<n];1usize<<q];
     for x in 0..1u64<<n{for y in 0..1u64<<ids.len(){
         let a=ids.iter().enumerate().fold(x,|v,(i,&id)|v|(((y>>i)&1)<<id));
@@ -467,4 +467,185 @@ fn hoare_cps_core_wmc_export(){
     assert_eq!(cases.len(),14);
     std::fs::write(dir.join("manifest.tsv"),manifest).unwrap();
     println!("CPS_CORE_WMC_EXPORT cases=14 arms=28");
+}
+
+// CORE-4: direct HSL -> canonical CPS, using the existing admitted AqState
+// parser for coefficient/normalization checks. No family/ket enumeration
+// in lowering. The outer label is a free input, not a path variable.
+fn core_hsl_lt(bits:&[u32],bound:u64)->Option<Anf>{
+    if bound>=1u64<<bits.len(){return Some(Anf::from([0]));}
+    let mut lt=Anf::new();
+    for (i,&v) in bits.iter().enumerate(){
+        let bit=core_bit(v)?;
+        if bound>>i&1!=0{
+            lt=mul_anf(&Anf::from([bit]),&lt)?;
+            xor_insert(&mut lt,0);xor_insert(&mut lt,bit);
+        }else{lt=mul_anf(&Anf::from([0,bit]),&lt)?;}
+    }
+    Some(lt)
+}
+fn core_hsl_fresh(ps:&mut PathSum)->Option<u32>{
+    if ps.v.next_id>=63{return None;}
+    Some(ps.v.get_fresh_var())
+}
+// A fixed ket or a fixed ket plus its complementary part in one
+// coordinate cube. Shared coordinates give exactly one support fibre.
+// Each signed numerator is a path multiplicity with phase 0 or pi.
+fn core_hsl_state(a:&AqState,n:usize,base:Vec<CoreBool>)->Option<CpsCore>{
+    if base.len()!=a.n||n>5||a.k>32{return None;}
+    let [first,rest @ ..]=a.terms.as_slice() else{return None;};
+    let AqPattern::Fixed(fixed)=first.pattern else{return None;};
+    let mut ps=PathSum::new(n);ps.set_auto_reduce(false);
+    ps.f=quprs::pathsum::BooleanState::new(a.n);ps.f.functions=base;
+    let mut equal=Anf::from([0]);
+    if let [second]=rest{
+        let AqPattern::Except{offset,width,excluded,outside}=second.pattern else{return None;};
+        if fixed!=outside|(excluded<<offset){return None;}
+        for i in offset..offset+width{
+            let v=core_hsl_fresh(&mut ps)?;
+            ps.f.functions[i].insert(vec![v]);
+            equal=mul_anf(&equal,&Anf::from([0,core_bit(v)?]))?;
+        }
+    }else if !rest.is_empty(){return None;}
+    let mag=a.terms.iter().map(|t|t.signed.unsigned_abs()).max()?;
+    if mag==0{return None;}
+    let r=(64-(mag-1).leading_zeros()) as usize;
+    let mut count=Vec::new();for _ in 0..r{count.push(core_hsl_fresh(&mut ps)?);}
+    let high=mul_anf(&equal,&core_hsl_lt(&count,first.signed.unsigned_abs())?)?;
+    let mut guard=high;let mut other=equal.clone();xor_insert(&mut other,0);
+    if let [second]=rest{
+        let low=mul_anf(&other,&core_hsl_lt(&count,second.signed.unsigned_abs())?)?;
+        for m in low{xor_insert(&mut guard,m);}
+    }
+    // A Boolean sign lifted at phase 1/2 is XOR, since 2*(1/2)=0 mod 1.
+    for (i,t) in a.terms.iter().enumerate(){
+        if t.signed<0{
+            let select=if i==0{&equal}else{&other};
+            for &m in select{
+                let mono=(0..63u32).filter(|&v|m&(1u64<<v)!=0).collect();
+                ps.p.add_term(mono,quprs::PhaseCoeff::HALF);
+            }
+        }
+    }
+    // Source normalization is canonical: if fewer coordinates than
+    // source k, add fixed paths; if more, add free paths to compensate.
+    let h=ps.v.path_vars.len().checked_sub(n)?;
+    for _ in 0..h.abs_diff(a.k){
+        let v=core_hsl_fresh(&mut ps)?;
+        if h<a.k{guard=mul_anf(&guard,&Anf::from([0,core_bit(v)?]))?;}
+    }
+    CpsCore::canonical(ps,guard)
+}
+fn core_hsl_lower(src:&str)->Option<CpsCore>{
+    let Some((prefix,domain))=src.trim_end().rsplit_once(" : ")else{
+        let a=aq_parse(src)?;
+        let AqPattern::Fixed(fixed)=a.terms.first()?.pattern else{return None;};
+        let base=(0..a.n).map(|i|if fixed>>i&1!=0{CoreBool::from_iter([vec![]])}else{CoreBool::default()}).collect();
+        return core_hsl_state(&a,0,base);
+    };
+    // Symbolic admitted outer binder: one unrestricted bit-vector,
+    // fixed ket template and optionally a disjoint complementary cube
+    // whose excluded value is the very same outer label.
+    let (label,wd)=domain.strip_suffix('}')?.strip_prefix('|')?.split_once("|=")?;
+    let n:usize=wd.parse().ok()?;
+    if label.len()!=1||!label.as_bytes()[0].is_ascii_lowercase()||n==0||n>5{return None;}
+    let (header,expr)=prefix.rsplit_once('\n')?;
+    let mut parts=expr.strip_prefix('{')?.split(" + ");
+    let (coef,ket)=parts.next()?.split_once(' ')?;
+    let fixed=ket.strip_prefix('|')?.strip_suffix('>')?;
+    let mut base=Vec::new();
+    for ch in fixed.chars(){
+        match ch{
+            '0'=>base.push(CoreBool::default()),
+            '1'=>base.push(CoreBool::from_iter([vec![]])),
+            c if c as u8==label.as_bytes()[0]&&c.is_ascii()=>{
+                for i in 0..n{base.push(CoreBool::from_iter([vec![i as u32]]));}
+            },
+            _=>return None,
+        }
+    }
+    if base.len()>16{return None;}
+    let zero="0".repeat(n);
+    let mut canonical=format!("{{{coef} |{}>",fixed.replace(label,&zero));
+    if let Some(part)=parts.next(){
+        let (coef2,rest)=part.split_once(" ∑ ")?;
+        let (binding,ket)=rest.split_once(" |")?;
+        let (decl,except)=binding.split_once(", ")?;
+        let (inner,width)=decl.strip_prefix('|')?.split_once("|=")?;
+        if inner.len()!=1||!inner.as_bytes()[0].is_ascii_lowercase()||inner==label||width.parse::<usize>().ok()?!=n||except!=format!("{inner}≠{label}"){return None;}
+        let (left,right)=ket.strip_suffix('>')?.split_once(inner)?;
+        if fixed!=format!("{left}{label}{right}")||right.contains(inner)||left.contains(inner){return None;}
+        // Validate one zero template with the existing parser. Syntactic
+        // certificate above proves every other column is a bit translation
+        // of this template, so support, multiplicity and norm are invariant.
+        canonical.push_str(&format!(" + {coef2} ∑ |{inner}|={n}, {inner}≠{zero} |{}{inner}{}>",left.replace(label,&zero),right.replace(label,&zero)));
+    }
+    if parts.next().is_some(){return None;}
+    canonical.push('}');
+    let a=aq_parse(&format!("{header}\n{canonical}"))?;
+    core_hsl_state(&a,n,base)
+}
+// The source oracle deliberately enumerates only in this independent
+// bounded test, never in the CPS builder. Compare full signed amplitudes,
+// not just support or normalization.
+fn core_hsl_check(src:&str)->CpsCore{
+    let c=core_hsl_lower(src).expect("direct CPS admission");
+    let (n,states)=aq_family(src).expect("independent admitted reference");
+    assert_eq!(c.n(),n);assert_eq!(states.len(),1usize<<n);
+    let actual=core_matrix(&c);
+    for (x,a) in states.iter().enumerate(){
+        assert_eq!(c.q(),a.n);
+        let d=c.k-i32::try_from(a.k).unwrap();
+        assert!(d>=0&&d%2==0);
+        for (z,row) in actual.iter().enumerate(){
+            let expected=a.terms.iter().filter(|t|aq_match(&t.pattern,z as u64)).map(|t|t.signed).sum::<i64>();
+            assert_eq!(row[x],[expected*(1i64<<(d/2)),0,0,0]);
+        }
+    }
+    c
+}
+#[test]
+fn hoare_cps_core_source_lowering(){
+    let root=std::path::PathBuf::from(std::env::var("CPS_CORE_SOURCE_DIR").unwrap());
+    let mut predicates=0;let mut columns=0;let mut entries=0;
+    for (case,pre,post,qasm) in AQ_SOURCES{
+        let folder=match case{"bv03"=>"BV","grover03"=>"Grover","mogrover03"=>"MOGrover",_=>unreachable!()};
+        let folder=root.join("benchmarks").join("all").join(folder).join("003");
+        for (file,embedded) in [("pre.hsl",pre),("post.hsl",post),("circuit.qasm",qasm)]{
+            assert_eq!(std::fs::read_to_string(folder.join(file)).unwrap(),embedded);
+        }
+        let a=core_hsl_check(pre);let b=core_hsl_check(post);
+        for c in [&a,&b]{
+            assert_eq!(c.k,(c.guard.ids.len()-c.n()) as i32);
+            predicates+=1;columns+=1usize<<c.n();entries+=(1usize<<c.n())*(1usize<<c.q());
+        }
+        println!("CPS_CORE_SOURCE case={case} free={} output={} pre_h={} post_h={} post_guard_terms={} materialized_columns=0",a.n(),a.q(),a.guard.ids.len()-a.n(),b.guard.ids.len()-b.n(),b.guard.extra.len());
+        if case=="bv03"{
+            let (ops,n)=quprs::qasm::parse_qasm_str_source_pinned(qasm).unwrap();
+            assert_eq!(ops,factor_source_ops(qasm,n));
+            let u=CpsCore::circuit(n,&ops).unwrap();
+            // A and B are genuine rectangular CPS, not square placeholders.
+            let v=a.then(&u).unwrap().then(&b.adjoint().unwrap()).unwrap();
+            assert_eq!((v.n(),v.q()),(0,0));
+            let target=core_norm_numerator(&v);
+            assert_eq!(target,(1i64<<v.k,0));
+            let mut residual=v.clone();let mut receipts=Vec::new();
+            for _ in 0..16{let Some((next,r))=residual.rr_step() else{break;};receipts.push(r);residual=next;}
+            assert!(!receipts.is_empty());core_rr_equal(&v,&residual);
+            assert!(v.replay_rr(&receipts).is_some());
+            // Mutated source, still normalized, distinct target; actual
+            // composition must have zero overlap, not a support shortcut.
+            let wrong=post.replace("|1011>","|0011>");
+            assert_ne!(wrong,post);
+            let bad=a.then(&u).unwrap().then(&core_hsl_lower(&wrong).unwrap().adjoint().unwrap()).unwrap();
+            assert_eq!(core_norm_numerator(&bad),(0,0));
+            println!("CPS_CORE_SOURCE_BV composition=PASS relative_target=REFUTED rr_steps={}",receipts.len());
+        }
+    }
+    let (_,_,post,_)=AQ_SOURCES[2];
+    assert!(core_hsl_lower(&post.replace("i≠s","i≠000")).is_none());
+    assert!(core_hsl_lower(&post.replace("|s|=3","|s|=6")).is_none());
+    assert!(core_hsl_lower(&post.replace("aH := 11","aH := 12")).is_none());
+    assert_eq!((predicates,columns,entries),(6,20,4192));
+    println!("CPS_CORE_SOURCE_SUMMARY predicates={predicates} oracle_columns={columns} oracle_entries={entries} rejection_controls=3 symbolic_families=2 bv_composition=PASS");
 }

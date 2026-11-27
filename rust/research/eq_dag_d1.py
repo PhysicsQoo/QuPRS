@@ -42,14 +42,19 @@ def main():
     ap.add_argument("binary",type=pathlib.Path)
     ap.add_argument("gpmc",type=pathlib.Path)
     ap.add_argument("output",type=pathlib.Path)
+    ap.add_argument("--manifest",type=pathlib.Path)
+    ap.add_argument("--hybrid-only",action="store_true")
+    ap.add_argument("--address-space-mib",type=int,default=0)
     args=ap.parse_args()
+    modes=("hybrid",) if args.hybrid_only else ("hybrid","wmc_only")
+    assert args.address_space_mib>=0
     binary, solver, out = (p.resolve() for p in (args.binary,args.gpmc,args.output))
     assert binary.is_file() and solver.is_file()
     out.mkdir(parents=True,exist_ok=False)
-    manifest_path=pathlib.Path(__file__).with_name("eq_dag_d1_manifest.json")
+    manifest_path=args.manifest or pathlib.Path(__file__).with_name("eq_dag_d1_manifest.json")
     manifest=json.loads(manifest_path.read_text())
     assert git("rev-parse",manifest["baseline"]+"^{tree}")==manifest["tree"]
-    (out/"provenance.json").write_text(json.dumps(dict(head=git("rev-parse","HEAD"),tree=git("rev-parse","HEAD^{tree}"),baseline=manifest["baseline"],manifest_sha256=sha(manifest_path),binary_sha256=sha(binary),gpmc_sha256=sha(solver)),indent=2))
+    (out/"provenance.json").write_text(json.dumps(dict(head=git("rev-parse","HEAD"),tree=git("rev-parse","HEAD^{tree}"),baseline=manifest["baseline"],manifest_sha256=sha(manifest_path),binary_sha256=sha(binary),gpmc_sha256=sha(solver),modes=modes,address_space_mib=args.address_space_mib),indent=2))
     # A unique wrapper destination per arm; use actual CNF bytes, then replace
     # wrapper with original executable so the existing solver supervision stays active.
     wrapper=out/"capture-gpmc.py"
@@ -60,13 +65,15 @@ def main():
         for side in ("left","right"):
             z=c[side]; assert git("hash-object",z["path"])==z["git_blob_sha1"],z
             if "sha256" in z: assert sha(z["path"])==z["sha256"],z
-        for mode in ("hybrid","wmc_only"):
+        for mode in modes:
             arm=out/(c["id"]+"-"+mode);arm.mkdir()
             cnf=arm/"actual.cnf";snap=arm/"residual.tsv"
             env=os.environ.copy()
             env.update(QUPRS_GPMC_PATH=str(wrapper), D1_GPMC=str(solver), D1_CNF=str(cnf))
             env.pop("QUPRS_KEEP_FAILED_CNF",None)
             cmd=["/usr/bin/time","-f","%M","-o",str(arm/"rss.txt"),"timeout","--kill-after=2s",str(c["timeout"]+10),str(binary),c["left"]["path"],c["right"]["path"],mode,c["strategy"],str(c["timeout"]),str(snap)]
+            if args.address_space_mib:
+                cmd=["prlimit",f"--as={args.address_space_mib*1024*1024}","--",*cmd]
             t=time.monotonic()
             proc=subprocess.run(cmd,env=env,capture_output=True,text=True,errors="replace")
             elapsed=time.monotonic()-t
@@ -85,13 +92,14 @@ def main():
             rows.append(row)
             with (out/"rows.jsonl").open("a") as f: f.write(json.dumps(row)+"\n")
             print("D1_ARM",json.dumps(row),flush=True)
-    summary=dict(arms=len(rows),expected_arms=2*len(manifest["cases"]),residual_receipts=sum(bool(r["residual_sha256"]) for r in rows),actual_cnf=sum(bool(r["cnf"]) for r in rows),hybrid_actual_cnf=sum(r["mode"]=="hybrid" and bool(r["cnf"]) for r in rows),hybrid_paired_residual_cnf=sum(r["mode"]=="hybrid" and bool(r["cnf"]) and bool(r["residual_sha256"]) for r in rows),expected_disagreements=sum(r["expected_disagreement"] for r in rows),status_counts={s:sum(r["status"]==s for r in rows) for s in sorted({r["status"] for r in rows})})
+    summary=dict(arms=len(rows),expected_arms=len(modes)*len(manifest["cases"]),residual_receipts=sum(bool(r["residual_sha256"]) for r in rows),actual_cnf=sum(bool(r["cnf"]) for r in rows),hybrid_actual_cnf=sum(r["mode"]=="hybrid" and bool(r["cnf"]) for r in rows),hybrid_paired_residual_cnf=sum(r["mode"]=="hybrid" and bool(r["cnf"]) and bool(r["residual_sha256"]) for r in rows),expected_disagreements=sum(r["expected_disagreement"] for r in rows),status_counts={s:sum(r["status"]==s for r in rows) for s in sorted({r["status"] for r in rows})})
     (out/"summary.json").write_text(json.dumps(summary,indent=2)+"\n")
     print("D1_SUMMARY",json.dumps(summary),flush=True)
     assert summary["arms"]==summary["expected_arms"]
     # A census is not a correctness or performance gate; retain failures,
     # and require actual production residual+CNF evidence to call it usable.
-    assert summary["hybrid_paired_residual_cnf"]>0
+    if not args.hybrid_only:
+        assert summary["hybrid_paired_residual_cnf"]>0
 
 if __name__=="__main__":
     main()

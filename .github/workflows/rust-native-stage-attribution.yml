@@ -8,6 +8,7 @@ on:
       - 'rust/quprs/examples/eq_dag_d1.rs'
       - 'rust/research/eq_dag_d1*'
       - 'rust/research/eq_dag_phase_screen.py'
+      - 'rust/research/eq_dag_d1d*'
       - '.github/workflows/rust-native-stage-attribution.yml'
 
 permissions:
@@ -113,7 +114,7 @@ jobs:
           retention-days: 30
 
   eq-dag-d1c:
-    if: github.ref == 'refs/heads/experiment/eq-dag-encoder'
+    if: github.ref == 'refs/heads/experiment/eq-dag-encoder' && github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
@@ -149,3 +150,54 @@ jobs:
           name: eq-dag-d1c-phase-screen
           path: eq-dag-d1c-evidence/
           retention-days: 30
+
+  eq-dag-d1d:
+    if: github.ref == 'refs/heads/experiment/eq-dag-encoder' && github.event_name == 'push'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: 'rust -> target'
+      - name: Install native dependencies
+        run: sudo apt-get update && sudo apt-get install -y cmake pkg-config libgmp-dev libmpfr-dev zlib1g-dev
+      - name: Restore pinned Ganak archive
+        uses: ./.github/actions/cache-ganak-release
+      - name: Build unchanged native EQ plus census example
+        run: cargo build --locked --release --manifest-path rust/Cargo.toml -p quprs --example eq_dag_d1
+      - name: Run source-pinned residual census (not performance benchmark)
+        run: |
+          set -euo pipefail
+          python -u rust/research/eq_dag_d1.py rust/target/release/examples/eq_dag_d1 src/QuPRS/utils/wmc_tools/gpmc eq-dag-d1d-evidence --manifest rust/research/eq_dag_d1d_manifest.json --hybrid-only --address-space-mib 4096 | tee eq-dag-d1d.log
+      - name: Screen matched residual cost without additional solver calls
+        run: |
+          git rev-parse HEAD > eq-dag-d1d-evidence/head.txt
+          git rev-parse 'HEAD^{tree}' > eq-dag-d1d-evidence/tree.txt
+          python3 -u rust/research/eq_dag_d1d_screen.py eq-dag-d1d-evidence rust/research/eq_dag_d1d_manifest.json eq-dag-d1d-evidence/phase_screen.json
+      - name: Seal evidence
+        if: always()
+        run: |
+          mkdir -p eq-dag-d1d-evidence
+          test ! -f eq-dag-d1d.log || cp eq-dag-d1d.log eq-dag-d1d-evidence/
+          git rev-parse HEAD > eq-dag-d1d-evidence/head.txt
+          git rev-parse 'HEAD^{tree}' > eq-dag-d1d-evidence/tree.txt
+          rustc --version > eq-dag-d1d-evidence/rust.txt
+          lscpu > eq-dag-d1d-evidence/cpu.txt
+          cd eq-dag-d1d-evidence
+          find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 -r sha256sum > SHA256SUMS
+          sha256sum -c SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: eq-dag-d1d-heldout-mqt
+          path: eq-dag-d1d-evidence/
+          retention-days: 30
+

@@ -1658,7 +1658,12 @@ fn hoare_cps_core_matched_worker(){
         let src=std::fs::read_to_string(dir.join("circuit.qasm")).ok()?;
         let t=std::time::Instant::now();
         stage="pre-lowering";let a=core_hsl_lower(&pre)?;
-        stage="post-lowering";let b=core_hsl_lower(&post)?;
+        stage="post-lowering";
+        let b=match std::env::var("CPS_CORE_SOURCE_VARIANT").as_deref(){
+            Err(std::env::VarError::NotPresent)|Ok("baseline")=>core_hsl_lower(&post)?,
+            Ok("selector")=>core_hsl_lower_with(&post,|a,n,b|core_hsl_state_factored_selector(a,n,b,true))?,
+            _=>return None,
+        };
         stage="qasm-parse";let (ops,n)=quprs::qasm::parse_qasm_str_source_pinned(&src).ok()?;
         if n!=a.q()||n!=b.q(){return None;}
         stage="native-gate-composition";let ua=match a.then_circuit_diagnostic(&ops){

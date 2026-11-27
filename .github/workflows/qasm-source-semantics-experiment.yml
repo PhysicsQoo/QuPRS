@@ -83,7 +83,11 @@ jobs:
       - name: Build and verify shared initial lowering
         run: |
           set -euo pipefail
-          cargo test --locked --manifest-path rust/Cargo.toml -p quprs --test property_hoare_experiment --no-run --message-format=json > evidence/build.jsonl
+          cargo test --locked --manifest-path rust/Cargo.toml -p quprs --test property_hoare_experiment --no-run --message-format=json > evidence/build.jsonl || {
+            status=$?
+            python3 -c 'import json,sys; [print(r["message"].get("rendered") or r["message"]["message"],file=sys.stderr) for r in map(json.loads,open("evidence/build.jsonl")) if r.get("reason")=="compiler-message" and r["message"].get("level")=="error"]' || true
+            exit "$status"
+          }
           python3 - <<'PY'
           import json,pathlib
           rows=[json.loads(l) for l in open("evidence/build.jsonl")]

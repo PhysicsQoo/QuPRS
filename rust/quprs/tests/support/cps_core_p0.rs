@@ -680,7 +680,7 @@ fn hoare_cps_core_guarded_rr(){
     G::H(0).apply(&mut ps,false);G::H(0).apply(&mut ps,false);
     let old=ps.f.functions[0].clone();
     ps.f=quprs::pathsum::BooleanState::new(2);
-    ps.f.functions[0]=old;ps.f.functions[1]=CoreBool::new();
+    ps.f.functions[0]=old;ps.f.functions[1]=CoreBool::default();
     let a=CpsCore::canonical(ps,Anf::from([0])).unwrap();
     let (next,r)=a.rr_step_shape().unwrap();
     assert_eq!((next.n(),next.q()),(1,2));

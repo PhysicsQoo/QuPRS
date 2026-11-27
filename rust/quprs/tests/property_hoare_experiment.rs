@@ -3,6 +3,8 @@
 //! No source-parser certification, production API or external solver claim.
 #[path="support/native_dyadic_cnf.rs"]
 mod native_dyadic_cnf;
+#[path="support/cps_guard_algebra.rs"]
+mod cps_guard_algebra;
 use quprs::{ir::QuantumOp as G, PathSum};
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -1272,16 +1274,8 @@ mod exact_property_cnf {
         Some((target,phi))
     }
     fn substitute_guard(g:&Anf,target:u32,repl:&Anf)->Option<Anf>{
-        let bit=1u64<<target;
-        if repl.iter().any(|m|m&bit!=0){return None;}
-        if g.len().checked_mul(repl.len().max(1))?>4096{return None;}
-        let mut next=Anf::new();
-        for &m in g{
-            if m&bit==0{xor_insert(&mut next,m);}
-            else{for &t in repl{xor_insert(&mut next,(m&!bit)|t);}}
-            if next.len()>256{return None;}
-        }
-        Some(next)
+        if target>=64{return None;}
+        cps_guard_algebra::guard_substitute(g,target,repl)
     }
     fn guarded_native_step(ps:&PathSum,n:usize,g:&NativeGuardFrame)->Option<GuardedStep>{
         guarded_native_step_shape(ps,n,n,g)
@@ -5264,10 +5258,7 @@ fn partition_export(dir:&std::path::Path){
     // Every replacement is valid only under the unchanged precondition.
     fn xor_insert(f:&mut Anf,m:u64){if !f.insert(m){f.remove(&m);}}
     fn mul_anf(a:&Anf,b:&Anf)->Option<Anf>{
-        if a.len().checked_mul(b.len())?>4096{return None;}
-        let mut out=Anf::new();
-        for &x in a{for &y in b{xor_insert(&mut out,x|y);}}
-        if out.len()>256{return None;}Some(out)
+        cps_guard_algebra::guard_mul(a,b)
     }
     fn lift_anf(a:&Anf)->Option<BTreeMap<u64,u8>>{
         let mut out=BTreeMap::new();

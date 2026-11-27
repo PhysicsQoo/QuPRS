@@ -1639,3 +1639,67 @@ fn hoare_cps_core_heldout_predicates(){
     assert_eq!(predicates,12);
     println!("CPS_HELDOUT_PREDICATE_SUMMARY predicates={predicates} comparisons={comparisons} source_counter_checks={checks}");
 }
+
+#[test]
+fn hoare_cps_shared_guard_algebra(){
+    use cps_guard_algebra::{SparseMono,SparseAnf,guard_mul,guard_substitute,sparse_guard_lit};
+    // All 16 ANFs over two variables; RHS substitutions use a disjoint
+    // target and an additional variable. Compare with independent truth
+    // evaluation, not just the two implementations' internal structure.
+    let ids=[0u32,63,128];
+    let lift=|p:&Anf|->SparseAnf{p.iter().map(|&m|
+        SparseMono::new((0..3).filter(|&i|m&(1u64<<i)!=0).map(|i|ids[i]).collect()).unwrap()
+    ).collect()};
+    let wide_eval=|p:&SparseAnf,x:u64|->bool{
+        p.iter().fold(false,|a,m|a^m.ids().iter().all(|id|
+            ids.iter().position(|v|v==id).is_some_and(|i|x&(1u64<<i)!=0)))
+    };
+    let mut checks=0usize;
+    for a in 0..16u64{for b in 0..16u64{
+        let p:Anf=(0..4u64).filter(|&m|a&(1u64<<m)!=0).collect();
+        let q:Anf=(0..4u64).filter(|&m|b&(1u64<<m)!=0).collect();
+        let qp:Anf=q.iter().map(|&m|m<<1).collect();
+        let prod=mul_anf(&p,&q).unwrap();
+        let wide=guard_mul(&lift(&p),&lift(&q)).unwrap();
+        assert_eq!(wide,lift(&prod));
+        let sub=substitute_guard(&p,0,&qp).unwrap();
+        let wide_sub=guard_substitute(&lift(&p),ids[0],&lift(&qp)).unwrap();
+        assert_eq!(wide_sub,lift(&sub));
+        for x in 0..8u64{
+            assert_eq!(eval(&prod,x),eval(&p,x)&&eval(&q,x));
+            assert_eq!(wide_eval(&wide,x),eval(&prod,x));
+            let y=(x&!1)|u64::from(eval(&qp,x));
+            assert_eq!(eval(&sub,x),eval(&p,y));
+            assert_eq!(wide_eval(&wide_sub,x),eval(&sub,x));checks+=2;
+        }
+    }}
+    assert_eq!(checks,4096);
+    assert!(SparseMono::new(vec![64,63]).is_none());
+    assert!(SparseMono::new(vec![63,63]).is_none());
+    assert!(guard_substitute(&lift(&Anf::from([1])),0,&lift(&Anf::from([1]))).is_none());
+    let big:Anf=(0..65u64).collect();
+    assert!(mul_anf(&big,&big).is_none());
+    let big_wide:SparseAnf=(0..65u32).map(|i|SparseMono::new(vec![i+64]).unwrap()).collect();
+    assert!(guard_mul(&big_wide,&big_wide).is_none());
+    // 67 primary variables, including sparse stable IDs above both
+    // machine-word boundaries. Fix only the three relevant variables.
+    // The 64 unconstrained primaries contribute exactly 2^64 extensions;
+    // all Tseitin auxiliaries must be uniquely determined.
+    let mut live:Vec<u32>=(0..66u32).collect();live.push(128);
+    let map:BTreeMap<u32,Lit>=live.iter().enumerate().map(|(i,&v)|(v,i as Lit+2)).collect();
+    let p=lift(&Anf::from([0,3,4,6]));
+    let mut c=Cnf::new(live.len());
+    let lit=sparse_guard_lit(&mut c,&p,&map).unwrap();
+    let mut fuel=1_000_000u64;
+    for x in 0..8u64{
+        let mut a:Vec<Lit>=ids.iter().enumerate().map(|(i,id)|if x&(1u64<<i)!=0{map[id]}else{-map[id]}).collect();
+        let v=wide_eval(&p,x);
+        a.push(if v{lit}else{-lit});
+        assert_eq!(count(&c,&a,&mut fuel,false),Some(1u128<<64));
+        *a.last_mut().unwrap()*=-1;
+        assert_eq!(count(&c,&a,&mut fuel,false),Some(0));
+    }
+    let missing=SparseAnf::from([SparseMono::new(vec![999]).unwrap()]);
+    assert!(sparse_guard_lit(&mut c,&missing,&map).is_none());
+    println!("CPS_SHARED_GUARD_ALGEBRA checks={checks} narrow_wide=PASS primary67=PASS unique_extension=PASS malformed_reject=PASS");
+}

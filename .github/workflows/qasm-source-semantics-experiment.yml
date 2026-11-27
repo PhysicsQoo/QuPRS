@@ -108,6 +108,8 @@ jobs:
           grep -F 'CPS_RR_PHASE_ADMISSION=PASS legacy512=PASS wide_non_growth=PASS' evidence/cps-core-rr.log
           grep -F 'CPS_RECTANGULAR_RR matrix=PASS replay=PASS dense_ids=PASS scale_mutant=REJECTED' evidence/cps-core-rr.log
           grep -F 'CPS_PREFIX_RR full_matrix=PASS replay=PASS insufficient=REJECTED' evidence/cps-core-rr.log
+          timeout 30s "$(cat evidence/property_hoare_experiment.path)" --exact exact_property_cnf::hoare_cps_shared_guard_algebra --nocapture | tee evidence/cps-shared-guard-algebra.log
+          grep -F 'CPS_SHARED_GUARD_ALGEBRA checks=4096 narrow_wide=PASS primary67=PASS unique_extension=PASS malformed_reject=PASS' evidence/cps-shared-guard-algebra.log
           timeout 30s "$(cat evidence/property_hoare_experiment.path)" --exact exact_property_cnf::hoare_cps_core_factored_guard --nocapture | tee evidence/cps-core-factored-guard.log
           grep -F 'CPS_CORE_FACTORED_GUARD matrix=PASS native_rr=PASS replay_mutant=REJECTED wmc_plan=PASS' evidence/cps-core-factored-guard.log
           CPS_CORE_WMC_DIR="$PWD/evidence/cps-core-wmc" timeout 60s "$(cat evidence/property_hoare_experiment.path)" --exact exact_property_cnf::hoare_cps_core_wmc_export --nocapture | tee evidence/cps-core-wmc-export.log

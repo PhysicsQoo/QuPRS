@@ -26,6 +26,7 @@ on:
       - rust/research/cpr_admission_a4b.py
       - rust/research/cpr_admission_a4c.py
       - rust/research/cpr_normalization_n1.py
+      - rust/research/cpr_reachability_n2.py
       - rust/research/cpr_admission_a4b_manifest.json
       - rust/quprs/tests/cpr_public_hybrid.rs
       - rust/research/conditional_rr_incidence.py
@@ -1342,7 +1343,7 @@ jobs:
           git rev-parse HEAD
           echo 'CRR_CORE_BRANCH_PREFLIGHT=PASS native_tests=NOT_RUN'
 
-  cpr-normalization-n1:
+  cpr-reachability-n2:
     if: github.ref == 'refs/heads/experiment/cost-aware-pathsum'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
@@ -1361,19 +1362,19 @@ jobs:
           key: cpr-c3-main
       - name: Install native prerequisites
         run: sudo apt-get update && sudo apt-get install -y cmake pkg-config libgmp-dev libmpfr-dev zlib1g-dev
-      - name: Exact native rewrite receipts and independent cyclotomic oracle
+      - name: Gate-reachable external HH and independent source matrix
         run: |
           set -euo pipefail
           mkdir -p evidence
           git rev-parse HEAD | tee evidence/source-head.txt
-          git diff --exit-code 2d97378f1d615069e1c5ab017bd9d1c6ad824c36 HEAD -- rust/quprs/src rust/quprs/examples rust/research/cpr_admission_a2.py rust/research/cpr_admission_a3.py rust/research/cpr_admission_a4.py rust/research/cpr_admission_a4c.py docs/development/paper-corpus-manifest.json
-          git diff 2d97378f1d615069e1c5ab017bd9d1c6ad824c36 HEAD -- rust/quprs/tests/support/conditional_stitch.rs rust/quprs/tests/support/conditional_trace.rs | tee evidence/n1-diff.patch
-          sha256sum rust/quprs/tests/support/conditional_stitch.rs rust/quprs/tests/support/conditional_trace.rs rust/research/cpr_normalization_n1.py rust/Cargo.lock > evidence/source-sha256.txt
-          cargo test --release --locked --manifest-path rust/Cargo.toml -p quprs --test conditional_rr_experiment conditional_stitch::cpr_normalization_receipts -- --exact --nocapture | tee evidence/native.log
-          python3 rust/research/cpr_normalization_n1.py evidence/native.log | tee evidence/oracle.log
+          git diff --exit-code a00a66be5c102ea7e69b33ccf9fda6da38f31ec2 HEAD -- rust/quprs/src rust/quprs/examples rust/quprs/tests/support/conditional_trace.rs rust/research/cpr_normalization_n1.py docs/development/paper-corpus-manifest.json
+          git diff a00a66be5c102ea7e69b33ccf9fda6da38f31ec2 HEAD -- rust/quprs/tests/support/conditional_stitch.rs | tee evidence/n2-diff.patch
+          sha256sum rust/quprs/tests/support/conditional_stitch.rs rust/quprs/tests/support/conditional_trace.rs rust/research/cpr_normalization_n1.py rust/research/cpr_reachability_n2.py rust/Cargo.lock > evidence/source-sha256.txt
+          cargo test --release --locked --manifest-path rust/Cargo.toml -p quprs --test conditional_rr_experiment conditional_stitch::cpr_reachable_external_hh_receipts -- --exact --nocapture | tee evidence/native.log
+          python3 rust/research/cpr_reachability_n2.py evidence/native.log | tee evidence/oracle.log
           find evidence -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > evidence/SHA256SUMS
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: cpr-normalization-n1
+          name: cpr-reachability-n2
           path: evidence/

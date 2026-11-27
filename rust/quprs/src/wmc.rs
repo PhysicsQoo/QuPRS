@@ -57,6 +57,10 @@ pub(crate) fn parse_count_line(line: &str) -> Result<Option<Complex<f64>>> {
     Ok(Some(Complex::new(parse_real_count(real)?, im)))
 }
 
+#[cfg(feature="high-precision-gpmc")]
+#[path="wmc_parity_experiment.rs"]
+mod parity_experiment;
+
 pub struct WmcManager {
     clauses: Vec<Vec<i32>>,
     weights: HashMap<i32, Complex<f64>>, 

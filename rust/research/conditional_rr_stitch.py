@@ -279,7 +279,29 @@ def ket_cohort():
     assert len(rows)==8
     print("CRR_KET_SUMMARY",json.dumps(dict(cases=rows,exact_reparameterizations=checked,source_semantics_certified=False,production=False)),flush=True)
 
+
+def default_rr_cohort():
+    manifest=json.loads((ROOT/"docs/development/paper-corpus-manifest.json").read_text())
+    cases={c["id"]:c for c in manifest["cohorts"]["table2_mqt"]["cases"]}
+    ids=("grover-noancilla_4","qwalk-noancilla_3","qwalk-noancilla_4","qpeexact_8","wstate_4","qnn_4","vqe_4","ghz_32")
+    rows=[]
+    for name in ids:
+        env=dict(os.environ,CRR_CASE=name)
+        for side,key in (("source","CRR_SOURCE"),("transpiled","CRR_TARGET")):
+            e=cases[name][side];p=ROOT/e["path"];data=p.read_bytes()
+            assert hashlib.sha1(("blob %d"%len(data)).encode()+b"\x00"+data).hexdigest()==e["git_blob_sha1"]
+            env[key]=str(p)
+            print("CRR_DEFAULT_SOURCE",name,side,hashlib.sha256(data).hexdigest(),flush=True)
+        cmd=["timeout","--kill-after=3s","40s","cargo","test","--release","--locked","--manifest-path","rust/Cargo.toml","-p","quprs","--test","conditional_rr_experiment","conditional_stitch::native_default_rr_baseline","--","--exact","--nocapture"]
+        r=subprocess.run(cmd,cwd=ROOT,env=env,capture_output=True,text=True)
+        print(r.stdout,flush=True);assert r.returncode==0,(name,r.returncode,r.stderr[-4000:])
+        rec=[json.loads(l.removeprefix("CRR_DEFAULT_RR ")) for l in r.stdout.splitlines() if l.startswith("CRR_DEFAULT_RR ")]
+        assert len(rec)==1 and rec[0]["case"]==name and rec[0]["tolerance"]==1e-10
+        rows.append({k:v for k,v in rec[0].items() if k!="ir"})
+    print("CRR_DEFAULT_SUMMARY",json.dumps(dict(cases=rows,source_semantics_certified=False,production_change=False)),flush=True)
+
 if __name__=="__main__":
-    if os.environ.get("CRR_KET_COHORT"):ket_cohort()
+    if os.environ.get("CRR_DEFAULT_RR"):default_rr_cohort()
+    elif os.environ.get("CRR_KET_COHORT"):ket_cohort()
     elif os.environ.get("CRR_ORIGINAL_COHORT"):cohort()
     else:main()

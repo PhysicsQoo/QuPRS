@@ -495,3 +495,21 @@ fn native_output_coordinate_cohort(){
     }
     println!("CRR_KET {{\"case\":\"{case}\",\"status\":\"complete\",\"native\":\"{}\",\"probes\":{probes},\"exposed\":{exposed},\"accepted\":{accepted},\"cap_reject\":{cap_reject},\"hidden_before\":{},\"hidden_after\":{after_h},\"incidence_before\":{},\"incidence_after\":{after_cost},\"rr_s\":{rr},\"scan_s\":{}}}",r.equivalent(),internal(p).len(),incidence(p),start.elapsed().as_secs_f64());
 }
+
+// Compare the already recorded exact-fixpoint cohort against the
+// existing per-request RR default. No new rule or tolerance change.
+#[test]
+fn native_default_rr_baseline(){
+    let case=std::env::var("CRR_CASE").expect("case");
+    let start=Instant::now();
+    let(a,n)=parse_qasm_str(&std::fs::read_to_string(std::env::var("CRR_SOURCE").unwrap()).unwrap()).unwrap();
+    let(b,m)=parse_qasm_str(&std::fs::read_to_string(std::env::var("CRR_TARGET").unwrap()).unwrap()).unwrap();
+    assert_eq!(n,m);let parse_s=start.elapsed().as_secs_f64();
+    let opts=VerificationOptions{method:VerificationMethod::ReductionRules,timeout_secs:20,..VerificationOptions::default()};
+    assert_eq!(opts.rr_tolerance,1e-10);
+    let start=Instant::now();
+    let r=check_equivalence_with_options(n,&a,&b,&opts).unwrap();
+    let rr_s=start.elapsed().as_secs_f64();let p=r.final_pathsum();
+    assert!(!r.solver_invoked);
+    println!("CRR_DEFAULT_RR {{\"case\":\"{case}\",\"native\":\"{}\",\"approximate\":{},\"hidden\":{},\"incidence\":{},\"terms\":{},\"parse_s\":{parse_s},\"rr_s\":{rr_s},\"tolerance\":{},\"ir\":{}}}",r.equivalent(),r.rr_approximate,internal(p).len(),incidence(p),terms(p),opts.rr_tolerance,ir(p,None));
+}

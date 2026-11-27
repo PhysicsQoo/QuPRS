@@ -521,8 +521,45 @@ def qpe24_reuse():
         assert len([l for l in r.stdout.splitlines() if l.startswith("CRR_FULL_CALL ")])==2
         assert len([l for l in r.stdout.splitlines() if l.startswith("CRR_FULL_COMPARE ")])==1
 
+
+def historical_closeout():
+    from conditional_rr_reference import run_case,locked
+    manifest=json.loads((ROOT/"docs/development/paper-corpus-manifest.json").read_text())
+    cases={c["id"]:c for c in manifest["cohorts"]["table2_mqt"]["cases"]}
+    neg={"qwalk-noancilla_4":"ab5cda304a5ddb76e10a957b87baa343513b1d9e","qwalk-noancilla_5":"d927ecd21bf3676069d90a3ad3bc4e7ee434a0de","qpeexact_24":"a3d3099816e51d98783176a1df64b077b92ab0b7"}
+    def inputs(name,variant):
+        c=cases[name]
+        target=c["transpiled"] if variant=="positive" else dict(path="benchmarks/MQTBench/Random_Rotation/"+Path(c["source"]["path"]).name,git_blob_sha1=neg[name])
+        paths=[]
+        for entry in (c["source"],target):
+            path=ROOT/entry["path"];data=path.read_bytes()
+            assert hashlib.sha1(f"blob {len(data)}\0".encode()+data).hexdigest()==entry["git_blob_sha1"]
+            print("CRR_CLOSEOUT_SOURCE",name,variant,entry["path"],hashlib.sha256(data).hexdigest(),flush=True);paths.append(path)
+        return paths
+    # Reuse the independent reference, verify QPE24 positive and historical
+    # random-rotation negative; same native RR/normalization, not source proof.
+    for variant in ("positive","random_rotation"):
+        a,b=inputs("qpeexact_24",variant)
+        r=run_case("qpeexact_24:"+variant,a,b,None)
+        print("CRR_QPE24_REFERENCE "+json.dumps(r),flush=True)
+        assert r["status"]!="ERROR"
+    # Locate native explosion without another unbounded complete miter.
+    for name in ("qwalk-noancilla_4","qwalk-noancilla_5"):
+        for variant in ("positive","random_rotation"):
+            a,b=inputs(name,variant)
+            for policy in ("strict","default"):
+                for schedule in ("difference","naive"):
+                    env=dict(os.environ,CRR_CASE=name,CRR_VARIANT=variant,CRR_SOURCE=str(a),CRR_TARGET=str(b),CRR_POLICY=policy,CRR_SCHEDULE=schedule)
+                    cmd=["timeout","--kill-after=2s","15s","cargo","test","--release","--locked","--manifest-path","rust/Cargo.toml","-p","quprs","--test","conditional_rr_experiment","conditional_stitch::native_growth_checkpoint","--","--exact","--nocapture"]
+                    r=subprocess.run(cmd,cwd=ROOT,env=env,capture_output=True,text=True)
+                    print("CRR_GROWTH_RUN",name,variant,policy,schedule,r.returncode,flush=True);print(r.stdout,flush=True)
+                    if r.returncode in (124,137):print("CRR_GROWTH_CENSORED",flush=True);continue
+                    assert r.returncode==0,(name,variant,policy,schedule,r.stderr[-4000:])
+                    assert sum(l.startswith(("CRR_GROWTH_STOP ","CRR_GROWTH_COMPLETE ")) for l in r.stdout.splitlines())==1
+
 if __name__=="__main__":
-    if os.environ.get("CRR_FRONTIER"):frontier_pilot()
+    if os.environ.get("CRR_HISTORICAL_CLOSEOUT"):historical_closeout()
+    elif os.environ.get("CRR_FRONTIER"):frontier_pilot()
     elif os.environ.get("CRR_QPE24_REUSE"):qpe24_reuse()
     elif os.environ.get("CRR_PIVOT"):pivot_pilot()
     elif os.environ.get("CRR_ROTATION"):rotation_pilot()

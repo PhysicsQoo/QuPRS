@@ -849,3 +849,70 @@ fn native_frontier_pilot(){
     if policy=="strict"{assert!(!p.rr_approximate);}
     println!("CRR_FRONTIER_RESULT {{\"case\":\"{case}\",\"variant\":\"{variant}\",\"arm\":\"{arm}\",\"policy\":\"{policy}\",\"mode\":\"{mode}\",\"native\":\"{}\",\"hidden\":{},\"terms\":{},\"incidence\":{},\"rr_approximate\":{},\"residual_rr_approximate\":{},\"solver_invoked\":{},\"rr_s\":{},\"dimacs_s\":{:?},\"solver_s\":{:?},\"total_s\":{}}}",r.equivalent(),internal(p).len(),terms(p),incidence(p),r.rr_approximate,p.rr_approximate,r.solver_invoked,r.pathsum_time,r.to_dimacs_time.unwrap_or(0.0),r.tool_time.unwrap_or(0.0),t.elapsed().as_secs_f64());
 }
+
+
+// Original online RR trajectory, stopped at the first bounded residual
+// blow-up. Diagnostic only: no partial miter is classified as EQ/NEQ.
+#[test]
+fn native_growth_checkpoint(){
+    use quprs::ir::QuantumOp::*;
+    use similar::{Algorithm,DiffOp};
+    let case=std::env::var("CRR_CASE").unwrap();
+    let variant=std::env::var("CRR_VARIANT").unwrap();
+    let policy=std::env::var("CRR_POLICY").unwrap();
+    let schedule=std::env::var("CRR_SCHEDULE").unwrap();
+    let(a,n)=parse_qasm_str(&std::fs::read_to_string(std::env::var("CRR_SOURCE").unwrap()).unwrap()).unwrap();
+    let(b,m)=parse_qasm_str(&std::fs::read_to_string(std::env::var("CRR_TARGET").unwrap()).unwrap()).unwrap();assert_eq!(n,m);
+    let mut order=Vec::new();
+    if schedule=="difference"{
+        for op in similar::capture_diff_slices(Algorithm::Myers,&a,&b){
+            match op{
+                DiffOp::Equal{old_index,new_index,len}=>for i in 0..len{order.push((false,old_index+i));order.push((true,new_index+i));},
+                DiffOp::Delete{old_index,old_len,..}=>for i in 0..old_len{order.push((false,old_index+i));},
+                DiffOp::Insert{new_index,new_len,..}=>for i in 0..new_len{order.push((true,new_index+i));},
+                DiffOp::Replace{old_index,old_len,new_index,new_len}=>{
+                    for i in 0..old_len{order.push((false,old_index+i));}
+                    for i in 0..new_len{order.push((true,new_index+i));}
+                }
+            }
+        }
+    }else{
+        assert_eq!(schedule,"naive");
+        for i in 0..a.len().max(b.len()){
+            if i<a.len(){order.push((false,i));}
+            if i<b.len(){order.push((true,i));}
+        }
+    }
+    let mut ps=PathSum::quantum_circuit(&[quprs::pathsum::Register::new("q",n)],None);
+    ps.rr_tolerance=if policy=="strict"{0.0}else{1e-10};
+    let start=Instant::now();
+    let mut peak=0;let mut done=0;let mut ka=0;let mut kb=0;
+    for (bra,i) in order.iter().copied(){
+        let op=if bra{&b[i]}else{&a[i]};
+        let before=terms(&ps);let h=internal(&ps).len();
+        let t=Instant::now();
+        // Log first risky step before applying it; preserve evidence if
+        // an individual native gate exceeds the external watchdog.
+        if before>=1024||done%32==0{
+            println!("CRR_GROWTH_BEGIN step={done} ket={ka} bra={kb} side_bra={bra} index={i} terms={before} hidden={h} gate={op:?}");
+        }
+        op.apply(&mut ps,bra);
+        done+=1;if bra{kb+=1;}else{ka+=1;}
+        let after=terms(&ps);peak=peak.max(after);
+        if after>=1024||done%32==0||t.elapsed().as_millis()>20{
+            let degree=ps.p.terms.keys().map(|m|m.len()).max().unwrap_or(0);
+            let out_terms=ps.f.functions.iter().map(|f|f.len()).sum::<usize>();
+            println!("CRR_GROWTH_STEP step={done} ket={ka} bra={kb} hidden={} terms={after} phase_terms={} output_terms={out_terms} max_degree={degree} before={before} elapsed_s={} rule_successes={} rr_approximate={}",internal(&ps).len(),ps.p.terms.len(),t.elapsed().as_secs_f64(),ps.stats.total_successes(),ps.rr_approximate);
+        }
+        if after>TERM_CAP{
+            println!("CRR_GROWTH_STOP reason=term_cap step={done} total={} ket={ka} bra={kb} hidden={} terms={after} peak={peak} elapsed_s={}",order.len(),internal(&ps).len(),start.elapsed().as_secs_f64());
+            return;
+        }
+    }
+    ps.full_reduce();
+    let opts=VerificationOptions{method:VerificationMethod::ReductionRules,rr_tolerance:ps.rr_tolerance,timeout_secs:15,
+        strategy:if schedule=="difference"{quprs::VerificationStrategy::Difference}else{quprs::VerificationStrategy::Naive},..VerificationOptions::default()};
+    let original=check_equivalence_with_options(n,&a,&b,&opts).unwrap();
+    assert_eq!(ir(&ps,None),ir(original.final_pathsum(),None),"checkpoint replay drift");
+    println!("CRR_GROWTH_COMPLETE case={case} variant={variant} policy={policy} schedule={schedule} step={done} hidden={} terms={} incidence={} peak={peak} native={} elapsed_s={}",internal(&ps).len(),terms(&ps),incidence(&ps),original.equivalent(),start.elapsed().as_secs_f64());
+}

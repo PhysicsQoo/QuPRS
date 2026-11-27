@@ -882,7 +882,7 @@ jobs:
     env:
       QUPRS_SOLVER_PROVISION: external
       CARGO_TERM_COLOR: never
-      CRR_PERF_STAGE: frontier
+      CRR_PERF_STAGE: historical_closeout
     steps:
       - uses: actions/checkout@v4
         with:
@@ -894,6 +894,23 @@ jobs:
           key: conditional-rr-incidence
       - name: Install native prerequisites
         run: sudo apt-get update && sudo apt-get install -y cmake pkg-config libgmp-dev libmpfr-dev zlib1g-dev
+      - name: Close historical timeout source and residual evidence
+        if: env.CRR_PERF_STAGE == 'historical_closeout'
+        run: |
+          set -euo pipefail
+          mkdir -p evidence
+          git rev-parse HEAD | tee evidence/source-head.txt
+          sha256sum rust/research/conditional_rr_source_ball.py rust/research/conditional_rr_reference.py rust/research/conditional_rr_stitch.py rust/quprs/tests/support/conditional_stitch.rs docs/development/paper-corpus-manifest.json > evidence/historical-closeout-sha256.txt
+          tmp="$(mktemp -d)"
+          trap 'rm -rf "$tmp"' EXIT
+          python3 scripts/install_gpmc_release.py --dest "$tmp/gpmc" | tee evidence/conditional-gpmc-release.json
+          sha256sum "$tmp/gpmc" | tee evidence/conditional-gpmc-sha256.txt
+          python3 -m venv "$tmp/reference-venv"
+          "$tmp/reference-venv/bin/pip" install --disable-pip-version-check mpmath==1.3.0 python-flint==0.9.0
+          "$tmp/reference-venv/bin/pip" freeze | tee evidence/reference-pip.txt
+          cargo test --release --locked --manifest-path rust/Cargo.toml -p quprs --test conditional_rr_experiment --no-run
+          CRR_HISTORICAL_CLOSEOUT=1 QUPRS_GPMC_PATH="$tmp/gpmc" timeout --kill-after=5s 420s "$tmp/reference-venv/bin/python" rust/research/conditional_rr_stitch.py 2>&1 | tee evidence/historical-closeout.jsonl
+          timeout --kill-after=5s 400s "$tmp/reference-venv/bin/python" rust/research/conditional_rr_source_ball.py 2>&1 | tee evidence/historical-source-ball.jsonl
       - name: Run source-locked frontier and historical timeout diagnostics
         if: env.CRR_PERF_STAGE == 'frontier'
         run: |
@@ -977,7 +994,7 @@ jobs:
           cargo test --locked --manifest-path rust/Cargo.toml -p quprs --test conditional_rr_experiment --no-run
           timeout --kill-after=5s 240s python3 rust/research/conditional_rr_stitch.py 2>&1 | tee evidence/conditional-stitch.jsonl
       - name: Build and run bounded exact controls
-        if: env.CRR_PERF_STAGE != 'mixed_stitch' && env.CRR_PERF_STAGE != 'direct_mixed' && env.CRR_PERF_STAGE != 'original_cohort' && env.CRR_PERF_STAGE != 'ket_cohort' && env.CRR_PERF_STAGE != 'default_rr' && env.CRR_PERF_STAGE != 'walsh_hh' && env.CRR_PERF_STAGE != 'cost_pivot' && env.CRR_PERF_STAGE != 'frontier'
+        if: env.CRR_PERF_STAGE != 'mixed_stitch' && env.CRR_PERF_STAGE != 'direct_mixed' && env.CRR_PERF_STAGE != 'original_cohort' && env.CRR_PERF_STAGE != 'ket_cohort' && env.CRR_PERF_STAGE != 'default_rr' && env.CRR_PERF_STAGE != 'walsh_hh' && env.CRR_PERF_STAGE != 'cost_pivot' && env.CRR_PERF_STAGE != 'frontier' && env.CRR_PERF_STAGE != 'historical_closeout'
         run: |
           set -euo pipefail
           mkdir -p evidence
@@ -986,7 +1003,7 @@ jobs:
           sha256sum rust/quprs/tests/conditional_rr_experiment.rs rust/quprs/tests/support/conditional_trace.rs rust/research/conditional_rr_incidence.py docs/development/paper-corpus-manifest.json > evidence/source-sha256.txt
           CRR_GATE_DIR="$PWD/evidence/portable-gates" cargo test --locked --manifest-path rust/Cargo.toml -p quprs --test conditional_rr_experiment exact_ -- --nocapture 2>&1 | tee evidence/conditional-controls.log
       - name: Profile source-locked original EQ pairs
-        if: env.CRR_PERF_STAGE != 'mixed_stitch' && env.CRR_PERF_STAGE != 'direct_mixed' && env.CRR_PERF_STAGE != 'original_cohort' && env.CRR_PERF_STAGE != 'ket_cohort' && env.CRR_PERF_STAGE != 'default_rr' && env.CRR_PERF_STAGE != 'walsh_hh' && env.CRR_PERF_STAGE != 'cost_pivot' && env.CRR_PERF_STAGE != 'frontier'
+        if: env.CRR_PERF_STAGE != 'mixed_stitch' && env.CRR_PERF_STAGE != 'direct_mixed' && env.CRR_PERF_STAGE != 'original_cohort' && env.CRR_PERF_STAGE != 'ket_cohort' && env.CRR_PERF_STAGE != 'default_rr' && env.CRR_PERF_STAGE != 'walsh_hh' && env.CRR_PERF_STAGE != 'cost_pivot' && env.CRR_PERF_STAGE != 'frontier' && env.CRR_PERF_STAGE != 'historical_closeout'
         run: |
           set -euo pipefail
           tmp="$(mktemp -d)"

@@ -9,7 +9,7 @@ on:
       suite:
         description: Bounded Frontier admission suite
         type: choice
-        options: [frontier-release-quality, frontier-vqe16-gpmc-scout, v020-cross-family-scout, v020-pinned-integration, v020-planner-diagnosis, v020-width-transfer]
+        options: [frontier-release-quality, frontier-vqe16-gpmc-scout, v020-cross-family-scout, v020-pinned-integration, v020-planner-diagnosis, v020-width-transfer, v020-rust-integration]
         default: frontier-release-quality
 permissions:
   contents: read
@@ -787,7 +787,7 @@ jobs:
           if-no-files-found: warn
 
   v020-width-transfer:
-    if: github.event_name == 'push' || inputs.suite == 'v020-width-transfer'
+    if: github.event_name == 'workflow_dispatch' && inputs.suite == 'v020-width-transfer'
     name: v0.2.0 structural cutset transfer / ${{ matrix.case }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
@@ -1000,5 +1000,126 @@ jobs:
         with:
           name: rawmocs-v020-width-${{ matrix.case }}
           path: .v020-plan-evidence/
+          include-hidden-files: true
+          if-no-files-found: warn
+
+
+  v020-rust-integration:
+    if: github.event_name == 'push' || inputs.suite == 'v020-rust-integration'
+    name: v0.2.0 pinned Rust FFI integration
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      QUPRS_SOLVER_PROVISION: external
+      PYTHONHASHSEED: '0'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fc739c7e17512c6d2d13e52bd479fc372d68be03
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: PhysicsQoo/RaWMoCS
+          ref: 0b8538be510718e7c8d79a79875681628b73f9be
+          path: .rawmocs-candidate
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: PhysicsQoo/RaWMoCS
+          ref: b3d02b2720c2fae5231c0ed5cf44950164a5780d
+          path: .rawmocs-baseline
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: PhysicsQoo/GPMC
+          ref: 89bbc89d0de918e7a5385740355df55765039230
+          path: .gpmc
+          submodules: recursive
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            rust -> target
+            .rawmocs-candidate/crates/rawmocs-cli -> target
+            .rawmocs-baseline/crates/rawmocs-cli -> target
+          cache-workspace-crates: 'false'
+      - name: Build pinned external binaries and installed Rust extension
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = fc739c7e17512c6d2d13e52bd479fc372d68be03
+          test "$(git -C .rawmocs-candidate rev-parse HEAD)" = 0b8538be510718e7c8d79a79875681628b73f9be
+          test "$(git -C .rawmocs-baseline rev-parse HEAD)" = b3d02b2720c2fae5231c0ed5cf44950164a5780d
+          test "$(git -C .gpmc rev-parse HEAD)" = 89bbc89d0de918e7a5385740355df55765039230
+          sudo apt-get -o Dir::Etc::sourcelist=/etc/apt/sources.list.d/ubuntu.sources -o Dir::Etc::sourceparts=- -o APT::Get::List-Cleanup=0 update
+          sudo apt-get -o Dir::Etc::sourcelist=/etc/apt/sources.list.d/ubuntu.sources -o Dir::Etc::sourceparts=- install -y --no-install-recommends cmake ninja-build libgmp-dev libmpfr-dev zlib1g-dev m4 make gcc pkg-config
+          mkdir -p .v020-rust-evidence/bin .v020-rust-evidence/wheels
+          for repo in .rawmocs-candidate .rawmocs-baseline; do
+            cargo build --locked --release --manifest-path "$repo/crates/rawmocs-cli/Cargo.toml"
+          done
+          cmake -S .gpmc -B .gpmc/build -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake --build .gpmc/build --target gpmc-bin --parallel 2
+          python -m pip install 'maturin>=1.5,<2' 'qiskit==2.6.1'
+          maturin build --release --locked --interpreter python --out .v020-rust-evidence/wheels
+          python -m pip install .v020-rust-evidence/wheels/*.whl
+          python -m pip check
+          python -m pip freeze > .v020-rust-evidence/dependencies.txt
+          sha256sum .rawmocs-{candidate,baseline}/crates/rawmocs-cli/target/release/rawmocs .gpmc/build/gpmc .v020-rust-evidence/wheels/*.whl > .v020-rust-evidence/binaries.sha256
+          cat > .v020-rust-evidence/bin/frontier <<'SH'
+          #!/bin/sh
+          set -eu
+          [ "$#" -eq 5 ] && [ "$1" = --digits ] && [ "$3" = --timeout-ms ] || exit 2
+          exec "$(dirname "$0")/../../.rawmocs-candidate/crates/rawmocs-cli/target/release/rawmocs" "$1" "$2" "$3" "$4" --solver auto-frontier "$5"
+          SH
+          chmod 700 .v020-rust-evidence/bin/frontier
+          sh -n .v020-rust-evidence/bin/frontier
+          printf 'p cnf 1 0\nc t wmc\nc p weight 1 -1 0 0\n' > .v020-rust-evidence/control.cnf
+          .rawmocs-candidate/crates/rawmocs-cli/target/release/rawmocs --digits 30 --timeout-ms 1000 --solver auto-frontier .v020-rust-evidence/control.cnf > .v020-rust-evidence/direct.stdout
+          .v020-rust-evidence/bin/frontier --digits 30 --timeout-ms 1000 .v020-rust-evidence/control.cnf > .v020-rust-evidence/wrapper.stdout
+          cmp .v020-rust-evidence/direct.stdout .v020-rust-evidence/wrapper.stdout
+      - name: Run existing public Rust API and fail-closed controls for three configurations
+        env:
+          PYTHONPATH: ${{ github.workspace }}:${{ github.workspace }}/research/rawmocs_integration:${{ github.workspace }}/.rawmocs-candidate/crates/rawmocs-cli/tools
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import hashlib,json
+          from pathlib import Path
+          import QuPRS._pathsum_rust as ffi
+          import native_acceptance as a
+          root=Path(".v020-rust-evidence").resolve()
+          ext=Path(ffi.__file__).resolve()
+          assert ext.is_file() and ext.suffix==".so",ext
+          assert Path.cwd().resolve() not in ext.parents,ext
+          a.GPMC=Path(".gpmc/build/gpmc").resolve()
+          arms={k:Path(".rawmocs-"+k+"/crates/rawmocs-cli/target/release/rawmocs").resolve() for k in ("baseline","candidate")}
+          arms["frontier"]=root/"bin"/"frontier"
+          report={"status":"IN_PROGRESS","ffi_path":str(ext),"ffi_sha256":hashlib.sha256(ext.read_bytes()).hexdigest(),"rows":{}}
+          def save():(root/"report.json").write_text(json.dumps(report,indent=2)+"\n")
+          save()
+          for arm,binary in arms.items():
+              a.ROOT=root/arm
+              a.ROOT.mkdir()
+              a.RAW=binary
+              a.api()
+              r=json.loads((a.ROOT/"public-api.json").read_text())
+              assert r["status"]=="PASS" and len(r["rows"])==22,r
+              report["rows"][arm]=r["rows"];save()
+          def signature(rows):
+              return [(r.get("safe_mode"),r.get("case"),r.get("solver"),r.get("verdict"),r.get("invoked"),r.get("fault"),r.get("status")) for r in rows]
+          assert signature(report["rows"]["baseline"])==signature(report["rows"]["candidate"])==signature(report["rows"]["frontier"])
+          report["status"]="V020_RUST_FFI_PASS";save()
+          print("V020_RUST_FFI_PASS",json.dumps({k:len(v) for k,v in report["rows"].items()}),flush=True)
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: rawmocs-v020-rust-integration
+          path: |
+            .v020-rust-evidence/
+            !.v020-rust-evidence/wheels/
           include-hidden-files: true
           if-no-files-found: warn

@@ -887,6 +887,28 @@ pub(super) fn native_growth_checkpoint(){
     }
     let mut ps=PathSum::quantum_circuit(&[quprs::pathsum::Register::new("q",n)],None);
     ps.rr_tolerance=if policy=="strict"{0.0}else{1e-10};
+    // A1 is a diagnostic-only worker. Each arm receives the same source-locked
+    // native prefix; no solver or production decision is made.
+    if let Ok(probe)=std::env::var("CPR_ADMISSION_PROBE"){
+        assert_eq!(policy,"strict");assert_eq!(schedule,"difference");
+        assert!(matches!(probe.as_str(),"native"|"lifted"|"inverse"));
+        for (done,(bra,i)) in order.iter().copied().enumerate(){
+            if whole.elapsed().as_secs_f64()>15.0{
+                println!("CPR_A1_STOP arm={probe} reason=prefix_deadline step={done}");return;
+            }
+            let op=if bra{&b[i]}else{&a[i]};
+            if generic_lift_trigger(op,&ps,bra){
+                cpr_admission_probe(&ps,op,bra,done,i,&probe,whole);return;
+            }
+            op.apply(&mut ps,bra);
+            if terms(&ps)>TERM_CAP{
+                println!("CPR_A1_STOP arm={probe} reason=prefix_cap step={done}");return;
+            }
+        }
+        ps.full_reduce();
+        println!("CPR_A1_NO_TRIGGER arm={probe} steps={} state_sha={} terms={} live={} elapsed_s={}",order.len(),cpr_admission_hash(&ps),terms(&ps),ps.v.path_vars.len(),whole.elapsed().as_secs_f64());
+        return;
+    }
     // Acceptance-only hot path: identical scheduling, trigger, gate apply,
     // term cap and wall cap; no observer allocations/formatting per gate.
     // Frozen arm and historical diagnostic entry retain their exact loop.
@@ -1254,6 +1276,68 @@ fn lift_input_bra_cx_roundtrip(){
 
 // Source-independent entry trigger. Preserve the original RR before
 // the first predicted costly operation; no QWalk-specific coordinate.
+// Exact canonical state digest: admitted only for strict numeric residuals.
+// ir() includes sorted live domain, rational/decimal phase and ANF outputs.
+fn cpr_admission_hash(ps:&PathSum)->String{
+    use sha2::{Digest,Sha256};
+    assert_eq!(ps.rr_tolerance,0.0);
+    assert!(!ps.rr_approximate&&ps.v.continuous_vars.is_empty());
+    assert!(ps.p.terms.values().all(|c|c.symbols.is_empty()));
+    format!("{:x}",Sha256::digest(ir(ps,None).as_bytes()))
+}
+fn cpr_admission_probe(before:&PathSum,op:&quprs::ir::QuantumOp,bra:bool,step:usize,index:usize,arm:&str,whole:Instant){
+    use quprs::ir::QuantumOp::*;
+    // Deliberately restricted to the observed first-trigger gate classes.
+    // Unsupported triggers are recorded, never assigned a cost label.
+    let (q,s,d,w,p,f,bound,kind)=match (bra,op){
+        (false,RZ(q,a))|(false,P(q,a))|(false,U1(q,a))=>{
+            let s=before.f.functions[*q].len();
+            let d=coeff_order(&(a.clone()/2).to_phase_coeff(),s);
+            (*q,s,d,expansion_bound(s,d,1_000_000),0,0,0,"ket_phase")
+        },
+        (true,CX(_,q))=>{
+            let x=*q as u32;
+            let p=before.p.terms.keys().filter(|m|m.contains(&x)).count();
+            let f=before.f.functions.iter().flatten().filter(|m|m.contains(&x)).count();
+            (*q,before.f.functions[*q].len(),0,0,p,f,terms(before).saturating_add(2*p+f),"bra_cx")
+        },
+        _=>{println!("CPR_A1_STOP arm={arm} reason=unsupported_trigger step={step}");return;}
+    };
+    println!("CPR_A1_CHECKPOINT arm={arm} step={step} index={index} kind={kind} q={q} s={s} d={d} work={w} p_inc={p} f_inc={f} bra_bound={bound} terms={} phase={} incidence={} live={} state_sha={} prefix_s={}",
+        terms(before),before.p.terms.len(),incidence(before),before.v.path_vars.len(),cpr_admission_hash(before),whole.elapsed().as_secs_f64());
+    let mut ps=before.clone();
+    ps.set_auto_reduce(false);
+    let t=Instant::now();
+    let pair=if arm=="native"{None}else if bra{Some(lift_input(&mut ps,q as u32))}else{Some(lift_output(&mut ps,q))};
+    let lift_s=t.elapsed().as_secs_f64();
+    let t=Instant::now();op.apply(&mut ps,bra);let apply_s=t.elapsed().as_secs_f64();
+    let raw_terms=terms(&ps);
+    let raw_live=ps.v.path_vars.len();
+    let added=ps.p.terms.keys().filter(|m|!before.p.terms.contains_key(*m)).count();
+    let removed=before.p.terms.keys().filter(|m|!ps.p.terms.contains_key(*m)).count();
+    let changed=ps.p.terms.iter().filter(|(m,c)|before.p.terms.get(*m).is_some_and(|old|old!=*c)).count();
+    println!("CPR_A1_RAW arm={arm} terms={raw_terms} phase={} incidence={} live={raw_live} phase_added={added} phase_removed={removed} phase_changed={changed} lift_s={lift_s} apply_s={apply_s} state_sha={} within_term_cap={}",
+        ps.p.terms.len(),incidence(&ps),cpr_admission_hash(&ps),raw_terms<=TERM_CAP);
+    if arm=="inverse"{
+        // Separate proof arm: does not contaminate native/lifted timed RR.
+        let (u,z)=pair.unwrap();let t=Instant::now();
+        let ok=ps.get_reducible_vars().contains(&z)&&ps.try_reduce_hh(&[z]);
+        let elapsed=t.elapsed().as_secs_f64();
+        let removed_pair=!ps.v.path_vars.contains(&u)&&!ps.v.path_vars.contains(&z);
+        println!("CPR_A1_INVERSE arm={arm} hh={ok} removed_pair={removed_pair} live={} terms={} state_sha={} inverse_s={elapsed}",ps.v.path_vars.len(),terms(&ps),cpr_admission_hash(&ps));
+        return;
+    }
+    // Observe the post-gate canonical size even if it violates the cap;
+    // do not enter unbounded RR on a cap-violating residual.
+    if raw_terms>TERM_CAP||whole.elapsed().as_secs_f64()>15.0{
+        println!("CPR_A1_STOP arm={arm} reason=post_gate_budget");return;
+    }
+    ps.set_auto_reduce(true);
+    let t=Instant::now();let old=ps.stats.total_successes();
+    ps.full_reduce();let rr_s=t.elapsed().as_secs_f64();
+    println!("CPR_A1_RR arm={arm} terms={} phase={} incidence={} live={} rr_successes={} rr_s={rr_s} within_term_cap={} state_sha={}",
+        terms(&ps),ps.p.terms.len(),incidence(&ps),ps.v.path_vars.len(),ps.stats.total_successes()-old,terms(&ps)<=TERM_CAP,cpr_admission_hash(&ps));
+}
 fn generic_lift_trigger(op:&quprs::ir::QuantumOp,ps:&PathSum,bra:bool)->bool{
     if !bra{
         return phase_gate_bound(op,ps).is_some_and(|(q,w)|w>2048&&w>8*(ps.f.functions[q].len()+2));

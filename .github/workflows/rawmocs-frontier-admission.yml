@@ -9,7 +9,7 @@ on:
       suite:
         description: Bounded Frontier admission suite
         type: choice
-        options: [frontier-release-quality, frontier-vqe16-gpmc-scout, v020-cross-family-scout, v020-pinned-integration, v020-planner-diagnosis, v020-width-transfer, v020-rust-integration, v020-final-admission, v020-frontier-holdout]
+        options: [frontier-release-quality, frontier-vqe16-gpmc-scout, v020-cross-family-scout, v020-pinned-integration, v020-planner-diagnosis, v020-width-transfer, v020-rust-integration, v020-final-admission, v020-frontier-holdout, v020-shared-contraction]
         default: frontier-release-quality
 permissions:
   contents: read
@@ -1331,7 +1331,7 @@ jobs:
           if-no-files-found: warn
 
   v020-frontier-holdout:
-    if: github.event_name == 'push' || inputs.suite == 'v020-frontier-holdout'
+    if: github.event_name == 'workflow_dispatch' && inputs.suite == 'v020-frontier-holdout'
     name: v0.2.0 source-locked Frontier holdout / ${{ matrix.case }}
     runs-on: ubuntu-24.04
     timeout-minutes: 15
@@ -1574,5 +1574,207 @@ jobs:
         with:
           name: rawmocs-v020-holdout-${{ matrix.case }}
           path: .frontier-positive-evidence/
+          include-hidden-files: true
+          if-no-files-found: warn
+
+  v020-shared-contraction:
+    if: github.event_name == 'push' || inputs.suite == 'v020-shared-contraction'
+    name: v0.2.0 fixed-cut contraction reuse / ${{ matrix.case }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - case: vqe16_native
+            artifact: 15166930703
+            zip_sha: e535f1659836d6316eb1d20e2df2df74b810184d76ba67931e66e5599d1305c1
+            cnf_sha: 5683d3d2780614cb23526a7c14644e7b52d710a994de8a6d9d81b1b2097bc624
+          - case: qnn12_native
+            artifact: 15166063610
+            zip_sha: 6bb36c83a575ec45779d6fb8b9c384fe59d1684dad0fe3877f60597c5392d7bd
+            cnf_sha: 7c8841e0cf9c1c3f8b8b366750311aa9f630639f5f4446921aa1917fb55f3703
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: PhysicsQoo/RaWMoCS
+          ref: 0b8538be510718e7c8d79a79875681628b73f9be
+          path: .plan-candidate
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: .plan-candidate/crates/rawmocs-cli -> target
+          shared-key: rawmocs-general-dependencies
+          cache-workspace-crates: 'false'
+      - name: Verify original candidate and recover immutable CNF
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT: ${{ matrix.artifact }}
+          ZIP_SHA: ${{ matrix.zip_sha }}
+          CNF_SHA: ${{ matrix.cnf_sha }}
+        run: |
+          set -euo pipefail
+          test "$(git -C .plan-candidate rev-parse HEAD)" = 0b8538be510718e7c8d79a79875681628b73f9be
+          mkdir -p .v020-plan-evidence .v020-plan-input
+          zip="$RUNNER_TEMP/plan-input.zip"
+          gh api "repos/PhysicsQoo/QuPRS/actions/artifacts/$ARTIFACT/zip" > "$zip"
+          echo "$ZIP_SHA  $zip" | sha256sum -c -
+          unzip -q "$zip" -d .v020-plan-input
+          sudo apt-get -o Dir::Etc::sourcelist=/etc/apt/sources.list.d/ubuntu.sources -o Dir::Etc::sourceparts=- -o APT::Get::List-Cleanup=0 update
+          sudo apt-get -o Dir::Etc::sourcelist=/etc/apt/sources.list.d/ubuntu.sources -o Dir::Etc::sourceparts=- install -y --no-install-recommends libgmp-dev libmpfr-dev m4 make gcc pkg-config
+          python3 - <<'PY'
+          import hashlib,json,os
+          from pathlib import Path
+          root=Path(".v020-plan-input")
+          cnf,=root.rglob("*-gpmc.cnf")
+          report,=root.rglob("report.json")
+          r=json.loads(report.read_text())
+          assert r["rawmocs_sha"]=="0b8538be510718e7c8d79a79875681628b73f9be"
+          assert r["status"]=="FRONTIER_NOT_COMPLETE" and r["rows"]["frontier"]["fallback_reasons"]==["no bounded prejoin plan"]
+          assert hashlib.sha256(cnf.read_bytes()).hexdigest()==r["cnf_sha256"]==os.environ["CNF_SHA"]
+          Path(".v020-plan-evidence/input.json").write_text(json.dumps({"cnf":str(cnf.resolve()),"source_sha256":r["cnf_sha256"],"prior":r["rows"]["frontier"],"artifact":os.environ["ARTIFACT"]},indent=2)+"\n")
+          PY
+      - name: Instrument fixed-plan exact-factor and ordered-operation interning
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path(".plan-candidate/crates/rawmocs-cli/src/factor_prejoin.rs")
+          s=p.read_text()
+          anchor="mod tests {\n    use super::*;"
+          assert s.count(anchor)==1
+          test=r'''
+              // A structural diagnostic only: equal exact input tables and
+              // identical ordered operations may share deterministic MPFR
+              // intermediate values. Do not evaluate any contraction here.
+              #[test]
+              #[ignore = "fixed-cut shared contraction feasibility only"]
+              fn v020_shared_contraction_probe() {
+                  let raw=std::fs::read_to_string(std::env::var("RAWMOCS_TEST_ORIGINAL").unwrap()).unwrap();
+                  let p=parse_emitted(&raw,432).unwrap();
+                  let cuts:Vec<usize>=match std::env::var("RAWMOCS_PLAN_CASE").unwrap().as_str() {
+                      "vqe16_native"=>vec![29,48,64,89],
+                      "qnn12_native"=>vec![66,83,112,126],
+                      _=>panic!("unapproved case")
+                  };
+                  let d=Instant::now()+Duration::from_secs(30);
+                  let (fs,nodes,scalar,local)=local_frontier_policy::<false,true>(&p,&raw,d,true,true,None,true).unwrap();
+                  assert!(cuts.iter().all(|v|nodes.contains(v)));
+                  let ns:Scope=nodes.iter().copied().filter(|v|!cuts.contains(v)).collect();
+                  let retained=fs.iter().map(|f|f.values.len()).sum::<usize>();
+                  // Exact table equality includes scope, support (None vs Some)
+                  // and the full signed complex rational values.
+                  let mut inputs:BTreeMap<Vec<usize>,Vec<(Factor<R>,usize)>>=BTreeMap::new();
+                  // Ordered child IDs are intentional: no reassociation or
+                  // commutative sorting of rounded arithmetic is assumed.
+                  let mut ops:BTreeMap<(Option<usize>,Vec<usize>,Vec<usize>),usize>=BTreeMap::new();
+                  let mut next=0usize;
+                  let mut input_cells=0usize;
+                  let mut all_work=0usize;
+                  let mut unique_work=0usize;
+                  let mut unique_cells=0usize;
+                  let mut all_ops=0usize;
+                  let mut max_leaf_peak=0usize;
+                  for m in 0..(1usize<<cuts.len()) {
+                      if Instant::now()>=d {println!("V020_SHARE_TERMINAL DEADLINE");return;}
+                      let (f,_branch_scalar)=match restrict(&fs,&scalar,&cuts,m) {
+                          Ok(x)=>x,Err(reason)=>{println!("V020_SHARE_TERMINAL RESTRICT_ERROR {reason}");return;}
+                      };
+                      let mut leaf:Option<Plan>=None;
+                      for policy in [Some(0),Some(4),None] {
+                          for reverse in [true,false] {
+                              match plan(&f,&ns,(policy,reverse),retained,d) {
+                                  Ok(Some(x))=>{
+                                      if leaf.as_ref().is_none_or(|b|(x.cost.work,x.cost.peak,x.cost.width)<(b.cost.work,b.cost.peak,b.cost.width)){leaf=Some(x);}
+                                  }
+                                  Ok(None)=>{}
+                                  Err(reason)=>{println!("V020_SHARE_TERMINAL PLAN_ERROR {reason}");return;}
+                              }
+                          }
+                      }
+                      let Some(leaf)=leaf else {println!("V020_SHARE_TERMINAL LEAF_REJECT branch={m}");return;};
+                      let mut ids=BTreeMap::new();
+                      for (i,factor) in f.into_iter().enumerate() {
+                          if Instant::now()>=d {println!("V020_SHARE_TERMINAL DEADLINE");return;}
+                          let group=inputs.entry(factor.scope.clone()).or_default();
+                          let id=if let Some((_,id))=group.iter().find(|(old,_)|old==&factor) {
+                              *id
+                          } else {
+                              input_cells+=factor.values.len();
+                              if input_cells>LIVE {println!("V020_SHARE_TERMINAL INPUT_INTERN_CAP");return;}
+                              let id=next;next+=1;group.push((factor,id));id
+                          };
+                          ids.insert(i,id);
+                      }
+                      let mut leaf_work=0usize;
+                      for op in &leaf.ops {
+                          if Instant::now()>=d {println!("V020_SHARE_TERMINAL DEADLINE");return;}
+                          let children:Vec<_>=op.ids.iter().map(|id|ids.remove(id).unwrap()).collect();
+                          let size=1usize<<op.out.len();
+                          let work=if op.pivot.is_some(){2*size*children.len()}else{2*size};
+                          leaf_work+=work;
+                          all_ops+=1;
+                          let key=(op.pivot,op.out.clone(),children);
+                          let id=if let Some(&id)=ops.get(&key){id}else{
+                              let id=next;next+=1;
+                              ops.insert(key,id);unique_work+=work;unique_cells+=size;id
+                          };
+                          assert!(ids.insert(op.dst,id).is_none());
+                      }
+                      assert_eq!(leaf_work,leaf.cost.work);
+                      all_work+=leaf_work+retained;
+                      max_leaf_peak=max_leaf_peak.max(leaf.cost.peak);
+                      println!("V020_SHARE_BRANCH branch={m} width={} work={} peak={} unique_work={unique_work} unique_ops={} all_ops={all_ops}",leaf.cost.width,leaf.cost.work,leaf.cost.peak,ops.len());
+                  }
+                  // This optimistic cost omits cache lookup, scheduling,
+                  // repeated restriction, scalar products and extra storage.
+                  // If it exceeds the cap, this fixed schedule is a NO-GO
+                  // even with free unlimited sharing of identical DAG nodes.
+                  println!("V020_SHARE_TOTAL branches=16 local_work={} independent_work={} unique_work={} unique_ops={} all_ops={} input_cells={} unique_cells={} max_leaf_peak={}",local.work,all_work+local.work,unique_work+local.work,ops.len(),all_ops,input_cells,unique_cells,max_leaf_peak);
+                  println!("V020_SHARE_TERMINAL {}",if unique_work+local.work>WORK {"FIXED_DAG_WORK_NO_GO"}else{"OPTIMISTIC_WORK_WITHIN_CAP_MEMORY_UNVERIFIED"});
+              }
+          '''
+          p.write_text(s.replace(anchor,anchor+"\n"+test))
+          PY
+          git -C .plan-candidate diff --check
+          git -C .plan-candidate diff -- crates/rawmocs-cli/src/factor_prejoin.rs > .v020-plan-evidence/diagnostic.patch
+          test "$(git -C .plan-candidate diff --name-only)" = crates/rawmocs-cli/src/factor_prejoin.rs
+          cargo test --locked --release --manifest-path .plan-candidate/crates/rawmocs-cli/Cargo.toml --no-run
+      - name: Measure optimistic fixed-DAG reuse without executing WMC
+        env:
+          CASE: ${{ matrix.case }}
+          CNF_SHA: ${{ matrix.cnf_sha }}
+        run: |
+          set -euo pipefail
+          export RAWMOCS_TEST_ORIGINAL="$(python3 -c 'import json;print(json.load(open(".v020-plan-evidence/input.json"))["cnf"])')"
+          export RAWMOCS_PLAN_CASE="$CASE"
+          timeout -k 2s 40s prlimit --as=3221225472 -- cargo test --locked --release --manifest-path .plan-candidate/crates/rawmocs-cli/Cargo.toml v020_shared_contraction_probe -- --ignored --nocapture > .v020-plan-evidence/planner.log 2>&1
+          python3 - <<'PY'
+          import hashlib,json,os,re
+          from pathlib import Path
+          root=Path(".v020-plan-evidence")
+          log=(root/"planner.log").read_text()
+          assert "1 passed; 0 failed" in log
+          terminal=re.findall(r"^V020_SHARE_TERMINAL (.+)$",log,re.M)
+          assert len(terminal)==1,terminal
+          branches=re.findall(r"^V020_SHARE_BRANCH .+$",log,re.M)
+          totals=re.findall(r"^V020_SHARE_TOTAL (.+)$",log,re.M)
+          metrics={}
+          if terminal[0] in ("FIXED_DAG_WORK_NO_GO","OPTIMISTIC_WORK_WITHIN_CAP_MEMORY_UNVERIFIED"):
+              assert len(branches)==16 and len(totals)==1
+              metrics={k:int(v) for k,v in re.findall(r"(\w+)=(\d+)",totals[0])}
+              assert metrics["branches"]==16 and metrics["unique_work"]<=metrics["independent_work"]
+              assert (metrics["unique_work"]>40000000)==(terminal[0]=="FIXED_DAG_WORK_NO_GO")
+          assert hashlib.sha256(Path(os.environ["RAWMOCS_TEST_ORIGINAL"]).read_bytes()).hexdigest()==os.environ["CNF_SHA"]
+          report={"case":os.environ["CASE"],"candidate":"0b8538be510718e7c8d79a79875681628b73f9be","source_sha256":os.environ["CNF_SHA"],"terminal":terminal[0],"branches":branches,"metrics":metrics,"scope":"fixed 4-cut DAG; ordered exact factor identity; optimistic unique work only; cache memory/liveness/overhead unverified; no WMC count or speed claim"}
+          (root/"report.json").write_text(json.dumps(report,indent=2)+"\n")
+          print("V020_SHARED_CONTRACTION_REPORT",json.dumps(report),flush=True)
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: rawmocs-v020-shared-contraction-${{ matrix.case }}
+          path: .v020-plan-evidence/
           include-hidden-files: true
           if-no-files-found: warn

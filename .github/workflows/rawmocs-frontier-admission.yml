@@ -1947,7 +1947,10 @@ jobs:
     if: github.event_name == 'push' || inputs.suite == 'p4-native-first'
     name: P4 scoped Native API and CLI/GPMC parity
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 25
+    permissions:
+      contents: read
+      id-token: write
     steps:
       - uses: actions/checkout@v4
         with:
@@ -1997,6 +2000,27 @@ jobs:
         run: |
           set -euo pipefail
           python research/rawmocs_integration/native_first.py
+      - name: P4 paired bounded transport WallTime and Simulation preparation
+        env:
+          PYTHONPATH: ${{ github.workspace }}:${{ github.workspace }}/src:${{ github.workspace }}/.rawmocs-candidate/crates/rawmocs-cli/tools
+          PYTHONHASHSEED: '0'
+        run: python research/rawmocs_integration/native_perf.py prepare
+      - name: P4 matched process-inclusive CPU Simulation
+        timeout-minutes: 8
+        env:
+          PYTHONPATH: ${{ github.workspace }}:${{ github.workspace }}/src:${{ github.workspace }}/.rawmocs-candidate/crates/rawmocs-cli/tools
+          PYTHONHASHSEED: '0'
+        uses: CodSpeedHQ/action@v5
+        with:
+          mode: simulation
+          cycle-estimation: 'true'
+          exclude-allocations: 'false'
+          simulation-track-subprocess: 'true'
+          config: codspeed-p4-transport.generated.yml
+      - name: Verify Simulation outputs against admitted WallTime counts
+        env:
+          PYTHONPATH: ${{ github.workspace }}:${{ github.workspace }}/src:${{ github.workspace }}/.rawmocs-candidate/crates/rawmocs-cli/tools
+        run: python research/rawmocs_integration/native_perf.py verify
       - uses: actions/upload-artifact@v4
         if: always()
         with:

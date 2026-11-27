@@ -348,7 +348,7 @@ jobs:
           retention-days: 30
 
   eq-dag-d3b:
-    if: github.ref == 'refs/heads/experiment/eq-dag-encoder' && github.event_name == 'push'
+    if: github.ref == 'refs/heads/experiment/eq-dag-encoder' && github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-24.04
     timeout-minutes: 65
     permissions:
@@ -409,4 +409,61 @@ jobs:
         with:
           name: eq-dag-d3b-balanced-topology
           path: eq-dag-d3b-evidence/
+          retention-days: 30
+
+  eq-dag-d3c:
+    if: github.ref == 'refs/heads/experiment/eq-dag-encoder' && github.event_name == 'push'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: eq-dag-d1d-heldout-mqt
+          run-id: 46004315659
+          github-token: ${{ github.token }}
+          path: d1d
+      - uses: actions/download-artifact@v4
+        with:
+          name: eq-dag-d2a-rewritten-cnfs
+          run-id: 46007045267
+          github-token: ${{ github.token }}
+          path: d2a
+      - uses: actions/download-artifact@v4
+        with:
+          name: eq-dag-d3-matched-solver-ab
+          run-id: 46007390837
+          github-token: ${{ github.token }}
+          path: d3
+      - uses: actions/download-artifact@v4
+        with:
+          name: eq-dag-d3b-balanced-topology
+          run-id: 46009831478
+          github-token: ${{ github.token }}
+          path: d3b
+      - name: Offline source-pinned GPMC mechanism audit
+        run: |
+          set -euo pipefail
+          for d in d1d d2a d3 d3b; do (cd "$d" && sha256sum -c SHA256SUMS); done
+          python3 -u rust/research/eq_dag_d3c_mechanism.py d1d d2a d3 d3b eq-dag-d3c-evidence | tee d3c.log
+      - name: Seal evidence
+        if: always()
+        run: |
+          mkdir -p eq-dag-d3c-evidence
+          test ! -f d3c.log || cp d3c.log eq-dag-d3c-evidence/
+          git rev-parse HEAD > eq-dag-d3c-evidence/head.txt
+          git rev-parse 'HEAD^{tree}' > eq-dag-d3c-evidence/tree.txt
+          cd eq-dag-d3c-evidence
+          find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 -r sha256sum > SHA256SUMS
+          sha256sum -c SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: eq-dag-d3c-mechanism-audit
+          path: eq-dag-d3c-evidence/
           retention-days: 30

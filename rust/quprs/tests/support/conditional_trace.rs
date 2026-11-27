@@ -1,5 +1,5 @@
 //! Trace-only exact constraint substitution pilot. No EQ verdict.
-use quprs::{PathSum,pathsum::PhasePolynomial};
+use quprs::{PathSum,PhaseCoeff,pathsum::{PhasePolynomial,Monomial}};
 use rustc_hash::FxHashSet;
 type Poly=FxHashSet<Vec<u32>>;
 const TERM_CAP:usize=4096;

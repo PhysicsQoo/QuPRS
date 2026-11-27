@@ -17,7 +17,7 @@ jobs:
   shared-semantics-native:
     name: Shared fixed-basis native acceptance
     runs-on: ubuntu-24.04
-    timeout-minutes: 25
+    timeout-minutes: 40
     env:
       QUPRS_SOLVER_PROVISION: external
       CARGO_TERM_COLOR: never
@@ -42,7 +42,7 @@ jobs:
           rustc --version | tee evidence/rustc-version.txt
           cargo --version | tee evidence/cargo-version.txt
           lscpu > evidence/cpu.txt
-          sha256sum rust/quprs/tests/support/autoq_hsl_p0.rs rust/quprs/tests/property_hoare_experiment.rs rust/research/autoq_grover_p0.py rust/research/autoq_c3_pilot.py rust/research/autoq_shared_width_p0.py rust/research/autoq_shared_family_p0.py rust/research/autoq_ss2_p0.py rust/research/autoq_ss3_p0.py rust/quprs/tests/support/cps_core_p0.rs rust/research/cps_core_wmc_p0.py rust/research/cps_core_source_decision_p0.py > evidence/source-sha256.txt
+          sha256sum rust/quprs/tests/support/autoq_hsl_p0.rs rust/quprs/tests/property_hoare_experiment.rs rust/research/autoq_grover_p0.py rust/research/autoq_c3_pilot.py rust/research/autoq_shared_width_p0.py rust/research/autoq_shared_family_p0.py rust/research/autoq_ss2_p0.py rust/research/autoq_ss3_p0.py rust/quprs/tests/support/cps_core_p0.rs rust/research/cps_core_wmc_p0.py rust/research/cps_core_source_decision_p0.py rust/research/cps_core_matched_p0.py > evidence/source-sha256.txt
           sudo apt-get update
           sudo apt-get install -y cmake pkg-config libgmp-dev libmpfr-dev zlib1g-dev libboost-filesystem-dev libboost-test-dev libantlr4-runtime-dev
       - name: Provision pinned GPMC and qualify packed count
@@ -120,6 +120,31 @@ jobs:
           grep -F 'AQ_SS2_SUMMARY ' evidence/aq-ss2.log
           timeout 150s python3 rust/research/autoq_ss3_p0.py "$bin" "$RUNNER_TEMP/cps-gpmc" evidence/aq-ss3 2>&1 | tee evidence/aq-ss3.log
           grep -F 'AQ_SS3_SUMMARY ' evidence/aq-ss3.log
+      - name: Matched release source verification pilot
+        timeout-minutes: 25
+        run: |
+          set -euo pipefail
+          pin=7eed39ad7ba5615a87c3f532a24f866e08967c12
+          src="$RUNNER_TEMP/autoq-matched"
+          git init -q "$src"
+          git -C "$src" remote add origin https://github.com/fmlab-iis/AutoQ.git
+          timeout 120s git -C "$src" fetch --depth=1 origin "$pin"
+          git -C "$src" checkout --detach FETCH_HEAD
+          test "$(git -C "$src" rev-parse HEAD)" = "$pin"
+          cmake -S "$src" -B "$src/build" -DCMAKE_BUILD_TYPE=Release > evidence/autoq-configure.log 2>&1
+          timeout 600s cmake --build "$src/build" --target autoq -j2 > evidence/autoq-build.log 2>&1
+          export LD_LIBRARY_PATH="$src:$src/build/lib:$src/build/cli:${LD_LIBRARY_PATH:-}"
+          "$src/build/cli/autoq" -v | tee evidence/autoq-version.txt
+          cargo test --release --locked --manifest-path rust/Cargo.toml -p quprs --test property_hoare_experiment --no-run --message-format=json > evidence/release-build.jsonl
+          python3 - <<'PY'
+          import json,pathlib
+          rows=[json.loads(l) for l in open("evidence/release-build.jsonl")]
+          paths=[r["executable"] for r in rows if r.get("reason")=="compiler-artifact" and r.get("target",{}).get("name")=="property_hoare_experiment" and r.get("executable")]
+          assert len(paths)==1,paths
+          pathlib.Path("evidence/release-bin.path").write_text(paths[0])
+          PY
+          timeout 660s python3 rust/research/cps_core_matched_p0.py "$(cat evidence/release-bin.path)" "$RUNNER_TEMP/cps-gpmc" "$src/build/cli/autoq" "$src" evidence/cps-core-matched | tee evidence/cps-core-matched.log
+          grep -F 'CPS_MATCHED_SUMMARY ' evidence/cps-core-matched.log
       - uses: actions/upload-artifact@v4
         if: always()
         with:

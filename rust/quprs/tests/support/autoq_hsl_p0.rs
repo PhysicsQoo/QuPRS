@@ -1000,6 +1000,89 @@ h qubits[8];
 
 // C3 process-isolated whole-family runner. Test harness is only the transport;
 // no oracle work, precomputed pairing, shared preparation or hidden fallback.
+
+// Bounded research-only orbit admission. Use the existing support pairing,
+// exact HSL signed terms, and ORIGINAL public EQ API. No benchmark-name dispatch.
+// Inconclusive certificates never remove any source obligations.
+fn aq_shift_pattern(p:AqPattern,mask:u64)->AqPattern{
+    match p{
+        AqPattern::Fixed(v)=>AqPattern::Fixed(v^mask),
+        AqPattern::Except{offset,width,excluded,outside}=>{
+            let m=((1u64<<width)-1)<<offset;
+            AqPattern::Except{offset,width,excluded:excluded^((mask&m)>>offset),outside:outside^(mask&!m)}
+        }
+    }
+}
+fn aq_pattern_same(a:AqPattern,b:AqPattern)->bool{
+    match(a,b){
+        (AqPattern::Fixed(x),AqPattern::Fixed(y))=>x==y,
+        (AqPattern::Except{offset:a,width:b,excluded:c,outside:d},
+         AqPattern::Except{offset:e,width:f,excluded:g,outside:h})=>a==e&&b==f&&c==g&&d==h,
+        _=>false
+    }
+}
+fn aq_shift_same(a:&AqState,b:&AqState,mask:u64)->bool{
+    a.n==b.n&&a.k==b.k&&a.terms.len()==b.terms.len()&&
+    a.terms.iter().zip(&b.terms).all(|(x,y)|x.signed==y.signed&&
+        aq_pattern_same(aq_shift_pattern(x.pattern,mask),y.pattern))
+}
+fn aq_orbit_original_eq(s:&Symbolic,ops:&[G],aa:&[AqState],bb:&[AqState],
+                        deadline:std::time::Instant)->Option<usize>{
+    use quprs::{check_equivalence_with_options,EquivalenceStatus,VerificationOptions,VerificationMethod,VerificationStrategy};
+    use std::io::Write;
+    if aa.len()<2||aa.len()>16||aa.len()!=bb.len()||s.n>16{return None;}
+    if !ops.iter().all(|g|matches!(g,G::H(_)|G::X(_)|G::Z(_)|G::CX(..)|G::CZ(..)|G::CCX(..))){return None;}
+    let pairs=aq_discover_pairs(s,aa,bb)?;
+    if pairs.iter().copied().collect::<BTreeSet<_>>().len()!=bb.len(){return None;}
+    let inputs:Vec<u64>=aa.iter().map(aq_fixed_input).collect::<Option<_>>()?;
+    let by_input:BTreeMap<u64,usize>=inputs.iter().enumerate().map(|(i,&x)|(x,i)).collect();
+    if by_input.len()!=aa.len(){return None;}
+    let base=inputs[0];
+    let varying=inputs.iter().fold(0u64,|a,&x|a|(base^x));
+    if 1usize.checked_shl(varying.count_ones())?!=aa.len(){return None;}
+    let fixed=|b:&AqState|match b.terms.first()?.pattern{AqPattern::Fixed(z)=>Some(z),_=>None};
+    let mut generators=0usize;
+    for j in 0..s.n{
+        let dx=1u64<<j;
+        if varying&dx==0{continue;}
+        if std::time::Instant::now()>=deadline{return None;}
+        let i=*by_input.get(&(base^dx))?;
+        let dz=fixed(&bb[pairs[0]])?^fixed(&bb[pairs[i]])?;
+        if dz==0{return None;}
+        // Prove the target translation on every admitted label without
+        // enumerating amplitudes; pairing is unique by raw support cubes.
+        for (l,&x) in inputs.iter().enumerate(){
+            let m=*by_input.get(&(x^dx))?;
+            if !aq_shift_same(&bb[pairs[l]],&bb[pairs[m]],dz){return None;}
+        }
+        // Source-derived Pauli candidate: X on input translation, Z on
+        // added output translation bits. Candidate may fail; EQ is the gate.
+        let mut lhs=vec![G::X(j)];
+        for k in 0..s.n{if (dz&!dx)>>k&1!=0{lhs.push(G::Z(k));}}
+        lhs.extend(ops.iter().cloned());
+        let mut rhs=ops.to_vec();
+        let bad=std::env::var_os("AQ_CPS_ORBIT_BAD").is_some();
+        for k in 0..s.n{
+            if dz>>k&1!=0&&!(bad&&k==dz.trailing_zeros() as usize){rhs.push(G::X(k));}
+        }
+        let opt=VerificationOptions{method:VerificationMethod::ReductionRules,
+            strategy:VerificationStrategy::Difference,tool_name:"gpmc".into(),timeout_secs:1,
+            rr_tolerance:0.0,..VerificationOptions::default()};
+        let t=std::time::Instant::now();
+        let r=check_equivalence_with_options(s.n,&lhs,&rhs,&opt).ok()?;
+        let p=&r.final_ps;
+        let h=p.v.path_vars.iter().filter(|&&id|id as usize>=p.v.num_qubits).count();
+        let exact=r.status==EquivalenceStatus::Equivalent&&!r.rr_approximate&&!r.solver_invoked&&h==0&&p.p.terms.is_empty();
+        println!("AQ_CPS_ORBIT_CERT bit={j} dx={dx} dz={dz} status={} exact={exact} hh={} elim={} omega={} ns={}",
+            r.status.as_str(),p.stats.hh.successes,p.stats.elim.successes,p.stats.omega.successes,t.elapsed().as_nanos());
+        let _=std::io::stdout().flush();
+        if !exact||std::time::Instant::now()>=deadline{return None;}
+        generators+=1;
+    }
+    if generators!=varying.count_ones() as usize{return None;}
+    Some(pairs[0])
+}
+
 #[test]
 fn hoare_autoq_c3_arm(){
     let Ok(case)=std::env::var("AQ_C3_CASE") else{return;};
@@ -1009,7 +1092,7 @@ fn hoare_autoq_c3_arm(){
     let start=std::time::Instant::now();
     let cap=std::time::Duration::from_millis(std::env::var("AQ_C3_BUDGET_MS").unwrap().parse().unwrap());
     let deadline=start+cap;
-    assert!(["rr","wmc","hybrid","hybrid-support","structural","hybrid-direct","structural-factor","raw-factor"].contains(&mode.as_str()));
+    assert!(["rr","wmc","hybrid","hybrid-support","structural","hybrid-direct","structural-factor","raw-factor","orbit-wmc","orbit-factor"].contains(&mode.as_str()));
     let mut queries=0usize;let mut pairs=0usize;let mut visited=0usize;
     let mut route="baseline";let mut rejected=false;
     let mut witness=None;
@@ -1036,7 +1119,7 @@ fn hoare_autoq_c3_arm(){
         for g in &ops{g.apply(&mut ps,false);}
         let h0=ops.iter().filter(|g|matches!(g,G::H(_))).count();
         println!("AQ_CPS_STAGE stage=build-end ns={}",build_start.elapsed().as_nanos());std::io::stdout().flush().ok()?;
-        let (s,k)=if mode=="wmc"||mode=="raw-factor"{(compact(&ps,n)?,h0)}else{
+        let (s,k)=if mode=="wmc"||mode=="raw-factor"||mode.starts_with("orbit-"){(compact(&ps,n)?,h0)}else{
             println!("AQ_CPS_STAGE stage=rr-start");std::io::stdout().flush().ok()?;
             let rr_start=std::time::Instant::now();
             let (p,frame,scale,steps)=native_rr_checkpoint(ps,n)?;
@@ -1060,7 +1143,7 @@ fn hoare_autoq_c3_arm(){
         // Strict baseline: original RR terminal check and existing exact
         // overlap encoder. Sound cube screening and early existential match.
         // No symbolic GHZ witness, dense oracle, or assumed label pairing.
-        let (aa,bb)=if ghz{
+        let (mut aa,mut bb)=if ghz{
             let total=1u64<<n;
             let aa=(0..total).map(|x|AqState{n,k:0,terms:vec![AqTerm{pattern:AqPattern::Fixed(x),signed:1}]}).collect::<Vec<_>>();
             let mut bb=Vec::new();
@@ -1076,6 +1159,16 @@ fn hoare_autoq_c3_arm(){
             let post=if case.ends_with("-relative"){post.replace("aH := 11 /","aH := -11 /")}else{post.to_owned()};
             (aq_family(pre)?.1,aq_family(&post)?.1)
         };
+        if mode.starts_with("orbit-"){
+            let before=aa.len();let t=std::time::Instant::now();
+            if let Some(j)=aq_orbit_original_eq(&s,&ops,&aa,&bb,deadline){
+                let target=bb[j].clone();aa.truncate(1);bb=vec![target];
+                println!("AQ_CPS_ORBIT_ROUTE admitted=true original={before} representatives=1 ns={}",t.elapsed().as_nanos());
+            }else{
+                println!("AQ_CPS_ORBIT_ROUTE admitted=false original={before} representatives={before} ns={}",t.elapsed().as_nanos());
+            }
+            std::io::stdout().flush().ok()?;
+        }
         if mode=="rr"&&s.h!=0{return None;}
         let cubes:Vec<_>=bb.iter().map(aq_support_cube).collect();
         // Phase-blind exact support index: only two distinct fixed kets
@@ -1113,7 +1206,7 @@ fn hoare_autoq_c3_arm(){
                 if std::time::Instant::now()>=deadline{return None;}
                 pairs+=1;
                 if (p.value^q.value)&p.mask&q.mask!=0{continue;}
-                let candidate=if (mode=="structural-factor"||mode=="raw-factor")&&s.h!=0{
+                let candidate=if (mode=="structural-factor"||mode=="raw-factor"||mode=="orbit-factor")&&s.h!=0{
                     let mut work=0;let v=aq_factor_ray(&s,x,b,k,&mut work,deadline);
                     factor_work+=work;if v.is_some(){factor_hits+=1;route="factor";}else{factor_rejects+=1;}v
                 }else if let Some(hist)=&hist{let v=aq_hist_ray(hist,b,k);if v.is_some(){direct_hits+=1;route="direct";}v}else{None};

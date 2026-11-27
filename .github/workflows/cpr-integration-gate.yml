@@ -1,0 +1,48 @@
+# Branch-only integration evidence; remove before stable merge.
+name: CPR Integration Gate
+on:
+  push:
+    branches: [integration/cpr-optin]
+    paths:
+      - 'rust/quprs/src/**'
+      - 'rust/quprs/Cargo.toml'
+      - 'rust/quprs/tests/**'
+      - '.github/workflows/cpr-integration-gate.yml'
+permissions:
+  contents: read
+jobs:
+  hh-guard:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      QUPRS_SOLVER_PROVISION: external
+      CARGO_TERM_COLOR: never
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: 'rust -> target'
+      - name: Install native prerequisites
+        run: sudo apt-get update && sudo apt-get install -y cmake pkg-config libgmp-dev libmpfr-dev zlib1g-dev
+      - name: HH source and reduction regression
+        run: |
+          set -euo pipefail
+          mkdir -p evidence
+          git rev-parse HEAD | tee evidence/head.txt
+          git rev-parse 'HEAD^{tree}' | tee evidence/tree.txt
+          cargo test --locked --release --manifest-path rust/Cargo.toml -p quprs --lib reduction::tests:: -- --nocapture 2>&1 | tee evidence/reduction.log
+          grep -F 'hh_reachable_external_pivot_preserves_operator ... ok' evidence/reduction.log
+          grep -F 'hh_rejects_external_only_without_mutating_state ... ok' evidence/reduction.log
+      - name: Seal evidence
+        if: always()
+        run: |
+          mkdir -p evidence
+          (cd evidence && find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 -r sha256sum > SHA256SUMS)
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: cpr-integration-hh-guard
+          path: evidence/

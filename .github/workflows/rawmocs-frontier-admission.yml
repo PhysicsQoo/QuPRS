@@ -2005,7 +2005,7 @@ jobs:
           PYTHONPATH: ${{ github.workspace }}:${{ github.workspace }}/src:${{ github.workspace }}/.rawmocs-candidate/crates/rawmocs-cli/tools
           PYTHONHASHSEED: '0'
         run: python research/rawmocs_integration/native_perf.py prepare
-      - name: P4 matched process-inclusive CPU Simulation
+      - name: P4 bounded solver-boundary CPU Simulation
         timeout-minutes: 8
         env:
           PYTHONPATH: ${{ github.workspace }}:${{ github.workspace }}/src:${{ github.workspace }}/.rawmocs-candidate/crates/rawmocs-cli/tools

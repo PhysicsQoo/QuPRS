@@ -103,7 +103,7 @@ def prepare():
                 quprs_sha=subprocess.check_output(["git","rev-parse","HEAD"],text=True).strip(),
                 rawmocs_sha=subprocess.check_output(["git","-C",".rawmocs-candidate","rev-parse","HEAD"],text=True).strip(),
                 binaries={"rawmocs":digest(RAW),"gpmc":digest(GPMC),"native":digest(Path(rawmocs._native.__file__))})
-    config=["options:",'  max-time: "3s"',"benchmarks:"]
+    config=["options:",'  max-time: "1s"',"benchmarks:"]
     save(report)
     for name in ("complex","wide","vqe4","grover4"):
         path=ROOT/f"perf-{name}.cnf"
@@ -134,39 +134,63 @@ def prepare():
         case["p50"]={a:{k:statistics.median(t["rows"][a][k] for t in case["trials"])
                          for k in ("wall_ns","core_ns","non_core_wall_ns") if k in rows[a] and rows[a][k] is not None} for a in ARMS}
         case["status"]="ADMITTED";save(report)
+    assert all(report["cases"][n]["status"]=="ADMITTED" for n in ("complex","wide"))
+    # Simulation is solver-boundary only, not a second full QuPRS measurement.
+    # One real circuit plus a general fallback control, no redundant complex case.
+    selected=["wide"]
+    for name in ("vqe4","grover4"):
+        if report["cases"][name]["status"]=="ADMITTED":
+            selected.append(name);break
+    report["simulation_scope"]="direct solver boundary; native Python import included, QuPRS import excluded"
+    report["simulation_selected"]=selected
+    for name in selected:
+        path=ROOT/f"perf-{name}.cnf"
         for arm in ARMS:
             wrapper=ROOT/f"perf-{name}-{arm}.sh"
-            out=ROOT/f"perf-{name}-{arm}.simulation.json"
-            cmd=[sys.executable,str(Path(__file__).resolve()),"sample",name,arm]
-            wrapper.write_text("#!/bin/sh\nset -eu\nexec "+shlex.join(cmd)+" >"+shlex.quote(str(out))+"\n")
+            out=ROOT/f"perf-{name}-{arm}.simulation.stdout"
+            err=ROOT/f"perf-{name}-{arm}.simulation.stderr"
+            if arm=="rawmocs_native":
+                cmd=[sys.executable,str(Path(__file__).with_name("native_simulation.py").resolve()),str(path)]
+            elif arm=="rawmocs":
+                cmd=[str(RAW),"--digits","30","--timeout-ms","120000",str(path)]
+            else:
+                cmd=[str(GPMC),"-mode=1","-prec=30",str(path)]
+            wrapper.write_text("#!/bin/sh\nset -eu\nexec "+shlex.join(cmd)+" >"+shlex.quote(str(out))+" 2>"+shlex.quote(str(err))+"\n")
             wrapper.chmod(0o755)
-            config.extend([f'  - name: "rawmocs_python_transport/{name}/{arm}_mpfr100"',f'    exec: "{wrapper}"'])
-    assert all(report["cases"][n]["status"]=="ADMITTED" for n in ("complex","wide"))
+            config.extend([f'  - name: "rawmocs_solver_boundary/{name}/{arm}_mpfr100"',f'    exec: "{wrapper}"'])
     report["status"]="WALLTIME_PASS";save(report)
     Path("codspeed-p4-transport.generated.yml").write_text("\n".join(config)+"\n")
     print("P4_TRANSPORT_WALLTIME",json.dumps({n:{"status":c["status"],"p50":c.get("p50")} for n,c in report["cases"].items()}),flush=True)
-def sample(name,arm):
-    setup()
-    # Three actual run_wmc calls per command; Python startup is included,
-    # and child processes are tracked by CodSpeed. Not a solver-only metric.
-    rows=[signature(measure(arm,ROOT/f"perf-{name}.cnf")) for _ in range(3)]
-    print(json.dumps(rows))
 def verify():
+    from QuPRS.utils.precision_count import parse_printed_solver_output
     report=json.loads((ROOT/"performance.json").read_text())
     assert report["status"]=="WALLTIME_PASS"
-    for name,case in report["cases"].items():
-        if case["status"]!="ADMITTED":continue
+    assert report["binaries"]=={"rawmocs":digest(RAW),"gpmc":digest(GPMC),"native":digest(Path(rawmocs._native.__file__))}
+    for name in report["simulation_selected"]:
+        case=report["cases"][name]
         assert digest(ROOT/f"perf-{name}.cnf")==case["cnf_sha256"]
         for arm in ARMS:
-            rows=json.loads((ROOT/f"perf-{name}-{arm}.simulation.json").read_text())
-            assert rows==[signature(case["scout"][arm])]*3
+            prefix=ROOT/f"perf-{name}-{arm}"
+            stdout=prefix.with_suffix(".simulation.stdout").read_text()
+            stderr=prefix.with_suffix(".simulation.stderr").read_text()
+            if arm=="rawmocs_native":
+                data=json.loads(stdout)
+                assert data["digits"]==30 and data["bits"]==100
+                row=dict(sat=data["sat"],real=str(Fraction(data["real"])),imag=str(Fraction(data["imag"])),route=data["route"])
+            elif arm=="rawmocs":
+                sat,count=RawAdapter.parse_protocol(stdout)
+                route,=re.findall(r"^RAWMOCS_COMPLETE route=(\w+) digits=30 bits=100 ",stderr,re.M)
+                row=dict(sat=sat,real=str(count.real),imag=str(count.imag),route=route)
+            else:
+                assert re.findall(r"^c o precision (\d+)\s*$",stdout,re.M)==["30"]
+                sat,=re.findall(r"^s (SATISFIABLE|UNSATISFIABLE)\s*$",stdout,re.M)
+                count=parse_printed_solver_output(stdout)
+                row=dict(sat=sat=="SATISFIABLE",real=str(count.real),imag=str(count.imag),route=None)
+            assert row==signature(case["scout"][arm]),(name,arm,row)
         case["simulation_parity"]="PASS"
     report["status"]="SIMULATION_OUTPUT_PARITY_PASS";save(report)
     print("P4_TRANSPORT_SIMULATION_PARITY_PASS",flush=True)
 if __name__=="__main__":
-    p=argparse.ArgumentParser();p.add_argument("stage",choices=("prepare","sample","verify"))
-    p.add_argument("name",nargs="?");p.add_argument("arm",nargs="?")
+    p=argparse.ArgumentParser();p.add_argument("stage",choices=("prepare","verify"))
     a=p.parse_args()
-    if a.stage=="prepare":prepare()
-    elif a.stage=="sample":sample(a.name,a.arm)
-    else:verify()
+    (prepare if a.stage=="prepare" else verify)()

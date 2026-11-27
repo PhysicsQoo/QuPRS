@@ -79,6 +79,8 @@ jobs:
           grep -F 'CPS_CORE_CLOSURE composition=128 adjoint=128 associativity=128 reverse=128' evidence/cps-core-closure.log
           grep -F 'rejection_controls=9' evidence/cps-core-closure.log
           grep -F 'CPS_CORE_CANONICAL padding=384' evidence/cps-core-closure.log
+          timeout 60s "$(cat evidence/property_hoare_experiment.path)" --exact exact_property_cnf::hoare_cps_core_guarded_rr --nocapture | tee evidence/cps-core-rr.log
+          grep -F 'CPS_CORE_RR traces=' evidence/cps-core-rr.log
       - name: Verify wide encoder boundaries and original-source WMC pairs
         timeout-minutes: 10
         run: |

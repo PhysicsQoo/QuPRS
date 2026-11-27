@@ -278,3 +278,119 @@ fn hoare_cps_core_closure(){
     println!("CPS_CORE_CANONICAL padding=384 fixed={fixed} free={free} unchanged={same} zero_guard_scale=PASS");
     println!("CPS_CORE_CLOSURE composition={comp} adjoint={adj} associativity={assoc} reverse={reverse} entries={entries} rectangular={rectangular} negative_scale={negative} zero_guards={zeros} circuit_columns=4 strict_eq=1 rejection_controls=9");
 }
+
+// CORE-3: extend the existing guarded RR receipt with the derived scale.
+// No new reducer or rule. The current guarded snapshot is square-only;
+// rectangular CPS remains representable and composable, not admitted here.
+#[derive(Clone,Debug,PartialEq,Eq)]
+struct CoreRrReceipt {
+    native:GuardedReceipt,
+    before_k:i32,
+    after_k:i32,
+}
+impl CpsCore {
+    fn rr_step(&self)->Option<(Self,CoreRrReceipt)>{
+        if !self.valid()||self.n()!=self.q(){return None;}
+        let step=guarded_native_step(&self.ps,self.n(),&self.guard)?;
+        let native=guarded_receipt(&self.ps,self.n(),&self.guard,&step)?;
+        let decrement=i32::try_from(native.scale2).ok()?;
+        let after_k=self.k.checked_sub(decrement)?;
+        let next=Self::from_derived(step.ps,step.guard.extra,after_k)?;
+        if next.guard.ids.len()>=self.guard.ids.len()||next.n()!=self.n()||next.q()!=self.q(){return None;}
+        let receipt=CoreRrReceipt{native,before_k:self.k,after_k};
+        Some((next,receipt))
+    }
+    fn replay_rr(&self,receipts:&[CoreRrReceipt])->Option<Self>{
+        if !self.valid()||self.n()!=self.q()||receipts.len()>32{return None;}
+        let mut c=self.clone();
+        for supplied in receipts{
+            let (next,actual)=c.rr_step()?;
+            if &actual!=supplied{return None;}
+            c=next;
+        }
+        Some(c)
+    }
+}
+fn core_rr_equal(a:&CpsCore,b:&CpsCore){
+    let k=a.k.max(b.k);
+    let scale=|c:&CpsCore|->Vec<Vec<Root>>{
+        let d=u32::try_from(k-c.k).unwrap();assert!(d<=24);
+        core_matrix(c).into_iter().map(|r|r.into_iter()
+            .map(|v|scale_guarded_entry(v,d)).collect()).collect()
+    };
+    assert_eq!(scale(a),scale(b));
+}
+#[test]
+fn hoare_cps_core_guarded_rr(){
+    let circuits=[
+        vec![G::H(0),G::H(0)],
+        vec![G::H(0),G::S(0),G::H(0)],
+        vec![G::H(0),G::S(0),G::S(0),G::S(0),G::H(0)],
+        vec![G::H(0),G::H(0),G::H(0),G::H(0)],
+        vec![G::H(0),G::T(0),G::H(0)],
+    ];
+    let mut initial=Vec::new();
+    for ops in circuits{
+        let split=ops.len()/2;
+        let a=CpsCore::circuit(1,&ops[..split]).unwrap();
+        let b=CpsCore::circuit(1,&ops[split..]).unwrap();
+        let c=a.then(&b).unwrap();
+        // Genuine composed raw CPS, then guard restrictions (unchanged k).
+        let ids=c.guard.ids.clone();
+        let mut guards=vec![Anf::from([0]),Anf::new()];
+        for &v in &ids{guards.push(Anf::from([1u64<<v]));guards.push(Anf::from([0,1u64<<v]));}
+        for g in guards{initial.push(CpsCore::from_derived(c.ps.clone(),g,c.k).unwrap());}
+        // Adjoint of a composed map, and composition with that adjoint.
+        let d=c.adjoint().unwrap();
+        initial.push(d.clone());
+        initial.push(c.then(&d).unwrap());
+    }
+    // Real canonical ingress with an isolated path: Elim creates k=-1.
+    // No arbitrary signed source scale is injected.
+    let mut ps=PathSum::new(1);ps.set_auto_reduce(false);let y=ps.v.get_fresh_var();
+    let free=CpsCore::canonical(ps.clone(),Anf::from([0])).unwrap();
+    let (neg,receipt)=free.rr_step().unwrap();
+    assert_eq!(receipt.native.rule,GuardedRule::Elim);assert_eq!(neg.k,-1);
+    core_rr_equal(&free,&neg);
+    initial.push(free.clone());initial.push(free.adjoint().unwrap());
+    initial.push(neg.then(&CpsCore::circuit(1,&[G::H(0),G::H(0)]).unwrap()).unwrap());
+    // Same path is no longer eliminable when its guard depends on it.
+    let blocked=CpsCore::canonical(ps,Anf::from([1u64<<y])).unwrap();
+    assert!(blocked.rr_step().is_none());core_rr_equal(&blocked,&blocked);
+    initial.push(blocked);
+    // Rectangular maps are explicitly outside this existing RR adapter.
+    let mut rect=PathSum::new(1);rect.f=quprs::pathsum::BooleanState::new(0);
+    let rect=CpsCore::canonical(rect,Anf::from([0])).unwrap();
+    assert!(rect.rr_step().is_none());assert!(rect.replay_rr(&[]).is_none());
+    let (mut traces,mut steps,mut elim,mut hh,mut omega,mut multi,mut blocked_count,mut mutants,mut negative)=(0,0,0,0,0,0,0,0,0);
+    for start in initial{
+        let mut c=start.clone();let mut receipts=Vec::new();
+        for _ in 0..16{
+            let Some((next,r))=c.rr_step() else{break;};
+            core_rr_equal(&c,&next);core_rr_equal(&start,&next);
+            assert_eq!(r.before_k-r.after_k,r.native.scale2 as i32);
+            assert!(r.native.removed.iter().all(|&v|v as usize>=start.n()));
+            match r.native.rule{GuardedRule::Elim=>elim+=1,GuardedRule::Hh=>hh+=1,GuardedRule::Omega=>omega+=1}
+            if next.k<0{negative+=1;}
+            receipts.push(r);c=next;steps+=1;
+        }
+        if receipts.is_empty(){blocked_count+=1;}
+        if receipts.len()>1{multi+=1;}
+        let replay=start.replay_rr(&receipts).unwrap();
+        assert_eq!(replay.k,c.k);core_rr_equal(&replay,&c);
+        if !receipts.is_empty(){
+            for field in 0..3{
+                let mut wrong=receipts.clone();
+                match field{
+                    0=>wrong[0].before_k+=1,
+                    1=>wrong[0].after_k+=1,
+                    _=>wrong[0].native.scale2+=1,
+                }
+                assert!(start.replay_rr(&wrong).is_none());mutants+=1;
+            }
+        }
+        traces+=1;
+    }
+    assert!(elim>0&&hh>0&&omega>0&&multi>0&&blocked_count>0&&negative>0);
+    println!("CPS_CORE_RR traces={traces} steps={steps} elim={elim} hh={hh} omega={omega} multi={multi} blocked={blocked_count} scale_mutants={mutants} negative_steps={negative} guard_block=PASS rectangular_reject=PASS");
+}

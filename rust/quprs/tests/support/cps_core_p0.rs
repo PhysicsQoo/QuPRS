@@ -2009,6 +2009,87 @@ fn hoare_cps_sparse_frame(){
     assert_eq!(prod.guard.ids.len(),134);assert_eq!(prod.k,132);
     println!("CPS_SPARSE_FRAME high_id=PASS matrix=PASS adjoint=PASS live134=PASS missing_id=REJECTED");
 }
+// Diagnostic-only bounded unique guard section. A factor y XOR r = 1
+// with y absent from r determines exactly one path bit for each survivor.
+// This is a substitution of a constraint, not a factor-of-two Elim;
+// k stays unchanged. No matched route uses this pilot.
+fn sparse_guard_sections(c:&CpsCore<SparseGuardFrame>)->Vec<(usize,u32,SparseAnf)>{
+    let mut out=Vec::new();
+    let one=SparseMono::new(vec![]).unwrap();
+    for (i,g) in c.guard.factors.iter().enumerate(){
+        for m in g{
+            if m.ids().len()!=1{continue;}
+            let y=m.ids()[0];
+            if (y as usize)<c.n()||g.iter().any(|t|t!=m&&t.contains_id(y)){continue;}
+            let mut rhs=g.clone();rhs.remove(m);core_toggle(&mut rhs,one.clone());
+            out.push((i,y,rhs));
+        }
+    }
+    out.sort_by_key(|(i,y,rhs)|(rhs.len(),*y,*i));
+    out
+}
+fn sparse_guard_section_trial(c:&CpsCore<SparseGuardFrame>,i:usize,y:u32,rhs:&SparseAnf)->Option<CpsCore<SparseGuardFrame>>{
+    if rhs.len()>8||!c.shared_valid()||c.ps.p.terms.values().any(|p|core_phase8(p)!=Some(4)){return None;}
+    if !sparse_guard_sections(c).iter().any(|(j,v,r)|*j==i&&*v==y&&r==rhs){return None;}
+    // Bound the work before native substitution; the admitted CPS caps
+    // and exact native sign semantics remain unchanged.
+    let uses=c.ps.p.terms.keys().filter(|m|m.contains(&y)).count()
+        +c.ps.f.functions.iter().map(|f|f.iter().filter(|m|m.contains(&y)).count()).sum::<usize>();
+    if uses.checked_mul(rhs.len().max(1))?>16_384{return None;}
+    let gs=c.guard.factors.iter().enumerate().filter(|(j,_)|*j!=i)
+        .map(|(_,g)|cps_guard_algebra::guard_substitute(g,y,rhs)).collect::<Option<Vec<_>>>()?;
+    let native:CoreBool=rhs.iter().map(|m|m.ids().to_vec()).collect();
+    let mut ps=c.ps.clone();
+    ps.p.substitute_var_with_poly(y,&native);ps.f.substitute_var_with_poly(y,&native);
+    if !ps.v.path_vars.remove(&y){return None;}
+    let next=CpsCore::<SparseGuardFrame>::shared_from_parts(ps,gs,c.k)?;
+    if next.guard.ids.len()+1!=c.guard.ids.len(){return None;}
+    Some(next)
+}
+fn sparse_reducibility_probe(c:&CpsCore<SparseGuardFrame>,stage:&str){
+    let support:BTreeSet<u32>=c.guard.factors.iter().flat_map(|g|g.iter()).flat_map(|m|m.ids().iter().copied()).collect();
+    let mut candidates:Vec<_>=c.ps.get_reducible_vars().into_iter().filter(|&v|(v as usize)>=c.n()).collect();
+    candidates.sort_unstable();
+    let blocked=candidates.iter().filter(|v|support.contains(v)).count();
+    // Native RR trials on copies only: these are diagnostic opportunities,
+    // not legal guarded transitions or quantum verdicts.
+    let mut counts=[0usize;3];let mut blocked_counts=[0usize;3];
+    for &v in &candidates{
+        for rule in 0..3{
+            let mut p=c.ps.clone();
+            let ok=match rule{0=>p.try_reduce_elim(&[v]),1=>p.try_reduce_omega(&[v]),_=>p.try_reduce_hh(&[v])};
+            if ok{counts[rule]+=1;if support.contains(&v){blocked_counts[rule]+=1;}}
+        }
+    }
+    let sections=sparse_guard_sections(c);
+    let bounded=sections.iter().filter(|(_,_,r)|r.len()<=8).count();
+    let guard_terms=c.guard.factors.iter().map(|g|g.len()).sum::<usize>();
+    let output_terms=c.ps.f.functions.iter().map(|f|f.len()).sum::<usize>();
+    println!("CPS_CORE8_STRUCTURE stage={stage} live={} k={} guard_factors={} guard_terms={guard_terms} guard_support={} output_terms={output_terms} phase_terms={} native_candidates={} guard_blocked={blocked} native_elim={} native_omega={} native_hh={} blocked_elim={} blocked_omega={} blocked_hh={} unique_sections={} bounded_sections={bounded}",
+        c.guard.ids.len(),c.k,c.guard.factors.len(),support.len(),c.ps.p.terms.len(),candidates.len(),counts[0],counts[1],counts[2],blocked_counts[0],blocked_counts[1],blocked_counts[2],sections.len());
+}
+#[test]
+fn hoare_cps_sparse_guard_section(){
+    // Nontrivial section y = x XOR z, with y used in phase/output and
+    // a second guard. Exact raw matrices are identical: k does not change.
+    let mut ps=PathSum::new(1);ps.set_auto_reduce(false);
+    let y=ps.v.get_fresh_var();let z=ps.v.get_fresh_var();
+    ps.p.add_term(vec![0,y],quprs::PhaseCoeff::HALF);
+    ps.f.functions[0]=CoreBool::from_iter([vec![y]]);
+    let m=|v:Vec<u32>|SparseMono::new(v).unwrap();
+    let g=SparseAnf::from([m(vec![]),m(vec![y]),m(vec![0]),m(vec![z])]);
+    let h=SparseAnf::from([m(vec![]),m(vec![0,y])]);
+    // Preserve the separate source factors for this section test; the
+    // trial itself uses the ordinary shared constructor/canonicalizer.
+    let c=CpsCore{guard:SparseGuardFrame{ids:vec![0,y,z],factors:vec![g,h]},ps,k:2};
+    assert!(c.shared_valid());
+    let (i,v,r)=sparse_guard_sections(&c).into_iter().find(|(_,v,_)|*v==y).unwrap();
+    let next=sparse_guard_section_trial(&c,i,v,&r).unwrap();
+    assert_eq!(next.k,c.k);assert_eq!(sparse_core_matrix(&next),sparse_core_matrix(&c));
+    assert!(sparse_guard_section_trial(&c,i,v,&SparseAnf::new()).is_none());
+    println!("CPS_CORE8_SECTION matrix=PASS scale=PASS mutant=REJECTED");
+}
+
 #[test]
 fn hoare_cps_sparse_source_admission(){
     let root=std::path::PathBuf::from(std::env::var("CPS_CORE_SOURCE_DIR").unwrap());
@@ -2040,6 +2121,28 @@ fn hoare_cps_sparse_source_admission(){
             }
             assert_eq!(c.replay_sparse_rr(&receipts).unwrap().rr_snapshot(),residual.rr_snapshot());
             println!("CPS_SPARSE_SOURCE_RR case=MOGrover05 steps={} live_before={} live_after={} k_before={} k_after={} phase_before={} phase_after={} replay=PASS",receipts.len(),c.guard.ids.len(),residual.guard.ids.len(),c.k,residual.k,c.ps.p.terms.len(),residual.ps.p.terms.len());
+            sparse_reducibility_probe(&c,"initial");
+            sparse_reducibility_probe(&residual,"residual");
+            // Explore at most eight unique sections, each followed by the
+            // original guarded RR and checked replay. Diagnostic only.
+            let mut pilot=residual.clone();let mut sections=0usize;let mut native_steps=0usize;
+            for _ in 0..8{
+                let next=sparse_guard_sections(&pilot).into_iter()
+                    .filter(|(_,_,r)|r.len()<=8).take(16)
+                    .find_map(|(i,y,r)|sparse_guard_section_trial(&pilot,i,y,&r));
+                let Some(next)=next else{break;};
+                assert_eq!(next.k,pilot.k);
+                sections+=1;let before=next.clone();pilot=next;let mut rr=Vec::new();
+                for _ in 0..32{
+                    let Some((next,r))=pilot.sparse_rr_step() else{break;};
+                    rr.push(r);pilot=next;
+                }
+                assert_eq!(before.replay_sparse_rr(&rr).unwrap().rr_snapshot(),pilot.rr_snapshot());
+                native_steps+=rr.len();
+            }
+            sparse_reducibility_probe(&pilot,"section-pilot");
+            let dag=pilot.sparse_norm_plan(true).map(|(cnf,_,primary,_)|(primary,cnf.vars,cnf.clauses.len()));
+            println!("CPS_CORE8_SECTION_PILOT case=MOGrover05 sections={sections} native_steps={native_steps} live_before={} live_after={} k_before={} k_after={} dag={dag:?}",residual.guard.ids.len(),pilot.guard.ids.len(),residual.k,pilot.k);
         },
         Err(e)=>println!("CPS_SPARSE_AFFINE_ADMISSION case=MOGrover05 status=BLOCKED detail={e}")
     }

@@ -915,12 +915,26 @@ pub(super) fn native_growth_checkpoint(){
     if generic.as_deref()==Some("conditional_router")
         &&std::env::var_os("CPR_RR_FIRST").is_some()
         &&std::env::var_os("CRR_LIFT_CHECKPOINT").is_none(){
+        // Counterfactual only: defer at most the first ket-phase trigger.
+        // This is not an admitted runtime cost policy.
+        let mut defer_first=std::env::var_os("CPR_A1B_DEFER_FIRST_PHASE").is_some();
         for (done,(bra,i)) in order.iter().copied().enumerate(){
             let op=if bra{&b[i]}else{&a[i]};
             if whole.elapsed().as_secs_f64()>15.0{
                 println!("CRR_GENERIC_STOP case={case} variant={variant} arm=conditional_router reason=wall_budget advanced={done} total={}",order.len());return;
             }
             if generic_lift_trigger(op,&ps,bra){
+                if defer_first&&!bra&&matches!(op,RZ(..)|P(..)|U1(..)){
+                    defer_first=false;
+                    println!("CPR_A1B_DEFER case={case} variant={variant} step={done} index={i} terms={} live={} work={}",terms(&ps),ps.v.path_vars.len(),phase_gate_bound(op,&ps).unwrap().1);
+                    op.apply(&mut ps,bra);
+                    let after=terms(&ps);
+                    println!("CPR_A1B_AFTER case={case} variant={variant} step={done} terms={after} live={}",ps.v.path_vars.len());
+                    if after>TERM_CAP{
+                        println!("CRR_GENERIC_STOP case={case} variant={variant} arm=conditional_router reason=term_cap advanced={} total={} terms={after}",done+1,order.len());return;
+                    }
+                    continue;
+                }
                 println!("CRR_GENERIC_TRIGGER case={case} variant={variant} step={done} bra={bra} index={i} gate={op:?}");
                 policy_continue(&mut ps,&a,&b,&order[done..],&case,&variant,"adaptive",whole.elapsed().as_secs_f64());return;
             }

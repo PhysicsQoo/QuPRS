@@ -9,7 +9,7 @@ on:
       suite:
         description: Bounded Frontier admission suite
         type: choice
-        options: [frontier-release-quality, frontier-vqe16-gpmc-scout, v020-cross-family-scout]
+        options: [frontier-release-quality, frontier-vqe16-gpmc-scout, v020-cross-family-scout, v020-pinned-integration]
         default: frontier-release-quality
 permissions:
   contents: read
@@ -279,7 +279,7 @@ jobs:
           if-no-files-found: warn
 
   v020-cross-family-scout:
-    if: github.event_name == 'push' || inputs.suite == 'v020-cross-family-scout'
+    if: github.event_name == 'workflow_dispatch' && inputs.suite == 'v020-cross-family-scout'
     name: v0.2.0 cross-family scout / ${{ matrix.case }}
     runs-on: ubuntu-24.04
     timeout-minutes: 15
@@ -471,5 +471,162 @@ jobs:
         with:
           name: rawmocs-v020-cross-family-${{ matrix.case }}
           path: .frontier-positive-evidence/
+          include-hidden-files: true
+          if-no-files-found: warn
+
+  v020-pinned-integration:
+    if: github.event_name == 'push' || inputs.suite == 'v020-pinned-integration'
+    name: v0.2.0 pinned QuPRS integration / ${{ matrix.case }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    strategy:
+      fail-fast: false
+      matrix:
+        case: [e2e, qaoa11-transport]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 0344851c7944d846ccdeae69404d3d4bef3e54d5
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: PhysicsQoo/RaWMoCS
+          ref: 0b8538be510718e7c8d79a79875681628b73f9be
+          path: .rawmocs-candidate
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: PhysicsQoo/RaWMoCS
+          ref: b3d02b2720c2fae5231c0ed5cf44950164a5780d
+          path: .rawmocs-baseline
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: PhysicsQoo/GPMC
+          ref: 89bbc89d0de918e7a5385740355df55765039230
+          path: .gpmc
+          submodules: recursive
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            .rawmocs-candidate/crates/rawmocs-cli -> target
+            .rawmocs-baseline/crates/rawmocs-cli -> target
+          cache-workspace-crates: 'false'
+      - name: Build immutable solver revisions and record dependencies
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = 0344851c7944d846ccdeae69404d3d4bef3e54d5
+          test "$(git -C .rawmocs-candidate rev-parse HEAD)" = 0b8538be510718e7c8d79a79875681628b73f9be
+          test "$(git -C .rawmocs-baseline rev-parse HEAD)" = b3d02b2720c2fae5231c0ed5cf44950164a5780d
+          test "$(git -C .gpmc rev-parse HEAD)" = 89bbc89d0de918e7a5385740355df55765039230
+          sudo apt-get -o Dir::Etc::sourcelist=/etc/apt/sources.list.d/ubuntu.sources -o Dir::Etc::sourceparts=- -o APT::Get::List-Cleanup=0 update
+          sudo apt-get -o Dir::Etc::sourcelist=/etc/apt/sources.list.d/ubuntu.sources -o Dir::Etc::sourceparts=- install -y --no-install-recommends cmake ninja-build libgmp-dev libmpfr-dev zlib1g-dev m4 make gcc time pkg-config
+          python -m pip install numpy sympy symengine 'qiskit==2.6.1' qiskit-qasm3-import psutil
+          mkdir -p .v020-integration
+          python -m pip freeze > .v020-integration/dependencies.txt
+          for repo in .rawmocs-candidate .rawmocs-baseline; do
+            cargo build --locked --release --manifest-path "$repo/crates/rawmocs-cli/Cargo.toml"
+          done
+          cmake -S .gpmc -B .gpmc/build -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake --build .gpmc/build --target gpmc-bin --parallel 2
+          sha256sum .rawmocs-{candidate,baseline}/crates/rawmocs-cli/target/release/rawmocs .gpmc/build/gpmc > .v020-integration/binaries.sha256
+          printf '#!/bin/sh\nexec "%s" --solver auto-frontier "$@"\n' "$PWD/.rawmocs-candidate/crates/rawmocs-cli/target/release/rawmocs" > .v020-integration/frontier
+          chmod 700 .v020-integration/frontier
+      - name: Public Python check_equivalence and scoped adapter parity
+        if: matrix.case == 'e2e'
+        env:
+          PYTHONHASHSEED: '0'
+          PYTHONPATH: ${{ github.workspace }}/src:${{ github.workspace }}/.rawmocs-candidate/crates/rawmocs-cli/tools
+        run: |
+          set -euo pipefail
+          for arm in baseline candidate frontier; do
+            raw=".rawmocs-$arm/crates/rawmocs-cli/target/release/rawmocs"
+            if [[ "$arm" == frontier ]]; then raw=.v020-integration/frontier; fi
+            python research/rawmocs_integration/compare.py --case e2e --raw "$raw" --gpmc .gpmc/build/gpmc --out ".v020-integration/$arm"
+          done
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          root=Path(".v020-integration")
+          reports={a:json.loads((root/a/"report.json").read_text()) for a in ("baseline","candidate","frontier")}
+          for r in reports.values():assert r["status"]=="PASS" and len(r["groups"])==4
+          def signature(r):
+              return [(g["case"],g["method"],g["rows"]["rawmocs"]["verdict"],g["rows"]["rawmocs"]["status"],g["rows"]["rawmocs"].get("cnf_sha256")) for g in r["groups"]]
+          assert signature(reports["baseline"])==signature(reports["candidate"])==signature(reports["frontier"])
+          print("V020_QUPRS_PUBLIC_E2E_PASS",json.dumps(signature(reports["candidate"])),flush=True)
+          PY
+      - name: Recover source-locked QAOA11 witness
+        if: matrix.case == 'qaoa11-transport'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          zip="$RUNNER_TEMP/qaoa11-native.zip"
+          gh api repos/PhysicsQoo/QuPRS/actions/artifacts/15163386446/zip > "$zip"
+          echo "60e9e24a2ca2a613f777c4fbb2fe5a5fc5d6e0c48af6f5d7eb4d8b8415cf5760  $zip" | sha256sum -c -
+          unzip -q "$zip" -d .v020-original
+      - name: Actual run_wmc transport with independent oracle and four pinned arms
+        if: matrix.case == 'qaoa11-transport'
+        env:
+          PYTHONHASHSEED: '0'
+          PYTHONPATH: ${{ github.workspace }}/src:${{ github.workspace }}/.rawmocs-candidate/crates/rawmocs-cli/tools:${{ github.workspace }}/research/rawmocs_integration
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json,os,re
+          from pathlib import Path
+          from compare import measure,digest
+          from QuPRS.interface.ps2wmc import run_wmc
+          from QuPRS.utils.solver_adapter import get_solver_adapter
+          from release_transfer import check_count
+          root=Path(".v020-integration").resolve()
+          cnf,=Path(".v020-original").rglob("extended_qaoa11_native-gpmc.cnf")
+          witness,=Path(".v020-original").rglob("independent-reference.json")
+          expected="9590aa1e585eaafae3bed6a9d6e7fbc96f914388d0b3524d567876185329af25"
+          assert digest(cnf)==expected
+          assert digest(witness)=="77017d899f861ce422c7ee264e64cfa2ab2ada1c43ef30b738ee615116828094"
+          ref=json.loads(witness.read_text())
+          assert ref["source_sha256"]==expected and ref["bits"]==550
+          assert ref["width"]<=19 and ref["work"]<=40000000 and ref["peak"]<=2000000
+          gpmc=Path(".gpmc/build/gpmc").resolve()
+          os.environ["QUPRS_GPMC_PATH"]=str(gpmc)
+          default=get_solver_adapter("gpmc")
+          bins={a:Path(".rawmocs-"+a+"/crates/rawmocs-cli/target/release/rawmocs").resolve() for a in ("baseline","candidate")}
+          bins["frontier"]=root/"frontier"
+          report={"status":"IN_PROGRESS","cnf_sha256":expected,"witness_sha256":digest(witness),"digits":130,"bits":432,"target":100,"rows":{}}
+          def save():(root/"transport.json").write_text(json.dumps(report,indent=2)+"\n")
+          save()
+          def action(selected):
+              value=run_wmc(str(cnf.resolve()),selected,timeout=120,preserve_count=True,precision_digits=130 if selected=="gpmc" else None)
+              return {"transport_real":str(value.real),"transport_imag":str(value.imag)}
+          for arm in ("gpmc","baseline","candidate","frontier"):
+              selected="gpmc" if arm=="gpmc" else "rawmocs"
+              row=measure(selected,130,bins.get(arm,bins["candidate"]),gpmc,root/arm,action)
+              report["rows"][arm]=row;save()
+              assert row["status"]=="COMPLETED" and row["cnf_sha256"]==expected,row
+              row["witness_upper"]=check_count(row,ref,100)
+              assert digest(cnf)==expected and digest(witness)==report["witness_sha256"]
+              assert get_solver_adapter("gpmc") is default
+              try:get_solver_adapter("rawmocs")
+              except ValueError:pass
+              else:raise AssertionError("scoped adapter leaked")
+              if arm=="frontier":
+                  stderr=(root/"frontier.stderr").read_text()
+                  assert row["route"]=="prejoin" and re.search(r"^PREJOIN_FRONTIER_STOP steps=\d+ remaining=\d+ reason=exact local bit cap$",stderr,re.M)
+                  assert "RAWMOCS_FALLBACK" not in stderr
+              save()
+          report["status"]="FOUR_ARM_WITNESSED_TRANSPORT_PASS";save()
+          print("V020_QUPRS_TRANSPORT_PASS",json.dumps(report),flush=True)
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: rawmocs-v020-integration-${{ matrix.case }}
+          path: .v020-integration/
           include-hidden-files: true
           if-no-files-found: warn

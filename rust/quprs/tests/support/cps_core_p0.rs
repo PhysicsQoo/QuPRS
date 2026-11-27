@@ -692,6 +692,9 @@ impl CpsCore {
 fn hoare_cps_core_source_obligation_admission(){
     let root=std::path::PathBuf::from(std::env::var("CPS_CORE_SOURCE_DIR").unwrap());
     let mut cases=0;let mut ready=0;let mut blocked=0;let mut gate_ok=0;let mut exact=0;
+    let export=std::env::var_os("CPS_CORE_DECISION_DIR").map(std::path::PathBuf::from);
+    if let Some(d)=&export{std::fs::create_dir_all(d).unwrap();}
+    let mut manifest=String::from("case\tvariant\tmode\tlabel\tinitial\tn\tk\th\tsteps\tstatus\tprimary\tvars\tclauses\tphase\toracle_a\toracle_b\toracle_k\texpected\trr_ns\tencode_ns\n");
     for (case,pre,post,qasm) in AQ_SOURCES{
         let family=match case{"bv03"=>"BV","grover03"=>"Grover","mogrover03"=>"MOGrover",_=>unreachable!()};
         let folder=root.join("benchmarks").join("all").join(family).join("03");
@@ -726,6 +729,8 @@ fn hoare_cps_core_source_obligation_admission(){
             // in the oracle, not merely the same index. In this cohort
             // the family has disjoint classical label supports.
             let mut all=true;
+            let oracle_k=h+post_ref[0].k;
+            let mut oracle_mass=[0;4];
             for x in &pre_ref{
                 let state=dense_state(n,&ops,aq_fixed_input(x).unwrap());
                 let mut any=false;
@@ -736,11 +741,14 @@ fn hoare_cps_core_source_obligation_admission(){
                         dot=add(dot,v.map(|q|q*coeff));
                     }
                     let norm=rus_mul(dot,rus_conj(dot));
+                    assert_eq!(h+t.k,oracle_k);
+                    oracle_mass=add(oracle_mass,norm);
                     any|=norm==[1i64<<(h+t.k),0,0,0];
                 }
                 all&=any;
             }
             assert_eq!(all,expected,"independent source oracle {case}/{variant}");
+            assert_eq!(oracle_mass[2],0);assert_eq!(oracle_mass[1],-oracle_mass[3]);
             cases+=1;
             let Some(bd)=b.adjoint() else{
                 blocked+=1;
@@ -758,6 +766,23 @@ fn hoare_cps_core_source_obligation_admission(){
                 continue;
             };
             ready+=1;
+            if let Some(dir)=&export{
+                // All columns are normalized by the admitted HSL parser and
+                // unitary source gate construction. For each free label s,
+                // UA's first n output bits are deterministic functions of s;
+                // B's first n bits are exactly its free label t. Consequently
+                // at most one target can overlap per input, even without
+                // assuming the same-index pairing. The sum of overlaps is a
+                // valid universal ray-membership criterion for this cohort.
+                let label=core_label_support(&ua,&b);
+                if label{
+                    assert_eq!(v.n(),v.q());
+                    core_export_decision(dir,case,variant,&v,
+                        (oracle_mass[0],oracle_mass[1],oracle_k),expected,&mut manifest);
+                }else{
+                    println!("CPS_CORE_LABEL_SUPPORT case={case} variant={variant} status=UNSUPPORTED");
+                }
+            }
             // Only assert a definite result here for the already bounded
             // scalar BV witness. No dense enumeration of large CPS.
             if case=="bv03"{
@@ -770,6 +795,12 @@ fn hoare_cps_core_source_obligation_admission(){
     }
     assert_eq!((cases,gate_ok,exact),(9,3,3));
     assert_eq!(ready+blocked,cases);
+    if let Some(dir)=export{
+        assert_eq!(ready,9,"source cohort admission regression");
+        assert_eq!(manifest.lines().count(),28,"all source label certificates required");
+        std::fs::write(dir.join("manifest.tsv"),manifest).unwrap();
+        println!("CPS_CORE_DECISION_EXPORT cases=9 arms=27 label_certificates=9");
+    }
     println!("CPS_CORE_OBLIGATION_SUMMARY cases={cases} gate_composition={gate_ok} bv_exact={exact} ready={ready} blocked={blocked}");
 }
 
@@ -795,4 +826,67 @@ fn hoare_cps_core_factored_guard(){
     assert!(c.replay_rr(&[bad]).is_none());
     let (cnf,_,primary,_)=c.wmc_norm_plan().unwrap();assert_eq!(primary,23);assert!(cnf.vars>=primary);
     println!("CPS_CORE_FACTORED_GUARD matrix=PASS native_rr=PASS replay_mutant=REJECTED wmc_plan=PASS");
+}
+
+
+// Source-independent sufficient support certificate for an admitted pair
+// of normalized CPS column families. This is not a general StateSet solver.
+fn core_label_support(ua:&CpsCore,b:&CpsCore)->bool{
+    let n=b.n();
+    ua.valid()&&b.valid()&&ua.n()==n&&ua.q()==b.q()&&n<=b.q()&&
+    (0..n).all(|j|
+        b.ps.f.functions[j]==CoreBool::from_iter([vec![j as u32]])&&
+        ua.ps.f.functions[j].iter().all(|m|m.iter().all(|&v|(v as usize)<n)))
+}
+// Sufficient algebraic terminal for the already certified normalized
+// source obligation. No finite input or path enumeration in decision.
+fn core_ray_rr_terminal(c:&CpsCore)->Option<&'static str>{
+    if c.guard.factors().any(|g|g.is_empty()){return Some("REFUTED");}
+    if c.guard.ids.len()!=c.n(){return None;}
+    if c.k>0{return Some("REFUTED");}
+    if c.k!=0{return None;}
+    Some(if c.guard.factors().all(|g|g==&Anf::from([0])){"PROVED"}else{"REFUTED"})
+}
+fn core_export_decision(dir:&std::path::Path,case:&str,variant:&str,start:&CpsCore,
+                        oracle:(i64,i64,usize),expected:bool,manifest:&mut String){
+    // Store a deterministic serialization of the actual shared initial
+    // CPS fields. All three policy arms refer to this same object.
+    let key=format!("{case}-{variant}");
+    let snap=guarded_snapshot(&start.ps,start.n(),&start.guard).unwrap();
+    let initial=format!("{key}.initial.txt");
+    std::fs::write(dir.join(&initial),format!("k={}\n{snap:?}\n",start.k)).unwrap();
+    let begin=std::time::Instant::now();
+    let mut residual=start.clone();let mut receipts=Vec::new();
+    for _ in 0..32{
+        let Some((next,r))=residual.rr_step() else{break;};
+        receipts.push(r);residual=next;
+    }
+    let rr_ns=begin.elapsed().as_nanos();
+    let replay=start.replay_rr(&receipts).unwrap();
+    assert_eq!(replay.k,residual.k);
+    assert_eq!(guarded_snapshot(&replay.ps,replay.n(),&replay.guard),
+               guarded_snapshot(&residual.ps,residual.n(),&residual.guard));
+    std::fs::write(dir.join(format!("{key}.rr.txt")),format!("{receipts:?}\n")).unwrap();
+    let terminal=core_ray_rr_terminal(&residual);
+    for mode in ["rr","wmc","hybrid"]{
+        let (c,steps,time)=if mode=="wmc"{(start,0,0)}else{(&residual,receipts.len(),rr_ns)};
+        let mut status=if mode=="wmc"{"READY"}else if let Some(t)=terminal{t}else if mode=="rr"{"UNKNOWN"}else{"READY"};
+        let mut primary=0;let mut vars=0;let mut clauses=0;let mut phase=String::new();let mut encode_ns=0;
+        if status=="READY"{
+            let t=std::time::Instant::now();
+            if let Some((cnf,d,p,k))=c.wmc_norm_plan(){
+                assert_eq!(k,c.k);primary=p;vars=cnf.vars;clauses=cnf.clauses.len();
+                phase=d.iter().map(ToString::to_string).collect::<Vec<_>>().join(",");
+                let mut data=format!("p cnf {vars} {clauses}\n");
+                for row in cnf.clauses{for l in row{data.push_str(&format!("{l} "));}data.push_str("0\n");}
+                encode_ns=t.elapsed().as_nanos();
+                std::fs::write(dir.join(format!("{key}-{mode}.cnf")),data).unwrap();
+            }else{status="UNKNOWN";}
+        }
+        let h=c.guard.ids.len()-c.n();let n=c.n();let k=c.k;
+        let (a,b,ok)=oracle;
+        let expect=if expected{"PROVED"}else{"REFUTED"};
+        manifest.push_str(&format!("{case}\t{variant}\t{mode}\tPASS\t{initial}\t{n}\t{k}\t{h}\t{steps}\t{status}\t{primary}\t{vars}\t{clauses}\t{phase}\t{a}\t{b}\t{ok}\t{expect}\t{time}\t{encode_ns}\n"));
+    }
+    println!("CPS_CORE_LABEL_SUPPORT case={case} variant={variant} status=PASS");
 }

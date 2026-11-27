@@ -42,7 +42,7 @@ jobs:
           rustc --version | tee evidence/rustc-version.txt
           cargo --version | tee evidence/cargo-version.txt
           lscpu > evidence/cpu.txt
-          sha256sum rust/quprs/tests/support/autoq_hsl_p0.rs rust/quprs/tests/property_hoare_experiment.rs rust/research/autoq_grover_p0.py rust/research/autoq_c3_pilot.py rust/research/autoq_shared_width_p0.py rust/research/autoq_shared_family_p0.py rust/research/autoq_ss2_p0.py rust/research/autoq_ss3_p0.py rust/quprs/tests/support/cps_core_p0.rs rust/research/cps_core_wmc_p0.py > evidence/source-sha256.txt
+          sha256sum rust/quprs/tests/support/autoq_hsl_p0.rs rust/quprs/tests/property_hoare_experiment.rs rust/research/autoq_grover_p0.py rust/research/autoq_c3_pilot.py rust/research/autoq_shared_width_p0.py rust/research/autoq_shared_family_p0.py rust/research/autoq_ss2_p0.py rust/research/autoq_ss3_p0.py rust/quprs/tests/support/cps_core_p0.rs rust/research/cps_core_wmc_p0.py rust/research/cps_core_source_decision_p0.py > evidence/source-sha256.txt
           sudo apt-get update
           sudo apt-get install -y cmake pkg-config libgmp-dev libmpfr-dev zlib1g-dev libboost-filesystem-dev libboost-test-dev libantlr4-runtime-dev
       - name: Provision pinned GPMC and qualify packed count
@@ -107,8 +107,11 @@ jobs:
           CPS_CORE_SOURCE_DIR="$src" timeout 60s "$bin" --exact exact_property_cnf::hoare_cps_core_source_lowering --nocapture | tee evidence/cps-core-source.log
           test "$(grep -c '^CPS_CORE_SOURCE_FILE .* verified=true$' evidence/cps-core-source.log)" = 9
           grep -F 'CPS_CORE_SOURCE_SUMMARY predicates=6 oracle_columns=20 oracle_entries=4192' evidence/cps-core-source.log
-          CPS_CORE_SOURCE_DIR="$src" timeout 60s "$bin" --exact exact_property_cnf::hoare_cps_core_source_obligation_admission --nocapture | tee evidence/cps-core-obligation.log
-          grep -F 'CPS_CORE_OBLIGATION_SUMMARY cases=9 gate_composition=3 bv_exact=3' evidence/cps-core-obligation.log
+          CPS_CORE_SOURCE_DIR="$src" CPS_CORE_DECISION_DIR="$PWD/evidence/cps-core-decision" timeout 60s "$bin" --exact exact_property_cnf::hoare_cps_core_source_obligation_admission --nocapture | tee evidence/cps-core-obligation.log
+          grep -F 'CPS_CORE_OBLIGATION_SUMMARY cases=9 gate_composition=3 bv_exact=3 ready=9 blocked=0' evidence/cps-core-obligation.log
+          grep -F 'CPS_CORE_DECISION_EXPORT cases=9 arms=27 label_certificates=9' evidence/cps-core-obligation.log
+          timeout 120s python3 rust/research/cps_core_source_decision_p0.py evidence/cps-core-decision "$RUNNER_TEMP/cps-gpmc" | tee evidence/cps-core-decision.log
+          grep -F 'CPS_CORE_DECISION_SUMMARY ' evidence/cps-core-decision.log
           timeout 220s python3 rust/research/autoq_shared_width_p0.py "$bin" "$RUNNER_TEMP/cps-gpmc" evidence/aq-width "$src" evidence/width-smoke 2>&1 | tee evidence/aq-width.log
           grep -F 'AQ_SHARED_WIDTH_SUMMARY ' evidence/aq-width.log
           timeout 150s python3 rust/research/autoq_shared_family_p0.py "$bin" "$RUNNER_TEMP/cps-gpmc" evidence/aq-family "$src" 2>&1 | tee evidence/aq-family.log

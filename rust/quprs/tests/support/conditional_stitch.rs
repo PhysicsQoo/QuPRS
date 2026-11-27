@@ -891,19 +891,37 @@ pub(super) fn native_growth_checkpoint(){
     // native prefix; no solver or production decision is made.
     if let Ok(probe)=std::env::var("CPR_ADMISSION_PROBE"){
         assert_eq!(policy,"strict");assert_eq!(schedule,"difference");
-        assert!(matches!(probe.as_str(),"native"|"lifted"|"inverse"));
+        assert!(matches!(probe.as_str(),"native"|"lifted"|"inverse"|"coverage"));
         for (done,(bra,i)) in order.iter().copied().enumerate(){
             if whole.elapsed().as_secs_f64()>15.0{
                 println!("CPR_A1_STOP arm={probe} reason=prefix_deadline step={done}");return;
             }
             let op=if bra{&b[i]}else{&a[i]};
             if generic_lift_trigger(op,&ps,bra){
+                // Coverage-only audit: stop BEFORE gate, no overlay, lift, RR or solver.
+                if probe=="coverage"{
+                    let (kind,q,anf,d,nodes)=match (bra,op){
+                        (false,RZ(q,a))|(false,P(q,a))|(false,U1(q,a))=>{
+                            let phase=(a.clone()/2).to_phase_coeff();
+                            let s=ps.f.functions[*q].len();
+                            let d=coeff_order(&phase,s);let k=s.min(d);
+                            let nodes=expansion_bound(s+1,k,TERM_CAP+k+1).saturating_sub(k);
+                            ("ket_phase",*q,s,d,nodes)
+                        },
+                        (true,CX(_,q))=>("bra_cx",*q,ps.f.functions[*q].len(),0,0),
+                        _=>("other",0,0,0,0),
+                    };
+                    println!("CPR_A4B_TRIGGER step={done} index={i} kind={kind} q={q} anf={anf} d={d} nodes={nodes} terms={} live={} source_gates={} target_gates={} elapsed_s={}",terms(&ps),ps.v.path_vars.len(),a.len(),b.len(),whole.elapsed().as_secs_f64());return;
+                }
                 cpr_admission_probe(&ps,op,bra,done,i,&probe,whole);return;
             }
             op.apply(&mut ps,bra);
             if terms(&ps)>TERM_CAP{
                 println!("CPR_A1_STOP arm={probe} reason=prefix_cap step={done}");return;
             }
+        }
+        if probe=="coverage"{
+            println!("CPR_A4B_NO_TRIGGER steps={} terms={} live={} source_gates={} target_gates={} elapsed_s={}",order.len(),terms(&ps),ps.v.path_vars.len(),a.len(),b.len(),whole.elapsed().as_secs_f64());return;
         }
         ps.full_reduce();
         println!("CPR_A1_NO_TRIGGER arm={probe} steps={} state_sha={} terms={} live={} elapsed_s={}",order.len(),cpr_admission_hash(&ps),terms(&ps),ps.v.path_vars.len(),whole.elapsed().as_secs_f64());

@@ -105,8 +105,9 @@ def verify(row):
             if g is not None:g=substitute_anf(g,v,phi)
             assert all(v not in m for m in p) and all(v not in m for f in fs for m in f)
             assert g is None or all(v not in m for m in g)
-            phaseadd(p,(v,),F(1,4),F(0))
-            phaseadd(p,(),F(-1,8),F(0))
+            sign=-1 if row.get("direct") else 1
+            phaseadd(p,(v,),F(sign,4),F(0))
+            phaseadd(p,(),F(-sign,8),F(0))
         else:
             assert b["pivot"] is None and not b["rhs"]
             c=dep.pop((y,))
@@ -116,6 +117,16 @@ def verify(row):
             q=F(3,4) if c[0]==F(1,4) else F(1,4)
             phaseadd(p,(),F(1,8) if c[0]==F(1,4) else F(-1,8),F(0))
             for m,k in lift(phi).items():phaseadd(p,m,k*q,F(0))
+            if row.get("direct"):
+                v=row["direct_pivot"];shift=anf(row["direct_shift"])
+                assert v in after["live"] and v>=original["n"] and v not in gs
+                assert all(v not in m and y not in m and set(m)<=set(original["live"]) for m in shift)
+                for coord,val in zip(gs,vals):
+                    shift=substitute_anf(shift,coord,{()} if val else set())
+                shift.symmetric_difference_update({(v,)})
+                p=substitute_phase(p,v,lift(shift))
+                fs=[substitute_anf(f,v,shift) for f in fs]
+                if g is not None:g=substitute_anf(g,v,shift)
         want=(p,fs,g)
         actual=restrict(after,gs,vals)
         assert actual==want, (row["case"],vals,"exact phase/output/guard mismatch")
@@ -132,14 +143,17 @@ def main():
         assert hashlib.sha256(data).hexdigest()==sha
         env[key]=str(path)
         print("CRR_STITCH_SOURCE",side,sha,flush=True)
-    cmd=["timeout","--kill-after=3s","120s","cargo","test","--locked","--manifest-path","rust/Cargo.toml","-p","quprs",
-         "--test","conditional_rr_experiment","conditional_stitch::native_mixed_stitch_pilot","--","--exact","--nocapture"]
+    direct_mode=bool(os.environ.get("CRR_DIRECT_MIXED"))
+    test="conditional_stitch::native_direct_mixed_pilot" if direct_mode else "conditional_stitch::native_mixed_stitch_pilot"
+    cmd=["timeout","--kill-after=3s","120s","cargo","test",*(["--release"] if direct_mode else []),"--locked","--manifest-path","rust/Cargo.toml","-p","quprs",
+         "--test","conditional_rr_experiment",test,"--","--exact","--nocapture"]
     r=subprocess.run(cmd,cwd=ROOT,env=env,capture_output=True,text=True)
     print(r.stdout,flush=True); print(r.stderr[-10000:],file=sys.stderr,flush=True)
     assert r.returncode==0, ("native exit",r.returncode)
-    rows=[json.loads(l.removeprefix("CRR_STITCH ")) for l in r.stdout.splitlines() if l.startswith("CRR_STITCH ")]
-    assert [x["case"] for x in rows]==["synthetic_original","synthetic_guarded","grover-noancilla_4"]
-    assert "CRR_STITCH_NEGATIVE guard_integrator=reject guard_target=reject" in r.stdout
+    prefix="CRR_DIRECT " if direct_mode else "CRR_STITCH "
+    rows=[json.loads(l.removeprefix(prefix)) for l in r.stdout.splitlines() if l.startswith(prefix)]
+    assert [x["case"] for x in rows]==(["synthetic_original","grover-noancilla_4"] if direct_mode else ["synthetic_original","synthetic_guarded","grover-noancilla_4"])
+    assert ("CRR_DIRECT_NEGATIVE output_dependency=reject wrong_quarter=reject" if direct_mode else "CRR_STITCH_NEGATIVE guard_integrator=reject guard_target=reject") in r.stdout
     import copy
     checks=0;negative=0
     for row in rows:
@@ -161,5 +175,17 @@ def main():
             except AssertionError:negative+=1
             else:raise AssertionError("untransported guard accepted")
     print("CRR_STITCH_SUMMARY",json.dumps(dict(branches=checks,mutations_rejected=negative,
-          grover=rows[-1]["status"],source_semantics_certified=False,production=False)),flush=True)
+          grover=rows[-1]["status"],source_semantics_certified=False,production=False,direct=direct_mode)),flush=True)
+    if direct_mode:
+        import statistics
+        def records(prefix):
+            return [json.loads(l.removeprefix(prefix)) for l in r.stdout.splitlines() if l.startswith(prefix)]
+        timing=records("CRR_DIRECT_TIMING ");wmc=records("CRR_DIRECT_WMC ");parity=records("CRR_DIRECT_PARITY ")
+        assert len(timing)==12 and len(wmc)==4 and len(parity)==2
+        assert all(x["status"]=="candidate" for x in rows)
+        print("CRR_DIRECT_SUMMARY",json.dumps(dict(
+            rewrite_median={arm:statistics.median(x["rewrite_s"] for x in timing if x["arm"]==arm) for arm in ("stitch","direct")},
+            rr_total_median={arm:statistics.median(x["rewrite_s"]+x["post_rr_s"] for x in timing if x["arm"]==arm) for arm in ("stitch","direct")},
+            matched_pairs=sum(x["status"]=="matched" for x in parity),
+            completed_solver_calls=sum(x["status"]=="complete" for x in wmc))),flush=True)
 if __name__=="__main__":main()

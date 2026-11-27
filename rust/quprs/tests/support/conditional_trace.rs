@@ -658,7 +658,7 @@ fn exact_trace_cost_policy_rejects_growth(){
 // count restoration/classification. Native RR is shared upstream.
 type Count=quprs::precision_count::PrintedCount;
 type Rat=num_rational::BigRational;
-fn restore_count(mut c:Count,m:usize,o:usize,twice:i32)->(Count,quprs::precision_count::PrintedVerdict){
+pub(super) fn restore_count(mut c:Count,m:usize,o:usize,twice:i32)->(Count,quprs::precision_count::PrintedVerdict){
     use num_bigint::BigInt;
     use quprs::precision_count::observed_distance_verdict;
     let factor=Rat::from_integer(BigInt::from(1u8)<<(m+o/2));
@@ -682,7 +682,7 @@ fn restore_count(mut c:Count,m:usize,o:usize,twice:i32)->(Count,quprs::precision
     }
     (c,verdict)
 }
-fn route_encode(ps:&PathSum)->(quprs::wmc::WmcManager,usize,usize){
+pub(super) fn route_encode(ps:&PathSum)->(quprs::wmc::WmcManager,usize,usize){
     let mut mgr=quprs::wmc::WmcManager::new(ps);
     mgr.enable_precise_gpmc_weights(256);
     mgr.encode_trace(ps).expect("encode");

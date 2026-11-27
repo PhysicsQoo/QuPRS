@@ -190,3 +190,166 @@ fn native_mixed_stitch_pilot(){
     }
     report("grover-noancilla_4",p,None,87,[3,67]);
 }
+
+
+// Direct mixed HH/omega for the original PathSum only.
+// P=P0+y*(Phi/2+C/4), Phi=v XOR A XOR C*B; C is a 2-bit monomial.
+// Replace old v by A XOR C*v in P0 and outputs. The surviving v is
+// phase-only padding on C=0, and a bijective reparameterization on C=1.
+struct Direct {ps:PathSum, guards:[u32;2], pivot:u32, shift:Anf}
+fn direct_mixed(ps:&PathSum,y:u32)->Result<Direct,&'static str>{
+    if ps.rr_approximate || ps.rr_tolerance!=0.0 || !ps.v.continuous_vars.is_empty()
+        || ps.p.terms.values().any(|c|!c.symbols.is_empty())
+        || terms(ps)>TERM_CAP || !ps.get_reducible_vars().contains(&y){
+        return Err("admission");
+    }
+    let ys=ps.p.extract_terms_with_var(y);
+    if ys.is_empty()||ys.len()>8{return Err("integrator term cap");}
+    let mut selector_mono=None;
+    let mut phi=Anf::default();
+    for (m,c) in ys{
+        let rest:Monomial=m.iter().copied().filter(|&v|v!=y).collect();
+        if c.is_pure_quarter()&&rest.len()==2&&selector_mono.is_none(){
+            selector_mono=Some([rest[0],rest[1]]);
+        }else if c.is_pure_half(){toggle(&mut phi,rest);}
+        else{return Err("mixed coefficient pattern");}
+    }
+    let gs=selector_mono.ok_or("missing conditional quarter")?;
+    if gs.iter().any(|g|!ps.v.path_vars.contains(g)){return Err("selector domain");}
+    let v=phi.iter().filter(|m|m.len()==1)
+        .filter(|m|(m[0] as usize)>=ps.v.num_qubits&&ps.v.path_vars.contains(&m[0])
+            &&!gs.contains(&m[0])&&phi.iter().all(|n|n==*m||!n.contains(&m[0])))
+        .map(|m|m[0]).max().ok_or("isolated pivot")?;
+    phi.remove(&vec![v]);
+    let mut a=Anf::default();let mut b=Anf::default();
+    for m in phi{
+        if gs.iter().all(|g|m.contains(g)){
+            toggle(&mut b,m.into_iter().filter(|g|!gs.contains(g)).collect());
+        }else{toggle(&mut a,m);}
+    }
+    if a.len()>3||b.len()>4{return Err("substitution cap");}
+    let mut rhs=a.clone();toggle(&mut rhs,product(&gs,&[v]));
+    let affected=ps.p.terms.keys().chain(ps.f.functions.iter().flatten()).filter(|m|m.contains(&v)).count();
+    if affected.saturating_mul(1usize<<rhs.len())>TERM_CAP{return Err("work cap");}
+    let mut out=ps.clone();
+    out.p.terms.retain(|m,_|!m.contains(&y));
+    out.p.substitute_var_with_poly(v,&rhs);
+    out.f.substitute_var_with_poly(v,&rhs);
+    out.v.path_vars.remove(&y);
+    // Both arms have common padding 1/8-v/4. On C=1 add
+    // C*(3/4*(v XOR B)+v/4).
+    out.p.add_term(vec![],PhaseCoeff::new_constant(Rational::new(1,8)));
+    out.p.add_term(vec![v],PhaseCoeff::THREE_QUARTERS);
+    toggle(&mut b,vec![v]);
+    let mut extra=PhasePolynomial::new();extra+=(&b,PhaseCoeff::THREE_QUARTERS);
+    extra.add_term(vec![v],PhaseCoeff::QUARTER);
+    for (m,c) in extra.terms{out.p.add_term(product(&gs,&m),c);}
+    if terms(&out)>TERM_CAP||out.p.terms.keys().chain(out.f.functions.iter().flatten()).flatten()
+        .any(|id|!out.v.path_vars.contains(id)){return Err("result domain/cap");}
+    Ok(Direct{ps:out,guards:gs,pivot:v,shift:a})
+}
+fn direct_record(name:&str,ps:&PathSum,y:u32,d:&Direct){
+    let mut branches=Vec::new();
+    for a in [false,true]{for b in [false,true]{
+        let vals=[a,b];let omega=a&&b;let mut rhs=d.shift.clone();
+        for (g,val) in d.guards.into_iter().zip(vals){
+            let mut r=Anf::default();if val{r.insert(vec![]);}
+            guard_sub(&mut rhs,ps,g,&r);
+        }
+        if omega{rhs.clear();}
+        branches.push(format!("{{\"values\":{:?},\"rule\":{},\"pivot\":{},\"rhs\":{:?}}}",
+            vals,if omega{1}else{2},if omega{"null".into()}else{d.pivot.to_string()},sorted(&rhs)));
+    }}
+    println!("CRR_DIRECT {{\"case\":\"{name}\",\"status\":\"candidate\",\"direct\":true,\"direct_pivot\":{},\"direct_shift\":{:?},\"y\":{y},\"guards\":{:?},\"before\":{},\"after\":{},\"branches\":[{}],\"hidden_before\":{},\"hidden_after\":{},\"terms_before\":{},\"terms_after\":{},\"incidence_before\":{},\"incidence_after\":{}}}",
+        d.pivot,sorted(&d.shift),d.guards,ir(ps,None),ir(&d.ps,None),branches.join(","),
+        internal(ps).len(),internal(&d.ps).len(),terms(ps),terms(&d.ps),incidence(ps),incidence(&d.ps));
+}
+#[test]
+fn native_direct_mixed_pilot(){
+    use super::conditional_trace::{route_encode,restore_count};
+    use num_bigint::BigInt;
+    use num_rational::BigRational as Rat;
+    use num_traits::{Signed,ToPrimitive};
+    use std::time::Duration;
+    let mut synthetic=PathSum::new(2);
+    let c=synthetic.v.get_fresh_var();let v=synthetic.v.get_fresh_var();let y=synthetic.v.get_fresh_var();
+    synthetic.p.add_term(vec![y,v],PhaseCoeff::HALF);
+    synthetic.p.add_term(vec![0,c,y],PhaseCoeff::QUARTER);
+    synthetic.f.functions[0]=[vec![v]].into_iter().collect();
+    synthetic.f.functions[1]=[vec![c],vec![1]].into_iter().collect();
+    assert!((0..3).all(|r|!probe(&synthetic,y,r)));
+    let direct=direct_mixed(&synthetic,y).expect("direct synthetic");
+    direct_record("synthetic_original",&synthetic,y,&direct);
+    let mut bad=synthetic.clone();bad.f.functions[0].insert(vec![y]);
+    assert!(direct_mixed(&bad,y).is_err());
+    let mut bad=synthetic.clone();bad.p.add_term(vec![y],PhaseCoeff::QUARTER);
+    assert!(direct_mixed(&bad,y).is_err());
+    println!("CRR_DIRECT_NEGATIVE output_dependency=reject wrong_quarter=reject");
+    let source=std::env::var("CRR_SOURCE").expect("locked source");
+    let target=std::env::var("CRR_TARGET").expect("locked target");
+    let start=Instant::now();
+    let (a,n)=parse_qasm_str(&std::fs::read_to_string(&source).unwrap()).unwrap();
+    let (b,m)=parse_qasm_str(&std::fs::read_to_string(&target).unwrap()).unwrap();
+    assert_eq!((n,m),(4,4));let parse_s=start.elapsed().as_secs_f64();
+    let start=Instant::now();
+    let options=VerificationOptions{method:VerificationMethod::ReductionRules,rr_tolerance:0.0,
+        timeout_secs:20,..VerificationOptions::default()};
+    let result=check_equivalence_with_options(n,&a,&b,&options).unwrap();
+    let rr_s=start.elapsed().as_secs_f64();
+    assert!(!result.solver_invoked&&!result.rr_approximate);
+    let p=result.final_pathsum();
+    assert_eq!((result.equivalent(),internal(p).len(),terms(p)),("unknown",29,92));
+    assert!((0..3).all(|r|!probe(p,87,r)));
+    let d=direct_mixed(p,87).expect("locked target87");
+    assert_eq!((d.guards,d.pivot),([3,67],103));
+    direct_record("grover-noancilla_4",p,87,&d);
+    println!("CRR_DIRECT_BASE {{\"parse_s\":{parse_s},\"rr_s\":{rr_s},\"hidden\":29,\"status\":\"unknown\"}}");
+    for rep in 0..6{
+        for k in 0..2{
+            let old=(rep+k)%2==0;let start=Instant::now();
+            let mut q=if old{stitch(p,None,87,[3,67]).expect("prior stitch").ps}
+                else{direct_mixed(p,87).expect("direct").ps};
+            let rewrite=start.elapsed().as_secs_f64();
+            let start=Instant::now();q.full_reduce();let post=start.elapsed().as_secs_f64();
+            assert!(!q.rr_approximate);
+            println!("CRR_DIRECT_TIMING {{\"repeat\":{rep},\"arm\":\"{}\",\"rewrite_s\":{rewrite},\"post_rr_s\":{post},\"hidden\":{},\"terms\":{},\"incidence\":{},\"identity_shape\":{}}}",
+                if old{"stitch"}else{"direct"},internal(&q).len(),terms(&q),incidence(&q),q.is_identity_up_to_phase());
+        }
+    }
+    // Downstream diagnostic only: same pinned GPMC, 256-bit weights,
+    // 90 printed digits and 8s deadline; reuse existing normalization.
+    assert!(std::env::var_os("QUPRS_GPMC_PATH").is_some());
+    let twice=(n+p.v.path_vars.len()) as i32;
+    for rep in 0..2{
+        let mut counts:[Option<_>;2]=[None,None];
+        for k in 0..2{
+            let idx=(rep+k)%2;let arm=if idx==0{"original"}else{"direct"};
+            let start=Instant::now();
+            let q=if idx==0{p.clone()}else{let mut q=direct_mixed(p,87).unwrap().ps;q.full_reduce();q};
+            let rewrite=start.elapsed().as_secs_f64();
+            assert!(!q.rr_approximate);
+            let removed=p.v.path_vars.len()-q.v.path_vars.len();
+            let start=Instant::now();let (mgr,vars,clauses)=route_encode(&q);let encode=start.elapsed().as_secs_f64();
+            let start=Instant::now();
+            let raw=mgr.solve_with_deadline_distance_printed_precision("gpmc",Some(start+Duration::from_secs(8)),90);
+            let solve=start.elapsed().as_secs_f64();
+            match raw{
+                Ok(c)=>{
+                    let (count,verdict)=restore_count(c,0,removed,twice);
+                    println!("CRR_DIRECT_WMC {{\"repeat\":{rep},\"arm\":\"{arm}\",\"status\":\"complete\",\"verdict\":\"{:?}\",\"vars\":{vars},\"clauses\":{clauses},\"rewrite_s\":{rewrite},\"encode_s\":{encode},\"solve_s\":{solve},\"post_rr_total_s\":{},\"shared_prefix_total_s\":{},\"normalization_twice\":{twice},\"removed\":{removed}}}",
+                        verdict,rewrite+encode+solve,parse_s+rr_s+rewrite+encode+solve);
+                    counts[idx]=Some((count,verdict));
+                }
+                Err(e)=>{println!("CRR_DIRECT_WMC_ERROR {arm} {e:#}");
+                    println!("CRR_DIRECT_WMC {{\"repeat\":{rep},\"arm\":\"{arm}\",\"status\":\"incomplete\",\"vars\":{vars},\"clauses\":{clauses},\"rewrite_s\":{rewrite},\"encode_s\":{encode},\"solve_s\":{solve}}}");}
+            }
+        }
+        if let [Some((a,va)),Some((b,vb))]=counts{
+            assert_eq!(std::mem::discriminant(&va),std::mem::discriminant(&vb));
+            let scale=Rat::from_integer(BigInt::from(1u8)<<(twice as usize/2));
+            let delta=((&a.real-&b.real).abs()+(&a.imag-&b.imag).abs())/scale;
+            assert!(delta<=Rat::new(BigInt::from(1u8),BigInt::from(10u8).pow(50)));
+            println!("CRR_DIRECT_PARITY {{\"repeat\":{rep},\"status\":\"matched\",\"normalized_l1_delta\":{:.5e}}}",delta.to_f64().unwrap_or(f64::INFINITY));
+        }else{println!("CRR_DIRECT_PARITY {{\"repeat\":{rep},\"status\":\"incomplete\"}}");}
+    }
+}

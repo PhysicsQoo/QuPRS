@@ -882,7 +882,7 @@ jobs:
     env:
       QUPRS_SOLVER_PROVISION: external
       CARGO_TERM_COLOR: never
-      CRR_PERF_STAGE: mixed_stitch
+      CRR_PERF_STAGE: direct_mixed
     steps:
       - uses: actions/checkout@v4
         with:
@@ -894,6 +894,19 @@ jobs:
           key: conditional-rr-incidence
       - name: Install native prerequisites
         run: sudo apt-get update && sudo apt-get install -y cmake pkg-config libgmp-dev libmpfr-dev zlib1g-dev
+      - name: Run direct structural mixed-rule pilot
+        if: env.CRR_PERF_STAGE == 'direct_mixed'
+        run: |
+          set -euo pipefail
+          mkdir -p evidence
+          git rev-parse HEAD | tee evidence/source-head.txt
+          sha256sum rust/quprs/tests/support/conditional_stitch.rs rust/quprs/tests/support/conditional_trace.rs rust/research/conditional_rr_stitch.py docs/development/paper-corpus-manifest.json > evidence/direct-sha256.txt
+          tmp="$(mktemp -d)"
+          trap 'rm -rf "$tmp"' EXIT
+          python3 scripts/install_gpmc_release.py --dest "$tmp/gpmc" | tee evidence/conditional-gpmc-release.json
+          sha256sum "$tmp/gpmc" | tee evidence/conditional-gpmc-sha256.txt
+          cargo test --release --locked --manifest-path rust/Cargo.toml -p quprs --test conditional_rr_experiment --no-run
+          CRR_DIRECT_MIXED=1 QUPRS_GPMC_PATH="$tmp/gpmc" timeout --kill-after=5s 180s python3 rust/research/conditional_rr_stitch.py 2>&1 | tee evidence/conditional-direct.jsonl
       - name: Run bounded mixed-rule stitching pilot
         if: env.CRR_PERF_STAGE == 'mixed_stitch'
         run: |
@@ -904,7 +917,7 @@ jobs:
           cargo test --locked --manifest-path rust/Cargo.toml -p quprs --test conditional_rr_experiment --no-run
           timeout --kill-after=5s 240s python3 rust/research/conditional_rr_stitch.py 2>&1 | tee evidence/conditional-stitch.jsonl
       - name: Build and run bounded exact controls
-        if: env.CRR_PERF_STAGE != 'mixed_stitch'
+        if: env.CRR_PERF_STAGE != 'mixed_stitch' && env.CRR_PERF_STAGE != 'direct_mixed'
         run: |
           set -euo pipefail
           mkdir -p evidence
@@ -913,7 +926,7 @@ jobs:
           sha256sum rust/quprs/tests/conditional_rr_experiment.rs rust/quprs/tests/support/conditional_trace.rs rust/research/conditional_rr_incidence.py docs/development/paper-corpus-manifest.json > evidence/source-sha256.txt
           CRR_GATE_DIR="$PWD/evidence/portable-gates" cargo test --locked --manifest-path rust/Cargo.toml -p quprs --test conditional_rr_experiment exact_ -- --nocapture 2>&1 | tee evidence/conditional-controls.log
       - name: Profile source-locked original EQ pairs
-        if: env.CRR_PERF_STAGE != 'mixed_stitch'
+        if: env.CRR_PERF_STAGE != 'mixed_stitch' && env.CRR_PERF_STAGE != 'direct_mixed'
         run: |
           set -euo pipefail
           tmp="$(mktemp -d)"

@@ -942,3 +942,94 @@ fn hoare_cps_core_matched_worker(){
     })();
     if run.is_none(){println!("CPS_MATCHED_NATIVE UNSUPPORTED");}
 }
+
+
+// Reuse the existing generic Boolean FactorPilot DAG implementation only.
+// Keep the exact guarded two-copy obligation, primary domain and Z8 phase
+// convention. No new reduction or change to PathSum/Guard semantics.
+impl CpsCore{
+    fn wmc_norm_factored_plan(&self)->Option<(Cnf,[Lit;3],usize,i32)>{
+        if !self.valid()||self.n()!=self.q(){return None;}
+        let s=compact(&self.ps,self.n())?;
+        let primary=s.n.checked_add(s.h.checked_mul(2)?)?;
+        if primary>63{return None;}
+        // Exact sign-only fast fragment; other Z8 phases retain the
+        // existing general phase adder rather than silently approximating.
+        if s.phase.values().any(|&k|k!=4){return None;}
+        let gs=self.guard.compact_factors(&self.ps)?;
+        let mut f=FactorPilot{c:Cnf::new(primary),gates:BTreeMap::new(),polys:BTreeMap::new(),work:0};
+        let l:Vec<Lit>=(0..s.n+s.h).map(|i|i as Lit+2).collect();
+        let r:Vec<Lit>=(0..s.n).map(|i|i as Lit+2)
+            .chain((s.n+s.h..primary).map(|i|i as Lit+2)).collect();
+        for g in &gs{
+            for bits in [&l,&r]{
+                let v=f.anf(g,bits,true)?;f.c.enforce(v);
+            }
+        }
+        for o in &s.output{
+            let a=f.anf(o,&l,true)?;let b=f.anf(o,&r,true)?;
+            let d=f.gate(true,a,b)?;f.c.enforce(-d);
+        }
+        let sign:Anf=s.phase.keys().copied().collect();
+        let a=f.anf(&sign,&l,true)?;let b=f.anf(&sign,&r,true)?;
+        let d=f.gate(true,a,b)?;
+        if !f.bounded(){return None;}
+        Some((f.c,[ZERO,ZERO,d],primary,self.k))
+    }
+}
+#[test]
+fn hoare_cps_core_encoding_ab(){
+    let root=std::path::PathBuf::from(std::env::var("CPS_CORE_SOURCE_DIR").unwrap());
+    let dir=std::path::PathBuf::from(std::env::var("CPS_CORE_ENCODING_DIR").unwrap());
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut manifest=String::from("case\tvariant\troute\tencoding\tn\tk\th\tsteps\tprimary\tvars\tclauses\tphase\tencode_ns\n");
+    let mut count=0;
+    for (case,pre,post,qasm) in AQ_SOURCES{
+        let family=match case{"bv03"=>"BV","grover03"=>"Grover","mogrover03"=>"MOGrover",_=>unreachable!()};
+        let folder=root.join("benchmarks").join("all").join(family).join("03");
+        for (file,embedded) in [("pre.hsl",pre),("post.hsl",post),("circuit.qasm",qasm)]{
+            assert_eq!(std::fs::read_to_string(folder.join(file)).unwrap(),embedded);
+        }
+        let a=core_hsl_lower(pre).unwrap();
+        let (ops,n)=quprs::qasm::parse_qasm_str_source_pinned(qasm).unwrap();
+        assert_eq!(ops,factor_source_ops(qasm,n));
+        let ua=a.then_circuit(&ops).unwrap();
+        for (variant,src) in [
+            ("source",post.to_owned()),
+            ("relative",if case=="bv03"{post.replace("|1011>","|0011>")}else{post.replace("aH := 11 /","aH := -11 /")}),
+            ("global",if case=="bv03"{post.replace("c1 := 1","c1 := -1")}else{post.replace("aH := 11 /","aH := -11 /").replace("aL := -1 /","aL := 1 /")}),
+        ]{
+            let b=core_hsl_lower(&src).unwrap();assert!(core_label_support(&ua,&b));
+            let start=ua.then(&b.adjoint().unwrap()).unwrap();
+            let mut residual=start.clone();let mut receipts=Vec::new();
+            for _ in 0..32{let Some((next,r))=residual.rr_step() else{break;};receipts.push(r);residual=next;}
+            let replay=start.replay_rr(&receipts).unwrap();
+            assert_eq!(replay.k,residual.k);
+            assert_eq!(guarded_snapshot(&replay.ps,replay.n(),&replay.guard),guarded_snapshot(&residual.ps,residual.n(),&residual.guard));
+            for (route,c,steps) in [("raw",&start,0),("residual",&residual,receipts.len())]{
+                let key=format!("{case}-{variant}-{route}");
+                let snap=guarded_snapshot(&c.ps,c.n(),&c.guard).unwrap();
+                std::fs::write(dir.join(format!("{key}.ir")),format!("k={}\n{snap:?}\n",c.k)).unwrap();
+                for encoding in ["flat","dag"]{
+                    let t=std::time::Instant::now();
+                    let (cnf,phase,primary,k)=if encoding=="flat"{c.wmc_norm_plan()}else{c.wmc_norm_factored_plan()}.expect("sign-only source encoder admission");
+                    let ns=t.elapsed().as_nanos();let h=c.guard.ids.len()-c.n();
+                    assert_eq!(k,c.k);assert_eq!(primary,c.n()+2*h);
+                    let vars=cnf.vars;let clauses=cnf.clauses.len();
+                    let mut data=format!("p cnf {vars} {clauses}\n");
+                    for row in &cnf.clauses{for lit in row{data.push_str(&format!("{lit} "));}data.push_str("0\n");}
+                    std::fs::write(dir.join(format!("{key}-{encoding}.cnf")),data).unwrap();
+                    let phase=phase.iter().map(ToString::to_string).collect::<Vec<_>>().join(",");
+                    manifest.push_str(&format!("{case}\t{variant}\t{route}\t{encoding}\t{}\t{k}\t{h}\t{steps}\t{primary}\t{vars}\t{clauses}\t{phase}\t{ns}\n",c.n()));
+                    count+=1;
+                }
+            }
+        }
+    }
+    // Non-real Z8 phase must not enter the sign-only implementation.
+    let t=CpsCore::circuit(1,&[G::T(0)]).unwrap();
+    assert!(t.wmc_norm_factored_plan().is_none());assert!(t.wmc_norm_plan().is_some());
+    assert_eq!(count,36);
+    std::fs::write(dir.join("manifest.tsv"),manifest).unwrap();
+    println!("CPS_ENCODING_EXPORT arms=36 pairs=18 nonreal_reject=PASS");
+}

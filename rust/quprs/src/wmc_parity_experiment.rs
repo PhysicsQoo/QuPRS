@@ -135,6 +135,13 @@ fn factor_plan(ps:&PathSum,cap:usize)->Result<(Vec<(Block,PhaseCoeff)>,std::coll
 impl WmcManager {
     #[doc(hidden)]
     pub fn research_factored_cnf(ps:&PathSum,epsilon:f64,cap:usize)->Result<(String,usize,usize)> {
+        let (w,probes,bits)=Self::research_factored_manager(ps,epsilon,cap)?;
+        Ok((w.try_to_dimacs_string("gpmc")?,probes,bits))
+    }
+
+    pub(crate) fn research_factored_manager(ps:&PathSum,epsilon:f64,cap:usize)->Result<(Self,usize,usize)> {
+        #[cfg(feature="browser-transport")]
+        ensure!(!crate::browser_transport::active(),"native experiment only");
         ensure!(ps.v.continuous_vars.is_empty(),"continuous variables unsupported");
         ensure!(ps.f.functions.len()==ps.v.num_qubits,"invalid output domain");
         let mut domain:Vec<_>=ps.v.path_vars.iter().copied().collect();domain.sort_unstable();
@@ -171,7 +178,7 @@ impl WmcManager {
             weighted(&mut w,&ops,&ps.p.terms[&m],bits)?;
         }
         canonical_trace(&mut w,ps);
-        Ok((w.try_to_dimacs_string("gpmc")?,probes,bits))
+        Ok((w,probes,bits))
     }
 }
 

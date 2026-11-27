@@ -27,6 +27,7 @@ on:
           - d2b-parity
           - d4a
           - d5a
+          - d2b-factored
           - e1c-matrix
           - l1
   push:
@@ -1300,3 +1301,74 @@ jobs:
           name: eq-dag-d5a-router-screen
           path: d5a-evidence/
           retention-days: 30
+
+  eq-dag-d2b-factored:
+    if: github.ref == 'refs/heads/experiment/eq-dag-encoder' && ((github.event_name == 'push' && contains(github.event.head_commit.message, 'native common factor prototype')) || (github.event_name == 'workflow_dispatch' && inputs.dag_stage == 'd2b-factored'))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: eq-dag-d1d-heldout-mqt
+          run-id: 46004315659
+          github-token: ${{ github.token }}
+          path: d1d
+      - uses: actions/download-artifact@v4
+        with:
+          name: eq-dag-e1b-common-factor-cnfs
+          run-id: 46020482676
+          github-token: ${{ github.token }}
+          path: e1b
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: 'rust -> target'
+      - name: Native build and exact inverse controls
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y cmake pkg-config libgmp-dev libmpfr-dev zlib1g-dev
+          QUPRS_SOLVER_PROVISION=external cargo test --locked --release --manifest-path rust/Cargo.toml -p quprs --lib wmc::parity_experiment::tests -- --nocapture
+          QUPRS_SOLVER_PROVISION=external cargo build --locked --release --manifest-path rust/Cargo.toml -p quprs --example eq_dag_d2b_parity
+      - name: All twelve sealed native residual encoding comparisons
+        run: |
+          set -euo pipefail
+          (cd d1d && sha256sum -c SHA256SUMS)
+          (cd e1b && sha256sum -c SHA256SUMS)
+          test "$(cat d1d/head.txt)" = 8811544a462338569bc5a375e3df41fdd18ea3b8
+          test "$(cat d1d/tree.txt)" = b7ebfdcf3cfdac115bf971fddc92306bc66adde8
+          test "$(cat e1b/head.txt)" = 2addb665bd8015791c5ee7527a8ce0de5bf8e3a1
+          test "$(cat e1b/tree.txt)" = f3c63a58c6a7ab651e0117e2a847ffa52b1c0f47
+          mkdir d2b-factored-evidence
+          count=0
+          for cnf in e1b/*-factored.cnf; do
+            name="$(basename "$cnf" -factored.cnf)"
+            echo "D2B_CASE $name"
+            QUPRS_RESEARCH_FACTORED=1 rust/target/release/examples/eq_dag_d2b_parity "d1d/$name-hybrid/residual.tsv" "$cnf" "d2b-factored-evidence/$name.cnf" | tee "d2b-factored-evidence/$name.log"
+            cmp "$cnf" "d2b-factored-evidence/$name.cnf"
+            count=$((count+1))
+          done
+          test "$count" = 12
+          echo D2B_NATIVE_FACTORED_BYTE_PARITY_PASS count=12 solver_calls=0
+      - name: Seal evidence
+        if: always()
+        run: |
+          mkdir -p d2b-factored-evidence
+          git rev-parse HEAD > d2b-factored-evidence/head.txt
+          git rev-parse 'HEAD^{tree}' > d2b-factored-evidence/tree.txt
+          cd d2b-factored-evidence
+          find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 -r sha256sum > SHA256SUMS
+          sha256sum -c SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: eq-dag-d2b-native-factored
+          path: d2b-factored-evidence/
+          retention-days: 30
+

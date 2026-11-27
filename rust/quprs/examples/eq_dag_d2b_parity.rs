@@ -50,7 +50,11 @@ fn main()->Result<()>{
         return Ok(())
     }
     let start=Instant::now();
-    let (text,work,bits)=WmcManager::research_parity_cnf(&ps,1e-8,3_000_000)?;
+    let (text,work,bits)=if std::env::var("QUPRS_RESEARCH_FACTORED").as_deref()==Ok("1"){
+        WmcManager::research_factored_cnf(&ps,1e-8,3_000_000)?
+    } else {
+        WmcManager::research_parity_cnf(&ps,1e-8,3_000_000)?
+    };
     let elapsed=start.elapsed().as_secs_f64();
     fs::write(&args[3],&text)?;
     ensure!(text.as_bytes()==fs::read(&args[2])?.as_slice(),"E1e byte parity mismatch");

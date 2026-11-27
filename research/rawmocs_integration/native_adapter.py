@@ -1,5 +1,6 @@
 """Experimental scoped in-process WMC transport; not a built-in backend."""
 from contextlib import contextmanager
+from dataclasses import dataclass, field
 from fractions import Fraction
 import math
 
@@ -17,7 +18,10 @@ class NativeFailure(SolverExecutionError):
         super().__init__(str(error))
 
 
+@dataclass(frozen=True)
 class NativeAdapter(RawAdapter):
+    token: object = field(default=None, repr=False, compare=False)
+
     def execute_native(self, cnf_path, timeout, *, capture_decimal):
         # Lazy optional import; existing GPMC/CLI paths have no native dependency.
         import rawmocs
@@ -26,7 +30,7 @@ class NativeAdapter(RawAdapter):
         if budget_ms <= 0:
             raise SolverTimeout("Native budget exhausted before solve")
         try:
-            result = rawmocs.solve_file(cnf_path, digits=digits, timeout_ms=budget_ms)
+            result = rawmocs.solve_file(cnf_path, digits=digits, timeout_ms=budget_ms, token=self.token)
         except rawmocs.SolveError as exc:
             if exc.kind == "TIMEOUT":
                 raise SolverTimeout(str(exc)) from exc
@@ -49,9 +53,9 @@ class NativeAdapter(RawAdapter):
 
 
 @contextmanager
-def registered_native(digits=30):
+def registered_native(digits=30, *, token=None):
     if type(digits) is not int or digits not in SUPPORTED_DIGITS:
         raise ValueError("unsupported Native precision")
-    adapter = NativeAdapter("rawmocs_native", ("--digits", str(digits)), SolverCapabilities("pair"))
+    adapter = NativeAdapter("rawmocs_native", ("--digits", str(digits)), SolverCapabilities("pair"), token=token)
     with registered_solver_adapter(adapter):
         yield adapter

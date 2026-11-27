@@ -11,7 +11,7 @@ on:
       suite:
         description: Bounded Frontier admission suite
         type: choice
-        options: [frontier-release-quality, frontier-vqe16-gpmc-scout, v020-cross-family-scout, v020-pinned-integration, v020-planner-diagnosis, v020-width-transfer, v020-rust-integration, v020-final-admission, v020-frontier-holdout, v020-shared-contraction, v020-package-rehearsal, p4-native-first, p4-native-long]
+        options: [frontier-release-quality, frontier-vqe16-gpmc-scout, v020-cross-family-scout, v020-pinned-integration, v020-planner-diagnosis, v020-width-transfer, v020-rust-integration, v020-final-admission, v020-frontier-holdout, v020-shared-contraction, v020-package-rehearsal, p4-native-first, p4-native-long, p4-native-safety]
         default: frontier-release-quality
 permissions:
   contents: read
@@ -2030,7 +2030,7 @@ jobs:
           if-no-files-found: warn
 
   p4-native-long:
-    if: github.event_name == 'push' || inputs.suite == 'p4-native-long'
+    if: github.event_name == 'workflow_dispatch' && inputs.suite == 'p4-native-long'
     name: P4.5 long witnessed transport / ${{ matrix.case }}
     runs-on: ubuntu-24.04
     timeout-minutes: 25
@@ -2123,5 +2123,80 @@ jobs:
         with:
           name: rawmocs-p4-long-${{ matrix.case }}
           path: .p4-long-evidence/
+          include-hidden-files: true
+          if-no-files-found: warn
+
+  p4-native-safety:
+    if: github.event_name == 'push' || inputs.suite == 'p4-native-safety'
+    name: P4.6 cooperative cancellation, deadline and repeated RSS
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    env:
+      OPENBLAS_NUM_THREADS: '1'
+      OMP_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+      PYTHONHASHSEED: '0'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: PhysicsQoo/RaWMoCS
+          ref: abe8316737ab5c90305160ea2d41626482cd65b7
+          path: .rawmocs-candidate
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: PhysicsQoo/GPMC
+          ref: 89bbc89d0de918e7a5385740355df55765039230
+          path: .gpmc
+          submodules: recursive
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            .rawmocs-candidate/crates/rawmocs-cli -> target
+            .rawmocs-candidate/crates/rawmocs-python -> target
+      - name: Build source-pinned candidate and GPMC
+        run: |
+          set -euo pipefail
+          test "$(git -C .rawmocs-candidate rev-parse HEAD)" = abe8316737ab5c90305160ea2d41626482cd65b7
+          test "$(git -C .gpmc rev-parse HEAD)" = 89bbc89d0de918e7a5385740355df55765039230
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends cmake ninja-build libgmp-dev libmpfr-dev zlib1g-dev m4 make gcc pkg-config
+          python -m pip install maturin==1.8.3 numpy sympy symengine 'qiskit==2.6.1' qiskit-qasm3-import psutil
+          cargo build --locked --release --manifest-path .rawmocs-candidate/crates/rawmocs-cli/Cargo.toml
+          (cd .rawmocs-candidate; maturin build --locked --release --interpreter python --compatibility linux --out "$RUNNER_TEMP/p4-wheel")
+          python -m pip install --no-index "$RUNNER_TEMP"/p4-wheel/*.whl
+          cmake -S .gpmc -B .gpmc/build -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake --build .gpmc/build --target gpmc-bin --parallel 2
+          mkdir -p .p4-safety-evidence
+          python -m pip freeze > .p4-safety-evidence/dependencies.txt
+          sha256sum "$RUNNER_TEMP"/p4-wheel/*.whl .rawmocs-candidate/crates/rawmocs-cli/target/release/rawmocs .gpmc/build/gpmc > .p4-safety-evidence/binaries.sha256
+      - name: Recover source-locked QPE witness
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          zip="$RUNNER_TEMP/p4-safety.zip"
+          gh api repos/PhysicsQoo/RaWMoCS/actions/artifacts/14999026030/zip > "$zip"
+          echo "a11704d97a21c7642054c31caaa733e734a0505860fb63a1acd94b22a906ee9f  $zip" | sha256sum -c -
+          unzip -q "$zip" -d .p4-safety-input
+      - name: Regression and bounded resource safety in a disposable worker
+        env:
+          PYTHONPATH: ${{ github.workspace }}:${{ github.workspace }}/src:${{ github.workspace }}/.rawmocs-candidate/crates/rawmocs-cli/tools
+        run: |
+          set -euo pipefail
+          timeout -k 2s 90s prlimit --as=3221225472 -- python research/rawmocs_integration/native_safety.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: rawmocs-p4-safety
+          path: .p4-safety-evidence/
           include-hidden-files: true
           if-no-files-found: warn

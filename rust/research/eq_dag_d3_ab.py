@@ -30,10 +30,11 @@ def sha(p):
 def git(*args):
     return subprocess.check_output(["git",*args],text=True).strip()
 
-def run(solver,reader,cnf,arm,k):
+def run(solver,reader,cnf,arm,k,cap=CAP):
+    assert type(cap) is int and cap>0
     arm.mkdir()
     rss=arm/"rss.txt"
-    cmd=["prlimit","--as=4294967296","--","/usr/bin/time","-f","%M","-o",str(rss),"timeout","--kill-after=2s",str(CAP),str(solver),"-mode=1",str(cnf)]
+    cmd=["prlimit","--as=4294967296","--","/usr/bin/time","-f","%M","-o",str(rss),"timeout","--kill-after=2s",str(cap),str(solver),"-mode=1",str(cnf)]
     start=time.monotonic()
     with (arm/"stdout.txt").open("wb") as out,(arm/"stderr.txt").open("wb") as err:
         p=subprocess.run(cmd,stdout=out,stderr=err)

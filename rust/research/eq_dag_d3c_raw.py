@@ -9,11 +9,12 @@ from eq_dag_d3_ab import sha,git,compare,DELTA
 RAW="7ff6b1fdb772f16367fd1e094761a368d54f2ea7"
 CASES=("wstate_16","grover-noancilla_negative_5","qwalk-noancilla_negative_5","vqe_16","qnn_12")
 MODES=("flat","deep","balanced")
-def run(binary,cnf,out,large):
+def run(binary,cnf,out,large,cap=60):
+    assert type(cap) is int and cap>0
     out.mkdir()
-    args=["--digits","30","--solver","general" if large else "auto","--timeout-ms","60000"]
+    args=["--digits","30","--solver","general" if large else "auto","--timeout-ms",str(cap*1000)]
     if large: args+=["--large-general"]
-    cmd=["prlimit","--as=4294967296","--","/usr/bin/time","-f","%M","-o",str(out/"rss.txt"),"timeout","--kill-after=2s","62",str(binary),*args,str(cnf)]
+    cmd=["prlimit","--as=4294967296","--","/usr/bin/time","-f","%M","-o",str(out/"rss.txt"),"timeout","--kill-after=2s",str(cap+2),str(binary),*args,str(cnf)]
     start=time.monotonic()
     with (out/"stdout.txt").open("wb") as o,(out/"stderr.txt").open("wb") as e:
         p=subprocess.run(cmd,stdout=o,stderr=e)

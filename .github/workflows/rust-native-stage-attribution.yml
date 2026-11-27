@@ -23,6 +23,7 @@ on:
           - e1b
           - e1c
           - e1c-matrix
+          - l1
   push:
     branches: [experiment/eq-dag-encoder]
     paths:
@@ -744,9 +745,10 @@ jobs:
           python3 -m py_compile rust/research/eq_dag*.py
           python3 -B rust/research/eq_dag_ci_smoke.py
           python3 -B rust/research/eq_dag_e1c_matrix.py controls
+          python3 -B rust/research/eq_dag_e1c_l1.py controls
 
   eq-dag-e1c-build:
-    if: github.ref == 'refs/heads/experiment/eq-dag-encoder' && github.event_name == 'workflow_dispatch' && inputs.dag_stage == 'e1c-matrix'
+    if: github.ref == 'refs/heads/experiment/eq-dag-encoder' && github.event_name == 'workflow_dispatch' && (inputs.dag_stage == 'e1c-matrix' || inputs.dag_stage == 'l1')
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
@@ -896,4 +898,54 @@ jobs:
         with:
           name: eq-dag-e1c-matrix-aggregate
           path: eq-dag-e1c-aggregate/
+          retention-days: 30
+
+  eq-dag-l1:
+    if: github.ref == 'refs/heads/experiment/eq-dag-encoder' && github.event_name == 'workflow_dispatch' && inputs.dag_stage == 'l1'
+    needs: eq-dag-e1c-build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: eq-dag-e1c-solver-bundle
+          path: solver-bundle
+      - uses: actions/download-artifact@v4
+        with:
+          name: eq-dag-d1d-heldout-mqt
+          run-id: 46004315659
+          github-token: ${{ github.token }}
+          path: d1d
+      - name: Regenerate small CNFs and run bounded screening
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y libgmp-dev libmpfr-dev zlib1g-dev time gcc
+          (cd solver-bundle && sha256sum -c SHA256SUMS)
+          chmod +x solver-bundle/gpmc solver-bundle/reader solver-bundle/rawmocs
+          (cd d1d && sha256sum -c SHA256SUMS)
+          cc -O2 -shared -fPIC rust/quprs/native/mpfr_weight_bridge.c -lmpfr -lgmp -o "$RUNNER_TEMP/phase_weight.so"
+          python3 -u rust/research/eq_dag_e1c_l1.py d1d solver-bundle "$RUNNER_TEMP/phase_weight.so" eq-dag-l1-evidence | tee l1.log
+      - name: Seal screening evidence
+        if: always()
+        run: |
+          mkdir -p eq-dag-l1-evidence
+          test ! -f l1.log || cp l1.log eq-dag-l1-evidence/
+          git rev-parse HEAD > eq-dag-l1-evidence/head.txt
+          git rev-parse 'HEAD^{tree}' > eq-dag-l1-evidence/tree.txt
+          lscpu > eq-dag-l1-evidence/cpu.txt
+          cd eq-dag-l1-evidence
+          find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 -r sha256sum > SHA256SUMS
+          sha256sum -c SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: eq-dag-l1-screen
+          path: eq-dag-l1-evidence/
           retention-days: 30

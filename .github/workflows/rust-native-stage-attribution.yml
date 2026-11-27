@@ -12,6 +12,7 @@ on:
       - 'rust/research/eq_dag_d1e*'
       - 'rust/research/eq_dag_d2a*'
       - 'rust/research/eq_dag_d3*'
+      - 'rust/research/eq_dag_e1*'
       - 'rust/quprs/examples/eq_dag_d3_count.rs'
       - '.github/workflows/rust-native-stage-attribution.yml'
 
@@ -412,7 +413,7 @@ jobs:
           retention-days: 30
 
   eq-dag-d3c:
-    if: github.ref == 'refs/heads/experiment/eq-dag-encoder' && github.event_name == 'push'
+    if: github.ref == 'refs/heads/experiment/eq-dag-encoder' && github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -469,7 +470,7 @@ jobs:
           retention-days: 30
 
   eq-dag-raw-pilot:
-    if: github.ref == 'refs/heads/experiment/eq-dag-encoder' && github.event_name == 'push'
+    if: github.ref == 'refs/heads/experiment/eq-dag-encoder' && github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-24.04
     timeout-minutes: 50
     permissions:
@@ -539,4 +540,49 @@ jobs:
         with:
           name: eq-dag-raw-topology-pilot
           path: eq-dag-raw-evidence/
+          retention-days: 30
+
+  eq-dag-e1a:
+    if: github.ref == 'refs/heads/experiment/eq-dag-encoder' && github.event_name == 'push'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: eq-dag-d1-residual-census
+          run-id: 46002431913
+          github-token: ${{ github.token }}
+          path: d1b
+      - uses: actions/download-artifact@v4
+        with:
+          name: eq-dag-d1d-heldout-mqt
+          run-id: 46004315659
+          github-token: ${{ github.token }}
+          path: d1d
+      - name: Exact phase-factor recovery census
+        run: |
+          set -euo pipefail
+          for d in d1b d1d; do (cd "$d" && sha256sum -c SHA256SUMS); done
+          python3 -u rust/research/eq_dag_e1a_census.py d1b d1d eq-dag-e1a-evidence | tee e1a.log
+      - name: Seal evidence
+        if: always()
+        run: |
+          mkdir -p eq-dag-e1a-evidence
+          test ! -f e1a.log || cp e1a.log eq-dag-e1a-evidence/
+          git rev-parse HEAD > eq-dag-e1a-evidence/head.txt
+          git rev-parse 'HEAD^{tree}' > eq-dag-e1a-evidence/tree.txt
+          cd eq-dag-e1a-evidence
+          find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 -r sha256sum > SHA256SUMS
+          sha256sum -c SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: eq-dag-e1a-phase-factor-census
+          path: eq-dag-e1a-evidence/
           retention-days: 30

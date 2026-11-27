@@ -61,10 +61,11 @@ def native():
                     env.pop(k,None)
                 env.pop("CPR_RR_FIRST",None)
                 if arm=="cpr":env["CPR_RR_FIRST"]="1"
-                test="conditional_stitch::native_growth_checkpoint" if arm!="main" else "cpr_public_hybrid"
+                env.pop("CPR_MEMORY_DIAGNOSTIC",None)
+                mode="cpr" if arm!="main" else "public"
                 with tempfile.TemporaryDirectory() as tmp:
                     meter=Path(tmp)/"meter"
-                    cmd=["/usr/bin/time","-f","%e %M","-o",str(meter),"timeout","--kill-after=2s","35s",str(bins[arm]),test,"--exact","--nocapture"]
+                    cmd=["/usr/bin/time","-f","%e %M","-o",str(meter),"timeout","--kill-after=2s","35s",str(bins[arm]),mode]
                     r=subprocess.run(cmd,cwd=ROOT,env=env,capture_output=True,text=True,preexec_fn=limit)
                     resource=meter.read_text().splitlines()[-1].split() if meter.exists() and meter.read_text().strip() else []
                 outer,rss=(float(resource[0]),int(resource[1])) if len(resource)==2 else (None,None)
@@ -176,6 +177,31 @@ def source_parity():
     emit("CPR_RRFIRST_SOURCE_GATE",matched=matched,completed=len(receipts),unverified=missing)
     assert matched==len(receipts)>0 and missing==0
 
+def memory_diagnostic():
+    # Independent process-level attribution, never substitute adjusted RSS for raw gate.
+    name,variant,n,source,target=next(e for e in entries() if e[:2]==("ghz_32","positive"))
+    bins={"main":Path(os.environ["CPR_BIN_MAIN"]),"branch":Path(os.environ["CPR_BIN_CPR"])}
+    cases=[("main","noop"),("branch","noop"),("main","public"),("branch","public"),("branch","cpr")]
+    for rep in range(10):
+        for binary,mode in cases[rep%len(cases):]+cases[:rep%len(cases)]:
+            env=dict(os.environ,CRR_CASE=name,CRR_VARIANT=variant,CRR_SOURCE=str(ROOT/source["path"]),CRR_TARGET=str(ROOT/target["path"]),CRR_POLICY="strict",CRR_SCHEDULE="difference",CRR_GENERIC_ARM="conditional_router",CRR_BRA_RESCUE="1",CRR_LIFT_INDEXED="1",CPR_RR_FIRST="1",CPR_MEMORY_DIAGNOSTIC="1")
+            for k in ("CPR_CNF_DIR","CRR_LIFT_CHECKPOINT","CRR_LIFT_POLICY","QUPRS_STAGE_LEDGER"):env.pop(k,None)
+            with tempfile.TemporaryDirectory() as tmp:
+                meter=Path(tmp)/"meter"
+                r=subprocess.run(["/usr/bin/time","-f","%M","-o",str(meter),"timeout","--kill-after=2s","35s",str(bins[binary]),mode],cwd=ROOT,env=env,capture_output=True,text=True,preexec_fn=limit)
+                assert r.returncode==0,r.stderr
+                rss=int(meter.read_text().strip())
+            snapshots={}
+            for line in r.stdout.splitlines():
+                if line.startswith("CPR_MEMORY_SNAPSHOT "):
+                    _,stage,source_name,metric,value,*_=line.split()
+                    snapshots[stage+" "+source_name+" "+metric]=int(value)
+            assert all(f"stage={stage} source=status {key}:" in snapshots for stage in ("before","after") for key in ("VmRSS","VmHWM","RssAnon","RssFile")),snapshots
+            if mode=="public":assert "CPR_PUBLIC status=Equivalent" in r.stdout and "solver=false" in r.stdout
+            if mode=="cpr":assert "proof=rr_exact_projective solver=false" in r.stdout
+            emit("CPR_RRFIRST_MEMORY_DIAGNOSTIC",binary=binary,mode=mode,repeat=rep,raw_rss_kib=rss,snapshots=snapshots)
+
 if __name__=="__main__":
     if os.environ.get("CRR_GENERIC_LOG"):source_parity()
+    elif os.environ.get("CPR_MEMORY_DIAGNOSTIC_RUN"):memory_diagnostic()
     else:native()

@@ -1376,7 +1376,7 @@ jobs:
           test "$(git rev-parse HEAD:rust/research/conditional_rr_tensor_source.py)" = "f6a9372c0bbe147e96eeb7446f2875819f68be77"
           test "$(git rev-parse HEAD:docs/development/paper-corpus-manifest.json)" = "cdfb2cf1a88b1ae7c026f331463ba5588b453622"
           printf '%s\n' 'C2_BASE_STITCH_UNCHANGED_SOLVER_ORACLE_MANIFEST_PASS 57cd6677a99114e2acf8b541294ccf4a982a0bdf' | tee evidence/frozen-policy.txt
-          sha256sum rust/quprs/tests/support/conditional_stitch.rs rust/quprs/tests/support/conditional_trace.rs rust/research/cpr_rr_first.py rust/quprs/tests/cpr_public_hybrid.rs rust/quprs/src/wmc.rs pinned-main/rust/quprs/src/lib.rs pinned-main/rust/quprs/src/wmc.rs rust/Cargo.lock pinned-main/rust/Cargo.lock > evidence/source-sha256.txt
+          sha256sum rust/quprs/examples/cpr_native_public.rs rust/quprs/examples/cpr_native_runner.rs rust/quprs/tests/conditional_rr_experiment.rs rust/quprs/tests/support/conditional_stitch.rs rust/quprs/tests/support/conditional_trace.rs rust/research/cpr_rr_first.py rust/quprs/tests/cpr_public_hybrid.rs rust/quprs/src/wmc.rs pinned-main/rust/quprs/src/lib.rs pinned-main/rust/quprs/src/wmc.rs rust/Cargo.lock pinned-main/rust/Cargo.lock > evidence/source-sha256.txt
           rustc -Vv > evidence/rustc.txt
           lscpu > evidence/cpu.txt
           tmp="$(mktemp -d)"
@@ -1391,14 +1391,24 @@ jobs:
             cargo test --release --locked --manifest-path "$manifest" -p quprs --test "$name" --no-run --message-format=json > "$dest"
             python3 -c 'import json,sys; rows=[json.loads(l) for l in open(sys.argv[1])]; p=[r["executable"] for r in rows if r.get("reason")=="compiler-artifact" and r.get("target",{}).get("name")==sys.argv[2] and r.get("executable")]; assert len(p)==1,p; print(p[0])' "$dest" "$name"
           }
-          export CPR_BIN_MAIN="$(build_test pinned-main/rust/Cargo.toml cpr_public_hybrid evidence/main-build.jsonl)"
-          export CPR_BIN_CPR="$(build_test rust/Cargo.toml conditional_rr_experiment evidence/cpr-build.jsonl)"
+          control_bin="$(build_test rust/Cargo.toml conditional_rr_experiment evidence/controls-build.jsonl)"
+          mkdir -p pinned-main/rust/quprs/examples
+          cp rust/quprs/examples/cpr_native_public.rs pinned-main/rust/quprs/examples/cpr_native_public.rs
+          build_example() {
+            local manifest="$1" name="$2" dest="$3"
+            cargo build --release --locked --manifest-path "$manifest" -p quprs --example "$name" --message-format=json > "$dest"
+            python3 -c 'import json,sys; rows=[json.loads(l) for l in open(sys.argv[1])]; p=[r["executable"] for r in rows if r.get("reason")=="compiler-artifact" and r.get("target",{}).get("name")==sys.argv[2] and r.get("executable")]; assert len(p)==1,p; print(p[0])' "$dest" "$name"
+          }
+          export CPR_BIN_MAIN="$(build_example pinned-main/rust/Cargo.toml cpr_native_public evidence/main-build.jsonl)"
+          export CPR_BIN_CPR="$(build_example rust/Cargo.toml cpr_native_runner evidence/cpr-build.jsonl)"
           export CPR_BIN_FROZEN="$CPR_BIN_CPR"
+          size "$CPR_BIN_MAIN" "$CPR_BIN_CPR" "$control_bin" | tee evidence/binary-size.txt
           test "$(git -C pinned-main diff --name-only)" = ""
-          "$CPR_BIN_CPR" conditional_trace::cpr_router_controls --exact --nocapture | tee evidence/controls.log
+          "$control_bin" conditional_trace::cpr_router_controls --exact --nocapture | tee evidence/controls.log
           grep -Fx 'CPR_ROUTER_CONTROLS_PASS' evidence/controls.log
-          "$CPR_BIN_CPR" conditional_trace::cpr_rr_first_controls --exact --nocapture | tee evidence/rr-controls.log
+          "$control_bin" conditional_trace::cpr_rr_first_controls --exact --nocapture | tee evidence/rr-controls.log
           grep -Fx 'CPR_RR_FIRST_CONTROLS_PASS' evidence/rr-controls.log
+          CPR_MEMORY_DIAGNOSTIC_RUN=1 timeout --kill-after=5s 120s python3 rust/research/cpr_rr_first.py 2>&1 | tee evidence/memory-diagnostic.log
           set +e
           timeout --kill-after=5s 2100s python3 rust/research/cpr_rr_first.py 2>&1 | tee evidence/matched.log
           cohort_status=${PIPESTATUS[0]}

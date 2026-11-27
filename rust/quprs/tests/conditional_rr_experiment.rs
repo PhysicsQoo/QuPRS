@@ -270,3 +270,7 @@ fn exact_structural_input_and_depth_two_controls() {
     }}
     println!("CRR_STRUCTURAL_GUARD controls=2");
 }
+
+// Standalone research runner shares the exact native checkpoint implementation.
+#[cfg(not(test))]
+pub fn cpr_native_run() { conditional_stitch::native_growth_checkpoint(); }

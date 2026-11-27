@@ -853,8 +853,8 @@ fn native_frontier_pilot(){
 
 // Original online RR trajectory, stopped at the first bounded residual
 // blow-up. Diagnostic only: no partial miter is classified as EQ/NEQ.
-#[test]
-fn native_growth_checkpoint(){
+#[cfg_attr(test,test)]
+pub(super) fn native_growth_checkpoint(){
     use quprs::ir::QuantumOp::*;
     use similar::{Algorithm,DiffOp};
     let whole=Instant::now();

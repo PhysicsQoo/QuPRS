@@ -2,8 +2,8 @@
 use quprs::{check_equivalence_with_options, qasm::parse_qasm_str, VerificationOptions, VerificationMethod, VerificationStrategy};
 use std::time::Instant;
 
-#[test]
-fn cpr_public_hybrid() {
+#[cfg_attr(test,test)]
+pub fn cpr_public_hybrid() {
     let start = Instant::now();
     let (a,n)=parse_qasm_str(&std::fs::read_to_string(std::env::var("CRR_SOURCE").unwrap()).unwrap()).unwrap();
     let (b,m)=parse_qasm_str(&std::fs::read_to_string(std::env::var("CRR_TARGET").unwrap()).unwrap()).unwrap();

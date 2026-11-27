@@ -38,9 +38,33 @@ theorem neg_concat_even {w : Nat} (x : BitVec w) :
 
 /-- Derive the in-range complement bit directly from the XOR definition,
     avoiding the getElem_not/toNat_not simplification path. -/
+theorem ones_bit_local (w i : Nat) (hi : i < w) :
+    (2^w-1).testBit i = true := by
+  induction i generalizing w with
+  | zero =>
+      cases w with
+      | zero => omega
+      | succ n =>
+          rw [Nat.testBit_zero, Nat.pow_succ]
+          have hp : 0 < 2^n := Nat.two_pow_pos n
+          exact decide_eq_true (by omega)
+  | succ j ih =>
+      cases w with
+      | zero => omega
+      | succ n =>
+          rw [Nat.testBit_succ, Nat.pow_succ]
+          have hp : 0 < 2^n := Nat.two_pow_pos n
+          have he : (2^n*2-1)/2 = 2^n-1 := by omega
+          rw [he]
+          exact ih n (by omega)
+
 theorem complement_bit {w : Nat} (x : BitVec w) (i : Nat) (hi : i < w) :
     (~~~x).getLsbD i = !x.getLsbD i := by
-  rw [BitVec.not_def, BitVec.getLsbD_xor, BitVec.getLsbD_allOnes, decide_eq_true hi]
+  rw [BitVec.not_def, BitVec.getLsbD_xor]
+  have ho : (BitVec.allOnes w).getLsbD i = true := by
+    change (2^w-1).testBit i = true
+    exact ones_bit_local w i hi
+  rw [ho]
   cases x.getLsbD i <;> rfl
 
 theorem complement_concat {w : Nat} (x : BitVec w) (b : Bool) :
@@ -436,6 +460,7 @@ theorem reconstruct_at_count (m a : Word) :
     reconstruct m.cpop.toNat m a = a &&& m :=
   reconstruct_complete _ m a (exact_count_finish m)
 
+#print axioms ones_bit_local
 #print axioms complement_bit
 #print axioms complement_concat
 #print axioms complement_involutive

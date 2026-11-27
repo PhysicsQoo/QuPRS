@@ -1884,3 +1884,109 @@ fn hoare_autoq_ss2_arm(){
     let verdict=if std::time::Instant::now()>=deadline{"UNKNOWN"}else{match result{Some(true)=>"PROVED",Some(false)=>"REFUTED",None=>"UNKNOWN"}};
     println!("AQ_C3_NATIVE case={case} mode={mode} verdict={verdict} route=ss2-finite queries={queries} witness={witness:?} admission={admission} native_ns={}",start.elapsed().as_nanos());
 }
+
+// SS3: a restricted circuit-prepared StateSet adapter. Each ray is
+// |label> tensor H/T-prepared second wire, not an arbitrary HSL state.
+// Reuse existing exact overlap against |00> after appending B_j dagger.
+#[test]
+fn hoare_autoq_ss3_arm(){
+    let Ok(case)=std::env::var("AQ_C3_CASE")else{return;};
+    use quprs::{check_equivalence_with_options,EquivalenceStatus,VerificationOptions,VerificationMethod,VerificationStrategy};
+    use std::io::Write;
+    let mode=std::env::var("AQ_C3_MODE").unwrap();assert_eq!(mode,"wmc");
+    let file=std::path::PathBuf::from(std::env::var_os("AQ_C3_CNF").unwrap());
+    let start=std::time::Instant::now();
+    let deadline=start+std::time::Duration::from_millis(std::env::var("AQ_C3_BUDGET_MS").unwrap().parse().unwrap());
+    let n=2usize;let ops=vec![G::T(1)];
+    // kind 0 = |0>, 1 = |+>, 2 = T|+>, 3 = T^7|+>.
+    let a=vec![(0usize,1usize),(1,1),(0,0),(1,0)];
+    let mut b=vec![(0usize,0usize),(1,0),(0,2),(1,2)];
+    match case.as_str(){
+        "ss3-positive"|"ss3-unknown-recover"|"ss3-unknown-unresolved"=>{},
+        "ss3-relative"=>{b[2].1=3;b[3].1=3;},
+        "ss3-late-negative"|"ss3-unknown-late-refute"=>{b.drain(..2);},
+        "ss3-nonclosed"=>{b.remove(3);},
+        _=>panic!("unknown SS3 fixture"),
+    }
+    let prep=|(label,kind):(usize,usize)|->Vec<G>{
+        let mut gates=Vec::new();if label==1{gates.push(G::X(0));}
+        if kind!=0{gates.push(G::H(1));}
+        for _ in 0..match kind{2=>1,3=>7,_=>0}{gates.push(G::T(1));}
+        gates
+    };
+    let inverse=|(label,kind):(usize,usize)|->Vec<G>{
+        let mut gates=Vec::new();
+        for _ in 0..match kind{2=>7,3=>1,_=>0}{gates.push(G::T(1));}
+        if kind!=0{gates.push(G::H(1));}
+        if label==1{gates.push(G::X(0));}gates
+    };
+    let mut queries=0usize;let mut witness=None;let mut admission="build";
+    let result=(||->Option<bool>{
+        // Each column's U A_i checkpoint is shared by all target comparisons.
+        let mut columns=Vec::new();let mut checkpoint=String::new();
+        for (i,&v) in a.iter().enumerate(){
+            let mut gates=prep(v);gates.extend(ops.iter().cloned());
+            let ps=aq_fixed_pre_path(n,0,&gates,deadline)?;
+            let s=compact(&ps,n)?;
+            checkpoint.push_str(&format!("i={i} pre={v:?} h={} guard=1 output={:?} phase={:?}\n",s.h,s.output,s.phase));
+            columns.push(ps);
+        }
+        std::fs::write(file.with_extension("initial.txt"),checkpoint).ok()?;
+        let request=std::env::var("AQ_SHARED_FAMILY").ok().as_deref()==Some("orbit");
+        let bad=std::env::var_os("AQ_CPS_ORBIT_BAD").is_some();
+        // Exact closure for the admitted product preparation template:
+        // X on wire 0 toggles label, commutes with all wire 1 prep gates.
+        let closed=a.iter().all(|&(s,k)|a.contains(&(s^1,k)))&&b.iter().all(|&(s,k)|b.contains(&(s^1,k)));
+        let mut certified=false;
+        if request&&closed{
+            let mut lhs=vec![G::X(0)];lhs.extend(ops.iter().cloned());
+            let mut rhs=ops.clone();rhs.push(G::X(if bad{1}else{0}));
+            let opt=VerificationOptions{method:VerificationMethod::ReductionRules,
+                strategy:VerificationStrategy::Difference,tool_name:"gpmc".into(),timeout_secs:1,
+                rr_tolerance:0.0,..VerificationOptions::default()};
+            let r=check_equivalence_with_options(n,&lhs,&rhs,&opt).ok()?;
+            let p=&r.final_ps;
+            let h=p.v.path_vars.iter().filter(|&&id|id as usize>=p.v.num_qubits).count();
+            certified=r.status==EquivalenceStatus::Equivalent&&!r.rr_approximate&&
+                !r.solver_invoked&&h==0&&p.p.terms.is_empty();
+            println!("AQ_SS3_CERT status={} exact={certified}",r.status.as_str());
+        }
+        let reps:Vec<usize>=if certified{a.iter().enumerate().filter(|(_,v)|v.0==0).map(|(i,_)|i).collect()}else{(0..a.len()).collect()};
+        if certified&&!a.iter().all(|&(s,k)|reps.iter().any(|&i|a[i]==(0,k)&&a.contains(&(s,k)))){return None;}
+        println!("AQ_SS3_ROUTE closed={closed} certified={certified} indices={reps:?}");
+        std::io::stdout().flush().ok()?;
+        let zero=AqState{n,k:0,terms:vec![AqTerm{pattern:AqPattern::Fixed(0),signed:1}]};
+        let mut any_unknown=false;
+        for i in reps{
+            let mut matched=false;let mut unknown=false;
+            for (j,&v) in b.iter().enumerate(){
+                if std::time::Instant::now()>=deadline{return None;}
+                let mut ps=columns[i].clone();
+                for g in inverse(v){g.apply(&mut ps,false);}
+                let s=compact(&ps,n)?;
+                let Some((c,phase,primary))=aq_overlap(&s,0,&zero)else{unknown=true;continue;};
+                let mut data=format!("p cnf {} {}\n",c.vars,c.clauses.len());
+                for row in &c.clauses{for l in row{data.push_str(&format!("{l} "));}data.push_str("0\n");}
+                std::fs::write(&file,data).ok()?;
+                let rem=deadline.saturating_duration_since(std::time::Instant::now());
+                if rem.is_zero(){return None;}
+                admission="membership";queries+=1;
+                println!("AQ_SS3_PAIR input={i} target={j} k={}",s.h);
+                println!("AQ_C3_QUERY {} {} {} {}",primary,s.h,phase.iter().map(ToString::to_string).collect::<Vec<_>>().join(","),rem.as_millis());
+                std::io::stdout().flush().ok()?;
+                let mut answer=String::new();if std::io::stdin().read_line(&mut answer).ok()?==0{return None;}
+                // Fault injection at the reply boundary, not a real solver failure.
+                let pair_key=format!("{i}:{j}");
+                let injected=std::env::var("AQ_SS3_FAULT").ok().as_deref()==Some(pair_key.as_str());
+                if injected{println!("AQ_SS3_INJECT input={i} target={j} actual={}",answer.trim());}
+                match if injected{"UNKNOWN"}else{answer.trim()}{
+                    "PROVED"=>{matched=true;break;},"REFUTED"=>{},_=>unknown=true
+                }
+            }
+            if !matched{if unknown{any_unknown=true;}else{witness=Some(i);return Some(false);}}
+        }
+        if any_unknown{None}else{admission="complete";Some(true)}
+    })();
+    let verdict=if std::time::Instant::now()>=deadline{"UNKNOWN"}else{match result{Some(true)=>"PROVED",Some(false)=>"REFUTED",None=>"UNKNOWN"}};
+    println!("AQ_C3_NATIVE case={case} mode={mode} verdict={verdict} route=ss3-prepared queries={queries} witness={witness:?} admission={admission} native_ns={}",start.elapsed().as_nanos());
+}

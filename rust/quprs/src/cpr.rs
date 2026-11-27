@@ -106,8 +106,8 @@ fn coeff_order(c:&PhaseCoeff,s:usize)->usize{
     if c.radians.is_some()||!c.symbols.is_empty()||!d.is_power_of_two(){s}
     else{d.trailing_zeros() as usize}
 }
-fn phase_gate_bound(op:&quprs::ir::QuantumOp,ps:&PathSum)->Option<(usize,usize)>{
-    use quprs::ir::QuantumOp::*;
+fn phase_gate_bound(op:&crate::ir::QuantumOp,ps:&PathSum)->Option<(usize,usize)>{
+    use crate::ir::QuantumOp::*;
     let cap=1_000_000usize;
     let (q,coeffs,cross)=match op{
         RZ(q,a)|P(q,a)|U1(q,a)=>(*q,vec![(a.clone()/2).to_phase_coeff()],0),
@@ -122,11 +122,11 @@ fn phase_gate_bound(op:&quprs::ir::QuantumOp,ps:&PathSum)->Option<(usize,usize)>
     let work=coeffs.iter().map(|c|expansion_bound(s,coeff_order(c,s),cap)).sum::<usize>().saturating_add(cross*s);
     Some((q,work))
 }
-fn generic_lift_trigger(op:&quprs::ir::QuantumOp,ps:&PathSum,bra:bool)->bool{
+fn generic_lift_trigger(op:&crate::ir::QuantumOp,ps:&PathSum,bra:bool)->bool{
     if !bra{
         return phase_gate_bound(op,ps).is_some_and(|(q,w)|w>2048&&w>8*(ps.f.functions[q].len()+2));
     }
-    if let quprs::ir::QuantumOp::CX(_,t)=op{
+    if let crate::ir::QuantumOp::CX(_,t)=op{
         let x=*t as u32;
         let p=ps.p.terms.keys().filter(|m|m.contains(&x)).count();
         let f=ps.f.functions.iter().flatten().filter(|m|m.contains(&x)).count();

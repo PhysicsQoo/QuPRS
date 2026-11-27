@@ -3265,7 +3265,7 @@ pub(super) fn generic_trace_handoff(ps:&PathSum,pairs:&[(u32,u32)],case:&str,var
     }
     let twice=(ps.v.num_qubits+ps.v.path_vars.len()) as i32;
     let start=Instant::now();
-    let (view,rows)=extract_lift_integrators(ps,pairs);
+    let (view,rows)=if arm=="conditional_raw"{(ps.clone(),Vec::new())}else{extract_lift_integrators(ps,pairs)};
     let mut mgr=quprs::wmc::WmcManager::new(&view);
     mgr.enable_precise_gpmc_weights(256);
     mgr.encode_trace_with_zero_constraints(&view,&rows).expect("trace");

@@ -680,8 +680,79 @@ def generic_lift_cohort():
         else:print("CRR_GENERIC_COMPARE",name,variant,"incomplete","returned="+",".join(results),flush=True)
     assert mismatches==0,("paired normalized count mismatch",mismatches)
 
+
+def lift_core_acceptance():
+    import resource,tempfile,re,statistics
+    from decimal import Decimal,localcontext
+    from fractions import Fraction
+    manifest=json.loads((ROOT/"docs/development/paper-corpus-manifest.json").read_text())
+    cases={c["id"]:c for c in manifest["cohorts"]["table2_mqt"]["cases"]}
+    scope=[("wstate_16","positive"),("wstate_16","random_rotation"),("qwalk-noancilla_5","positive"),("qwalk-noancilla_5","random_rotation"),("grover-noancilla_6","positive")]
+    # Four-arm cyclic Latin square: each arm occurs once at each order.
+    arms=["original","conditional_scan","conditional_raw","conditional"]
+    def limit():resource.setrlimit(resource.RLIMIT_AS,(3*1024**3,3*1024**3))
+    def norm(row,key):
+        q=Fraction(row[key]);k=int(row["twice"])
+        with localcontext() as ctx:
+            ctx.prec=150
+            return Decimal(q.numerator)/Decimal(q.denominator)/(Decimal(2)**(k//2)*(Decimal(2).sqrt() if k%2 else 1))
+    mismatches=0;regressions=[]
+    for name,variant in scope:
+        c=cases[name]
+        target=c["transpiled"] if variant=="positive" else dict(path="benchmarks/MQTBench/Random_Rotation/"+Path(c["source"]["path"]).name,git_blob_sha1=GENERIC_NEGATIVE[name])
+        paths=[]
+        for entry in (c["source"],target):
+            p=ROOT/entry["path"];data=p.read_bytes()
+            assert hashlib.sha1(f"blob {len(data)}\0".encode()+data).hexdigest()==entry["git_blob_sha1"]
+            print("CRR_ACCEPT_SOURCE",name,variant,entry["path"],hashlib.sha256(data).hexdigest(),flush=True);paths.append(p)
+        receipts={a:[] for a in arms}
+        # Wstate source oracle is the immediate gate, not performance
+        # evidence; only re-run original and conditional once here.
+        orders=[["original","conditional"]] if name=="wstate_16" else [arms[r:]+arms[:r] for r in range(4)]
+        for repeat,order in enumerate(orders):
+            for arm in order:
+                env=dict(os.environ,CRR_CASE=name,CRR_VARIANT=variant,CRR_SOURCE=str(paths[0]),CRR_TARGET=str(paths[1]),CRR_POLICY="strict",CRR_SCHEDULE="difference",CRR_GENERIC_ARM=arm,CRR_BRA_RESCUE="1",CRR_ACCEPT_REPEAT=str(repeat))
+                env.pop("CRR_LIFT_INDEXED",None)
+                if arm!="conditional_scan":env["CRR_LIFT_INDEXED"]="1"
+                cmd=["timeout","--kill-after=2s","35s","cargo","test","--release","--locked","--manifest-path","rust/Cargo.toml","-p","quprs","--test","conditional_rr_experiment","conditional_stitch::native_growth_checkpoint","--","--exact","--nocapture"]
+                with tempfile.TemporaryDirectory() as tmp:
+                    meter=Path(tmp)/"meter"
+                    r=subprocess.run(["/usr/bin/time","-f","elapsed_s=%e max_rss_kib=%M","-o",str(meter),*cmd],cwd=ROOT,env=env,capture_output=True,text=True,preexec_fn=limit)
+                    print("CRR_ACCEPT_RESOURCE",name,variant,arm,repeat,meter.read_text().strip().replace("\n"," | ") if meter.exists() else "missing",flush=True)
+                # Print the exact receipts with run identity, and retain
+                # policy summaries. A timed out child is still censored.
+                for line in r.stdout.splitlines():
+                    if line.startswith("CRR_GENERIC_CALL "):print(line+" repeat="+str(repeat),flush=True)
+                    elif line.startswith(("CRR_POLICY_SUMMARY ","CRR_GENERIC_TRIGGER ","CRR_GENERIC_STOP ","CRR_GENERIC_CONSTRUCT ","CRR_BRA_RESCUE ","CRR_HANDOFF_PAIR ")):print(line,flush=True)
+                if r.returncode in (124,137) or "memory allocation" in r.stderr.lower():
+                    print("CRR_ACCEPT_CENSORED",name,variant,arm,repeat,r.returncode,flush=True);continue
+                assert r.returncode==0,(name,variant,arm,r.stderr[-4000:])
+                rows=[dict(re.findall(r"(\w+)=([^ ]+)",l)) for l in r.stdout.splitlines() if l.startswith("CRR_GENERIC_CALL ") and "status=complete" in l]
+                if rows:
+                    assert len(rows)==1;receipts[arm].append(rows[0])
+        all_rows=[r for rows in receipts.values() for r in rows]
+        if all_rows:
+            ref=all_rows[0]
+            with localcontext() as ctx:
+                ctx.prec=150
+                for row in all_rows[1:]:
+                    delta=sum(abs(norm(ref,k)-norm(row,k)) for k in ("real","imag"))
+                    if delta>=Decimal("1e-50") or row["verdict"]!=ref["verdict"]:mismatches+=1
+        for arm,rows in receipts.items():
+            if not any(arm in order for order in orders):continue
+            times=[float(r["total_s"]) for r in rows]
+            summary=dict(case=name,variant=variant,arm=arm,complete=len(rows),attempted=len(orders),median_complete_s=statistics.median(times) if times else None,min_s=min(times) if times else None,max_s=max(times) if times else None)
+            for key in ("construct_s","prepare_s","solve_s"):
+                summary["median_"+key]=statistics.median(float(r[key]) for r in rows) if rows else None
+            print("CRR_ACCEPT_SUMMARY "+json.dumps(summary),flush=True)
+        if len(receipts["conditional"])!=len(orders):regressions.append((name,variant,len(receipts["conditional"]),len(orders)))
+    print("CRR_ACCEPT_GATE "+json.dumps(dict(count_mismatches=mismatches,full_policy_regressions=regressions)),flush=True)
+    assert mismatches==0,("balanced count mismatch",mismatches)
+    assert not regressions,("full policy completion regression",regressions)
+
 if __name__=="__main__":
-    if os.environ.get("CRR_GENERIC_COHORT"):generic_lift_cohort()
+    if os.environ.get("CRR_LIFT_ACCEPTANCE"):lift_core_acceptance()
+    elif os.environ.get("CRR_GENERIC_COHORT"):generic_lift_cohort()
     elif os.environ.get("CRR_LIFT_HANDOFF"):lift_handoff()
     elif os.environ.get("CRR_LIFT_POLICY_COMPARISON"):lift_policy_comparison()
     elif os.environ.get("CRR_CONDITIONAL_LIFT"):conditional_lift_checkpoint()

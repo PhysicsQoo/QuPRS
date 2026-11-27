@@ -895,7 +895,7 @@ fn native_growth_checkpoint(){
             if whole.elapsed().as_secs_f64()>15.0{
                 println!("CRR_GENERIC_STOP case={case} variant={variant} arm={arm} reason=wall_budget advanced={done} total={}",order.len());return;
             }
-            if arm=="conditional"&&generic_lift_trigger(op,&ps,bra){
+            if arm.starts_with("conditional")&&generic_lift_trigger(op,&ps,bra){
                 println!("CRR_GENERIC_TRIGGER case={case} variant={variant} step={done} bra={bra} index={i} gate={op:?}");
                 policy_continue(&mut ps,&a,&b,&order[done..],&case,&variant,"adaptive",whole.elapsed().as_secs_f64());return;
             }

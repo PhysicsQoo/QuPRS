@@ -380,13 +380,21 @@ def generic_source_parity():
     for name,variant in GENERIC_CASES:
         c=cases[name];n=c["qubits"]
         rows=[r for r in receipts if r["case"]==name and r["variant"]==variant]
-        if n>6 or not rows:
+        if (n>6 and name!="wstate_16") or not rows:
             print("CRR_GENERIC_SOURCE_ADMISSION",name,variant,"unverified",flush=True);continue
         target=c["transpiled"] if variant=="positive" else dict(path="benchmarks/MQTBench/Random_Rotation/"+Path(c["source"]["path"]).name,git_blob_sha1=GENERIC_NEGATIVE[name])
         try:a,ha=load(c["source"],n);b,hb=load(target,n)
         except ValueError as e:
             print("CRR_GENERIC_SOURCE_ADMISSION",name,variant,"unsupported",str(e),flush=True);continue
-        d=1<<n;total=sum((dense_overlap(a,b,k,n) for k in range(d)),acb(0))/d
+        d=1<<n;meta={}
+        if name=="wstate_16":
+            from conditional_rr_tensor_source import tensor_trace
+            try:
+                total,meta=tensor_trace(a,b,n)
+            except ValueError as e:
+                print("CRR_GENERIC_SOURCE_ADMISSION",name,variant,"unverified",str(e),flush=True);continue
+        else:
+            total=sum((dense_overlap(a,b,k,n) for k in range(d)),acb(0))/d
         threshold=(1-EPS*EPS).sqrt()
         verdict="Equivalent" if abs(total).lower()>threshold else "NotEquivalent" if abs(total).upper()<threshold else "INCONCLUSIVE"
         def exact(s):
@@ -397,7 +405,7 @@ def generic_source_parity():
             delta=abs(observed-total).upper()
             ok=delta<arb("1e-50") and row["verdict"]==verdict
             mismatches+=int(not ok)
-            print("CRR_GENERIC_SOURCE_PARITY "+json.dumps(dict(case=name,variant=variant,arm=row["arm"],matched=bool(ok),source_verdict=verdict,delta=str(delta),source_sha256=ha,target_sha256=hb,columns=d)),flush=True)
+            print("CRR_GENERIC_SOURCE_PARITY "+json.dumps(dict(case=name,variant=variant,arm=row["arm"],repeat=row.get("repeat","0"),matched=bool(ok),source_verdict=verdict,delta=str(delta),source_sha256=ha,target_sha256=hb,columns=d,method="tensor_trace" if meta else "dense",**meta)),flush=True)
     assert mismatches==0,("independent source parity mismatch",mismatches)
 if __name__=="__main__":
     if os.environ.get("CRR_GENERIC_LOG"):generic_source_parity()

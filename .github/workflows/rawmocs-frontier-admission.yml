@@ -9,7 +9,7 @@ on:
       suite:
         description: Bounded Frontier admission suite
         type: choice
-        options: [frontier-release-quality, frontier-vqe16-gpmc-scout, v020-cross-family-scout, v020-pinned-integration, v020-planner-diagnosis]
+        options: [frontier-release-quality, frontier-vqe16-gpmc-scout, v020-cross-family-scout, v020-pinned-integration, v020-planner-diagnosis, v020-width-transfer]
         default: frontier-release-quality
 permissions:
   contents: read
@@ -646,7 +646,7 @@ jobs:
           if-no-files-found: warn
 
   v020-planner-diagnosis:
-    if: github.event_name == 'push' || inputs.suite == 'v020-planner-diagnosis'
+    if: github.event_name == 'workflow_dispatch' && inputs.suite == 'v020-planner-diagnosis'
     name: v0.2.0 bounded plan-only diagnosis / ${{ matrix.case }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
@@ -782,6 +782,223 @@ jobs:
         if: always()
         with:
           name: rawmocs-v020-plan-${{ matrix.case }}
+          path: .v020-plan-evidence/
+          include-hidden-files: true
+          if-no-files-found: warn
+
+  v020-width-transfer:
+    if: github.event_name == 'push' || inputs.suite == 'v020-width-transfer'
+    name: v0.2.0 structural cutset transfer / ${{ matrix.case }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - case: vqe16_native
+            artifact: 15166930703
+            zip_sha: e535f1659836d6316eb1d20e2df2df74b810184d76ba67931e66e5599d1305c1
+            cnf_sha: 5683d3d2780614cb23526a7c14644e7b52d710a994de8a6d9d81b1b2097bc624
+          - case: qnn12_native
+            artifact: 15166063610
+            zip_sha: 6bb36c83a575ec45779d6fb8b9c384fe59d1684dad0fe3877f60597c5392d7bd
+            cnf_sha: 7c8841e0cf9c1c3f8b8b366750311aa9f630639f5f4446921aa1917fb55f3703
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: PhysicsQoo/RaWMoCS
+          ref: 0b8538be510718e7c8d79a79875681628b73f9be
+          path: .plan-candidate
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: .plan-candidate/crates/rawmocs-cli -> target
+          shared-key: rawmocs-general-dependencies
+          cache-workspace-crates: 'false'
+      - name: Verify original candidate and recover immutable CNF
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT: ${{ matrix.artifact }}
+          ZIP_SHA: ${{ matrix.zip_sha }}
+          CNF_SHA: ${{ matrix.cnf_sha }}
+        run: |
+          set -euo pipefail
+          test "$(git -C .plan-candidate rev-parse HEAD)" = 0b8538be510718e7c8d79a79875681628b73f9be
+          mkdir -p .v020-plan-evidence .v020-plan-input
+          zip="$RUNNER_TEMP/plan-input.zip"
+          gh api "repos/PhysicsQoo/QuPRS/actions/artifacts/$ARTIFACT/zip" > "$zip"
+          echo "$ZIP_SHA  $zip" | sha256sum -c -
+          unzip -q "$zip" -d .v020-plan-input
+          sudo apt-get -o Dir::Etc::sourcelist=/etc/apt/sources.list.d/ubuntu.sources -o Dir::Etc::sourceparts=- -o APT::Get::List-Cleanup=0 update
+          sudo apt-get -o Dir::Etc::sourcelist=/etc/apt/sources.list.d/ubuntu.sources -o Dir::Etc::sourceparts=- install -y --no-install-recommends libgmp-dev libmpfr-dev m4 make gcc pkg-config
+          python3 - <<'PY'
+          import hashlib,json,os
+          from pathlib import Path
+          root=Path(".v020-plan-input")
+          cnf,=root.rglob("*-gpmc.cnf")
+          report,=root.rglob("report.json")
+          r=json.loads(report.read_text())
+          assert r["rawmocs_sha"]=="0b8538be510718e7c8d79a79875681628b73f9be"
+          assert r["status"]=="FRONTIER_NOT_COMPLETE" and r["rows"]["frontier"]["fallback_reasons"]==["no bounded prejoin plan"]
+          assert hashlib.sha256(cnf.read_bytes()).hexdigest()==r["cnf_sha256"]==os.environ["CNF_SHA"]
+          Path(".v020-plan-evidence/input.json").write_text(json.dumps({"cnf":str(cnf.resolve()),"source_sha256":r["cnf_sha256"],"prior":r["rows"]["frontier"],"artifact":os.environ["ARTIFACT"]},indent=2)+"\n")
+          PY
+      - name: Add disposable graph-ranked cutset probe
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path(".plan-candidate/crates/rawmocs-cli/src/factor_prejoin.rs")
+          s=p.read_text()
+          anchor="mod tests {\n    use super::*;"
+          assert s.count(anchor)==1
+          test=r'''
+              // Scope-only ranking is a heuristic, never an admission bound.
+              // Conditional restriction may remove additional axes.
+              fn v020_graph_score(fs: &[Factor<R>], nodes: &Scope, cuts: &[usize]) -> (usize, u64) {
+                  let vars: Vec<_> = nodes.iter().copied().collect();
+                  assert!(vars.len() <= 64);
+                  let mut graph = vec![0u64; vars.len()];
+                  let mut active = 0u64;
+                  for (i, v) in vars.iter().enumerate() {
+                      if !cuts.contains(v) { active |= 1u64 << i; }
+                  }
+                  for f in fs {
+                      let mut mask = 0u64;
+                      for v in &f.scope {
+                          mask |= 1u64 << vars.binary_search(v).unwrap();
+                      }
+                      mask &= active;
+                      for i in mask_indices(mask) { graph[i] |= mask & !(1u64 << i); }
+                  }
+                  let mut best=(usize::MAX,u64::MAX);
+                  for use_fill in [true,false] {
+                      let mut g=graph.clone();
+                      let mut a=active;
+                      let mut width=0usize;
+                      let mut proxy=0u64;
+                      while a!=0 {
+                          let i=mask_indices(a).min_by_key(|&i| {
+                              let nb=g[i]&a;
+                              let degree=nb.count_ones();
+                              let missing=if use_fill {
+                                  mask_indices(nb).map(|j| (nb & !g[j] & !(1u64<<j)).count_ones()).sum::<u32>()/2
+                              } else { degree };
+                              (missing,degree,i)
+                          }).unwrap();
+                          let nb=g[i]&a;
+                          let w=nb.count_ones() as usize;
+                          width=width.max(w);
+                          proxy=proxy.saturating_add(1u64 << w.min(63));
+                          a &= !(1u64<<i);
+                          for j in mask_indices(nb) { g[j]=(g[j] | (nb & !(1u64<<j))) & !(1u64<<i); }
+                      }
+                      best=best.min((width,proxy));
+                  }
+                  best
+              }
+              #[test]
+              #[ignore = "bounded structural cutset probe on original source"]
+              fn v020_width_transfer_probe() {
+                  let raw=std::fs::read_to_string(std::env::var("RAWMOCS_TEST_ORIGINAL").unwrap()).unwrap();
+                  let p=parse_emitted(&raw,432).unwrap();
+                  let d=Instant::now()+Duration::from_secs(30);
+                  let (fs,nodes,scalar,local)=local_frontier_policy::<false,true>(&p,&raw,d,true,true,None,true).unwrap();
+                  assert!(nodes.len()<=64);
+                  println!("V020_WIDTH_LOCAL remaining={} factors={} work={} peak={}",nodes.len(),fs.len(),local.work,local.peak);
+                  let retained=fs.iter().map(|f|f.values.len()).sum::<usize>();
+                  let mut beam=vec![Vec::<usize>::new()];
+                  for depth in 1..=4 {
+                      let mut seen=BTreeSet::new();
+                      let mut ranked=Vec::new();
+                      for cuts in &beam {
+                          for &v in &nodes {
+                              if cuts.contains(&v) {continue;}
+                              if Instant::now()>=d {println!("V020_WIDTH_TERMINAL DEADLINE");return;}
+                              let mut next=cuts.clone();next.push(v);next.sort_unstable();
+                              if !seen.insert(next.clone()) {continue;}
+                              ranked.push((v020_graph_score(&fs,&nodes,&next),next));
+                          }
+                      }
+                      ranked.sort();
+                      ranked.truncate(4);
+                      beam=ranked.into_iter().map(|(score,cut)| {
+                          println!("V020_WIDTH_RANK depth={depth} graph_width={} proxy={} cuts={cut:?}",score.0,score.1);
+                          cut
+                      }).collect();
+                      if depth<3 {continue;}
+                      for cuts in &beam {
+                          let ns:Scope=nodes.iter().copied().filter(|v|!cuts.contains(v)).collect();
+                          let mut cost=local.clone();
+                          let mut leaves=0usize;
+                          let mut status="ADMITTED";
+                          for m in 0..(1usize<<cuts.len()) {
+                              if Instant::now()>=d {println!("V020_WIDTH_TERMINAL DEADLINE");return;}
+                              let (f,_)=match restrict(&fs,&scalar,cuts,m) {
+                                  Ok(x)=>x,Err(_)=>{status="RESTRICT_REJECT";break;}
+                              };
+                              let mut leaf:Option<Plan>=None;
+                              for policy in [Some(0),Some(4),None] {
+                                  for reverse in [true,false] {
+                                      match plan(&f,&ns,(policy,reverse),retained,d) {
+                                          Ok(Some(x))=>{
+                                              if leaf.as_ref().is_none_or(|b|(x.cost.work,x.cost.peak,x.cost.width)<(b.cost.work,b.cost.peak,b.cost.width)){leaf=Some(x);}
+                                          }
+                                          Ok(None)=>{}
+                                          Err(reason)=>{println!("V020_WIDTH_TERMINAL PLAN_ERROR {reason}");return;}
+                                      }
+                                  }
+                              }
+                              let Some(x)=leaf else {status="LEAF_REJECT";break;};
+                              leaves+=1;
+                              cost.work+=x.cost.work+retained;
+                              cost.peak=cost.peak.max(x.cost.peak);
+                              cost.width=cost.width.max(x.cost.width);
+                              if cost.work>WORK {status="AGGREGATE_WORK_REJECT";break;}
+                              if cost.peak>LIVE {status="AGGREGATE_LIVE_REJECT";break;}
+                          }
+                          println!("V020_WIDTH_CUT depth={depth} leaves={leaves} expected={} width={} work={} peak={} status={status} cuts={cuts:?}",1usize<<cuts.len(),cost.width,cost.work,cost.peak);
+                          if status=="ADMITTED" {
+                              assert_eq!(leaves,1usize<<cuts.len());
+                              println!("V020_WIDTH_TERMINAL BOUNDED_PLAN_FOUND");return;
+                          }
+                      }
+                  }
+                  println!("V020_WIDTH_TERMINAL NO_BOUNDED_PLAN_IN_BEAM");
+              }
+          '''
+          p.write_text(s.replace(anchor,anchor+"\n"+test))
+          PY
+          git -C .plan-candidate diff --check
+          git -C .plan-candidate diff -- crates/rawmocs-cli/src/factor_prejoin.rs > .v020-plan-evidence/diagnostic.patch
+          test "$(git -C .plan-candidate diff --name-only)" = crates/rawmocs-cli/src/factor_prejoin.rs
+          cargo test --locked --release --manifest-path .plan-candidate/crates/rawmocs-cli/Cargo.toml --no-run
+      - name: Compare graph-ranked cutsets without changing resource caps
+        env:
+          CASE: ${{ matrix.case }}
+          CNF_SHA: ${{ matrix.cnf_sha }}
+        run: |
+          set -euo pipefail
+          export RAWMOCS_TEST_ORIGINAL="$(python3 -c 'import json;print(json.load(open(".v020-plan-evidence/input.json"))["cnf"])')"
+          timeout -k 2s 40s prlimit --as=3221225472 -- cargo test --locked --release --manifest-path .plan-candidate/crates/rawmocs-cli/Cargo.toml v020_width_transfer_probe -- --ignored --nocapture > .v020-plan-evidence/planner.log 2>&1
+          python3 - <<'PY'
+          import hashlib,json,os,re
+          from pathlib import Path
+          root=Path(".v020-plan-evidence")
+          log=(root/"planner.log").read_text()
+          assert "1 passed; 0 failed" in log
+          terminal=re.findall(r"^V020_WIDTH_TERMINAL (.+)$",log,re.M)
+          assert len(terminal)==1
+          assert hashlib.sha256(Path(os.environ["RAWMOCS_TEST_ORIGINAL"]).read_bytes()).hexdigest()==os.environ["CNF_SHA"]
+          report={"case":os.environ["CASE"],"candidate":"0b8538be510718e7c8d79a79875681628b73f9be","source_sha256":os.environ["CNF_SHA"],"terminal":terminal[0],"local":re.findall(r"^V020_WIDTH_LOCAL .+$",log,re.M),"ranked":re.findall(r"^V020_WIDTH_RANK .+$",log,re.M),"attempts":re.findall(r"^V020_WIDTH_CUT .+$",log,re.M),"scope":"graph-ranked beam 4; 3/4 cuts; original width/work/live; plan only, no count"}
+          (root/"report.json").write_text(json.dumps(report,indent=2)+"\n")
+          print("V020_WIDTH_TRANSFER_REPORT",json.dumps(report),flush=True)
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: rawmocs-v020-width-${{ matrix.case }}
           path: .v020-plan-evidence/
           include-hidden-files: true
           if-no-files-found: warn

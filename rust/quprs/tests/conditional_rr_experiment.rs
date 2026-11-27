@@ -4,6 +4,8 @@ use quprs::qasm::parse_qasm_str;
 use rustc_hash::FxHashSet;
 #[path="support/conditional_trace.rs"]
 mod conditional_trace;
+#[path="support/conditional_stitch.rs"]
+mod conditional_stitch;
 const TERM_CAP: usize = 4096;
 const GUARD_CAP: usize = 8;
 const TARGET_CAP: usize = 96;

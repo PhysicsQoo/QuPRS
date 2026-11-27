@@ -356,7 +356,7 @@ def main():
             if log and n<=5 and kdone==d:
                 for line in Path(log).read_text().splitlines():
                     if not line.startswith("CRR_HANDOFF_CALL case="+variant+" ") or "status=complete" not in line:continue
-                    fields=dict(re.findall(r"(\\w+)=([^ ]+)",line))
+                    fields=dict(re.findall(r"(\w+)=([^ ]+)",line))
                     def exact(s):
                         q=Fraction(s);return arb(fmpq(q.numerator,q.denominator))
                     k=int(fields["twice"])

@@ -1109,7 +1109,16 @@ fn policy_continue(ps:&mut PathSum,a:&[quprs::ir::QuantumOp],b:&[quprs::ir::Quan
         // On a bra CX that actually crosses the term cap, retry once
         // with an exact input lift. No cap increase and no solver changes.
         // The old input coordinate remains an external input.
-        let rescue=std::env::var_os("CRR_BRA_RESCUE").is_some()&&bra&&matches!(gate,quprs::ir::QuantumOp::CX(..))&&pairs.len()<32;
+        let rescue=std::env::var_os("CRR_BRA_RESCUE").is_some()&&bra&&pairs.len()<32&&
+            match gate{
+                quprs::ir::QuantumOp::CX(_,target)=>{
+                    let x=*target as u32;
+                    let p=ps.p.terms.keys().filter(|m|m.contains(&x)).count();
+                    let f=ps.f.functions.iter().flatten().filter(|m|m.contains(&x)).count();
+                    terms(ps).saturating_add(2*p+f)>TERM_CAP
+                }
+                _=>false
+            };
         let checkpoint=if rescue{Some(ps.clone())}else{None};
         gate.apply(ps,bra);
         if terms(ps)>TERM_CAP{

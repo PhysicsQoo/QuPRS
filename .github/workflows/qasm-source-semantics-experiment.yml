@@ -894,7 +894,7 @@ jobs:
           key: conditional-rr-incidence
       - name: Install native prerequisites
         run: sudo apt-get update && sudo apt-get install -y cmake pkg-config libgmp-dev libmpfr-dev zlib1g-dev
-      - name: QWalk5 closeout: indexed RR, bounded bra rescue, source count parity
+      - name: "QWalk5 closeout: indexed RR, bounded bra rescue, source count parity"
         if: env.CRR_PERF_STAGE == 'lift_closeout'
         run: |
           set -euo pipefail

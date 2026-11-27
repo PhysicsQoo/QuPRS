@@ -11,10 +11,15 @@ E1B="2addb665bd8015791c5ee7527a8ce0de5bf8e3a1"
 CASES=("wstate_16","grover-noancilla_negative_5","qwalk-noancilla_negative_5","vqe_16","qnn_8","qnn_12","vqe_negative_8")
 MODES=("archived","canonical","factored")
 SOLVERS=("gpmc","rawmocs")
+SHARDS={"A":("wstate_16",),"B":("grover-noancilla_negative_5","qwalk-noancilla_negative_5"),"C":("qnn_12","qnn_8"),"D":("vqe_16","vqe_negative_8")}
+assert sorted(itertools.chain.from_iterable(SHARDS.values()))==sorted(CASES)
 
 def main():
     controls()
-    d1,e1b,gpmc,reader,rawdir,raw,out=map(lambda s:Path(s).resolve(),sys.argv[1:])
+    assert len(sys.argv) in (8,9)
+    d1,e1b,gpmc,reader,rawdir,raw,out=map(lambda s:Path(s).resolve(),sys.argv[1:8])
+    shard=sys.argv[8] if len(sys.argv)==9 else "all"
+    selected=CASES if shard=="all" else SHARDS[shard]
     out.mkdir(parents=True,exist_ok=False)
     assert (d1/"head.txt").read_text().strip()==D1
     assert (d1/"tree.txt").read_text().strip()=="b7ebfdcf3cfdac115bf971fddc92306bc66adde8"
@@ -34,10 +39,10 @@ def main():
         for name in ("flat","factored"):
             assert sha(e1b/(case+"-"+name+".cnf"))==r[name+"_sha256"]
         assert r["exact_phase_replay"] and r["flat_weight_multiset_parity"]
-    prov=dict(head=git("rev-parse","HEAD"),d1=D1,e1b=E1B,raw_source=RAW,gpmc_sha256=sha(gpmc),reader_sha256=sha(reader),raw_sha256=sha(raw),digits=30,raw_bits=100,timeout_s=60,raw_outer_s=62,address_space_mib=4096,normalized_delta=str(DELTA),scope="solver-only screening; 7 fixed cases; 2 reversed periods; no certified finite-weight bound or E2E claim")
+    prov=dict(head=git("rev-parse","HEAD"),d1=D1,e1b=E1B,raw_source=RAW,gpmc_sha256=sha(gpmc),reader_sha256=sha(reader),raw_sha256=sha(raw),digits=30,raw_bits=100,timeout_s=60,raw_outer_s=62,address_space_mib=4096,normalized_delta=str(DELTA),shard=shard,selected_cases=list(selected),scope="solver-only screening; 2 reversed periods; no certified finite-weight bound or E2E claim")
     (out/"provenance.json").write_text(json.dumps(prov,indent=2)+"\n")
     reports=[]
-    for case in CASES:
+    for case in selected:
         arm=d1/(case+"-hybrid")
         n,h,_,_=read_snapshot(arm/"residual.tsv");k=2*n+h
         files=dict(archived=arm/"actual.cnf",canonical=e1b/(case+"-flat.cnf"),factored=e1b/(case+"-factored.cnf"))
@@ -91,6 +96,8 @@ def main():
     summary=dict(arms=sum(len(r["samples"]) for r in reports),cases=len(reports),complete=sum(x["status"]=="COMPLETE" for r in reports for x in r["samples"]),disagreements=sum(r["disagreements"] for r in reports),expected_wrong=sum(len(r["expected_wrong"]) for r in reports),unexpected=sum(len(r["unexpected"]) for r in reports),paired_pass=sum(c["status"]=="PASS" for r in reports for c in r["comparisons"]),paired_incomplete=sum(c["status"]=="INCOMPLETE" for r in reports for c in r["comparisons"]))
     (out/"summary.json").write_text(json.dumps(summary,indent=2)+"\n")
     print("E1C_SUMMARY",json.dumps(summary),flush=True)
-    assert summary["arms"]==84 and summary["disagreements"]==summary["expected_wrong"]==summary["unexpected"]==0 and summary["paired_pass"]>0
+    assert summary["arms"]==12*len(selected) and summary["disagreements"]==summary["expected_wrong"]==summary["unexpected"]==0
+    # A hard shard may legitimately have no completed pairs. Full-cohort gate owns this requirement.
+    if shard=="all": assert summary["paired_pass"]>0
 
 if __name__=="__main__": main()

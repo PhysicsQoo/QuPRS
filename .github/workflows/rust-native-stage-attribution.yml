@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       dag_stage:
-        description: 'DAG experiment stage (one job only; smoke is default)'
+        description: 'DAG experiment stage (one stage only; smoke is default)'
         required: false
         default: smoke
         type: choice
@@ -22,6 +22,7 @@ on:
           - e1a
           - e1b
           - e1c
+          - e1c-matrix
   push:
     branches: [experiment/eq-dag-encoder]
     paths:
@@ -742,3 +743,157 @@ jobs:
           set -euo pipefail
           python3 -m py_compile rust/research/eq_dag*.py
           python3 -B rust/research/eq_dag_ci_smoke.py
+          python3 -B rust/research/eq_dag_e1c_matrix.py controls
+
+  eq-dag-e1c-build:
+    if: github.ref == 'refs/heads/experiment/eq-dag-encoder' && github.event_name == 'workflow_dispatch' && inputs.dag_stage == 'e1c-matrix'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: PhysicsQoo/RaWMoCS
+          ref: 7ff6b1fdb772f16367fd1e094761a368d54f2ea7
+          path: .rawmocs-dag
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            rust -> target
+            .rawmocs-dag/crates/rawmocs-cli -> target
+      - name: Build source-locked binary bundle once
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y cmake pkg-config libgmp-dev libmpfr-dev zlib1g-dev m4 make gcc time
+          mkdir solver-bundle
+          python3 scripts/install_gpmc_release.py --dest "$RUNNER_TEMP/gpmc"
+          QUPRS_SOLVER_PROVISION=external cargo build --locked --release --manifest-path rust/Cargo.toml -p quprs --example eq_dag_d3_count
+          cargo build --locked --release --manifest-path .rawmocs-dag/crates/rawmocs-cli/Cargo.toml
+          cp "$RUNNER_TEMP/gpmc" solver-bundle/gpmc
+          cp rust/target/release/examples/eq_dag_d3_count solver-bundle/reader
+          cp .rawmocs-dag/crates/rawmocs-cli/target/release/rawmocs solver-bundle/rawmocs
+          python3 rust/research/eq_dag_e1c_matrix.py seal solver-bundle .rawmocs-dag
+          (cd solver-bundle && sha256sum gpmc reader rawmocs identity.json > SHA256SUMS)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: eq-dag-e1c-solver-bundle
+          path: solver-bundle/
+          if-no-files-found: error
+          retention-days: 30
+
+  eq-dag-e1c-shard:
+    if: github.ref == 'refs/heads/experiment/eq-dag-encoder' && github.event_name == 'workflow_dispatch' && inputs.dag_stage == 'e1c-matrix'
+    needs: eq-dag-e1c-build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    permissions:
+      contents: read
+      actions: read
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        shard: [A, B, C, D]
+    env:
+      SHARD: ${{ matrix.shard }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: PhysicsQoo/RaWMoCS
+          ref: 7ff6b1fdb772f16367fd1e094761a368d54f2ea7
+          path: .rawmocs-dag
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: eq-dag-e1c-solver-bundle
+          path: solver-bundle
+      - uses: actions/download-artifact@v4
+        with:
+          name: eq-dag-d1d-heldout-mqt
+          run-id: 46004315659
+          github-token: ${{ github.token }}
+          path: d1d
+      - uses: actions/download-artifact@v4
+        with:
+          name: eq-dag-e1b-common-factor-cnfs
+          run-id: 46020482676
+          github-token: ${{ github.token }}
+          path: e1b
+      - name: Verify bundle and execute same-runner matched shard
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y libgmp-dev libmpfr-dev zlib1g-dev time
+          (cd solver-bundle && sha256sum -c SHA256SUMS)
+          chmod +x solver-bundle/gpmc solver-bundle/reader solver-bundle/rawmocs
+          python3 rust/research/eq_dag_e1c_matrix.py verify solver-bundle
+          for d in d1d e1b; do (cd "$d" && sha256sum -c SHA256SUMS); done
+          python3 -u rust/research/eq_dag_e1c_ab.py d1d e1b solver-bundle/gpmc solver-bundle/reader .rawmocs-dag solver-bundle/rawmocs eq-dag-e1c-evidence "$SHARD" | tee e1c.log
+      - name: Seal shard evidence even on failure
+        if: always()
+        run: |
+          mkdir -p eq-dag-e1c-evidence
+          test ! -f e1c.log || cp e1c.log eq-dag-e1c-evidence/
+          test ! -f solver-bundle/identity.json || cp solver-bundle/identity.json eq-dag-e1c-evidence/bundle-identity.json
+          git rev-parse HEAD > eq-dag-e1c-evidence/head.txt
+          git rev-parse 'HEAD^{tree}' > eq-dag-e1c-evidence/tree.txt
+          lscpu > eq-dag-e1c-evidence/cpu.txt
+          cd eq-dag-e1c-evidence
+          find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 -r sha256sum > SHA256SUMS
+          sha256sum -c SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: eq-dag-e1c-shard-${{ matrix.shard }}
+          path: eq-dag-e1c-evidence/
+          if-no-files-found: error
+          retention-days: 30
+
+  eq-dag-e1c-aggregate:
+    if: ${{ always() && github.ref == 'refs/heads/experiment/eq-dag-encoder' && github.event_name == 'workflow_dispatch' && inputs.dag_stage == 'e1c-matrix' && needs.eq-dag-e1c-build.result == 'success' }}
+    needs: [eq-dag-e1c-build, eq-dag-e1c-shard]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+    env:
+      SHARD_RESULT: ${{ needs.eq-dag-e1c-shard.result }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: eq-dag-e1c-shard-*
+          path: shards
+      - name: Require full shard coverage and original numerical gate
+        run: |
+          set -euo pipefail
+          python3 rust/research/eq_dag_e1c_matrix.py aggregate shards eq-dag-e1c-aggregate
+          test "$SHARD_RESULT" = success
+      - name: Seal aggregate
+        if: always()
+        run: |
+          mkdir -p eq-dag-e1c-aggregate
+          git rev-parse HEAD > eq-dag-e1c-aggregate/head.txt
+          git rev-parse 'HEAD^{tree}' > eq-dag-e1c-aggregate/tree.txt
+          cd eq-dag-e1c-aggregate
+          find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 -r sha256sum > SHA256SUMS
+          sha256sum -c SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: eq-dag-e1c-matrix-aggregate
+          path: eq-dag-e1c-aggregate/
+          retention-days: 30

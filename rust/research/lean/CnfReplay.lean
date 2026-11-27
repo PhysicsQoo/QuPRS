@@ -5165,6 +5165,166 @@ theorem ledger_sub_pivot_controls :
     ledgerIsolatedPivot 2 [[0],[1]] = none := by
   exact ⟨rfl,rfl,rfl,rfl,rfl,rfl,rfl,rfl⟩
 
+
+-- Bind the returned pivot to the actual byte witness and selected row.
+theorem ledger_sub_pivot_witness (s : LedgerStep) (y : Nat) (rhs : List (List Nat))
+    (h : ledgerSubPivot s = some (y,rhs)) :
+    ∃ i row, (splitBytes 44 s.witness).mapM parseNatToken = some [y,i] ∧
+      y ∈ removedIds s.before s.trial ∧ natLE s.before.n y = true ∧
+      ledgerRowAt s.before.constraints i = some row ∧
+      row ∈ s.before.constraints ∧ ledgerIsolatedPivot y row = some rhs := by
+  unfold ledgerSubPivot at h
+  generalize (splitBytes 44 s.witness).mapM parseNatToken = parsed at h
+  cases parsed with
+  | none => cases h
+  | some xs =>
+    cases xs with
+    | nil => cases h
+    | cons z tail =>
+      cases tail with
+      | nil => cases h
+      | cons i tail =>
+        cases tail with
+        | cons extra rest => cases h
+        | nil =>
+          cases hg : (natMem z (removedIds s.before s.trial) && natLE s.before.n z) with
+          | false =>
+            rw [ledger_bool_false _ _ _ hg] at h
+            cases h
+          | true =>
+            rw [ledger_bool_true _ _ _ hg] at h
+            obtain ⟨row, hr, h1⟩ := ledger_bind_some _ _ _ h
+            obtain ⟨q, hq, h2⟩ := ledger_bind_some _ _ _ h1
+            have he : some (z,q) = some (y,rhs) := h2
+            have hz := Prod.mk.inj (Option.some.inj he)
+            have hp := and_true_parts hg
+            refine ⟨i,row,?_,?_,?_,hr,ledger_row_at_member _ _ _ hr,?_⟩
+            · rw [hz.1]
+              assumption
+            · rw [← hz.1]
+              exact (nat_mem_iff _ _).mp hp.1
+            · rw [← hz.1]
+              exact hp.2
+            · rw [← hz.1, ← hz.2]
+              exact hq
+
+-- A returned RHS is a subcollection of the actual source row.
+theorem ledger_pivot_rhs_member (y : Nat) (row rhs : List (List Nat))
+    (h : ledgerIsolatedPivot y row = some rhs) :
+    ∀ m, m ∈ rhs → m ∈ row := by
+  induction row generalizing rhs with
+  | nil => cases h
+  | cons m ms ih =>
+    unfold ledgerIsolatedPivot at h
+    cases he : natListEq m [y] with
+    | true =>
+      rw [ledger_bool_true _ _ _ he] at h
+      cases hf : ms.all (fun q => !natMem y q) with
+      | false =>
+        rw [ledger_bool_false _ _ _ hf] at h
+        cases h
+      | true =>
+        rw [ledger_bool_true _ _ _ hf] at h
+        rw [← Option.some.inj h]
+        intro q hq
+        exact List.mem_cons.mpr (Or.inr hq)
+    | false =>
+      rw [ledger_bool_false _ _ _ he] at h
+      cases hm : natMem y m with
+      | true =>
+        rw [ledger_bool_true _ _ _ hm] at h
+        cases h
+      | false =>
+        rw [ledger_bool_false _ _ _ hm] at h
+        cases ht : ledgerIsolatedPivot y ms with
+        | none => rw [ht] at h; cases h
+        | some tail =>
+          rw [ht] at h
+          have hh : some (m :: tail) = some rhs := h
+          rw [← Option.some.inj hh]
+          intro q hq
+          rcases List.mem_cons.mp hq with heq | htail
+          · exact List.mem_cons.mpr (Or.inl heq)
+          · exact List.mem_cons.mpr (Or.inr (ih tail ht q htail))
+
+-- Explicit exact-domain gate, independent of the structural checker.
+def ledgerSubDomainOK (a b : LedgerSnap) (y : Nat) : Bool :=
+  (a.n == b.n) && inputsKnown a.live b.live && natListEq (removedIds a b) [y]
+
+theorem ledger_sub_domain_sound (a b : LedgerSnap) (y : Nat)
+    (h : ledgerSubDomainOK a b y = true) :
+    a.n = b.n ∧ y ∈ a.live ∧ y ∉ b.live ∧
+      (∀ x, x ∈ b.live ↔ x ∈ a.live ∧ x ≠ y) := by
+  have hp := and_true_parts (show ((a.n == b.n) && inputsKnown a.live b.live &&
+    natListEq (removedIds a b) [y]) = true from h)
+  have hq := and_true_parts hp.1
+  have hd := (nat_list_eq_iff _ _).mp hp.2
+  have hy : y ∈ removedIds a b := by rw [hd]; exact List.mem_cons.mpr (Or.inl rfl)
+  have hy' := (ledger_removed_ids_iff a b y).mp hy
+  refine ⟨ledger_kind_eq _ _ hq.1,hy'.1,hy'.2,?_⟩
+  intro x
+  constructor
+  · intro hx
+    exact ⟨inputs_known_sound _ _ hq.2 x hx,fun he => hy'.2 (he ▸ hx)⟩
+  · intro hx
+    cases hm : natMem x b.live with
+    | true => exact (nat_mem_iff _ _).mp hm
+    | false =>
+      have hn : x ∉ b.live := by
+        intro he
+        have hh := (nat_mem_iff _ _).mpr he
+        rw [hm] at hh
+        cases hh
+      have hr := (ledger_removed_ids_iff a b x).mpr ⟨hx.1,hn⟩
+      rw [hd] at hr
+      rcases List.mem_cons.mp hr with he | he
+      · exact False.elim (hx.2 he)
+      · cases he
+
+theorem ledger_sub_domain_partition (a b : LedgerSnap) (y : Nat)
+    (ha : canonicalLedgerSnap a) (hb : canonicalLedgerSnap b)
+    (h : ledgerSubDomainOK a b y = true) :
+    List.Perm a.live (y :: b.live) := by
+  have hp := and_true_parts (show ((a.n == b.n) && inputsKnown a.live b.live &&
+    natListEq (removedIds a b) [y]) = true from h)
+  have hq := and_true_parts hp.1
+  have hr := ledger_live_partition a b ha hb (inputs_known_sound _ _ hq.2)
+  rw [(nat_list_eq_iff _ _).mp hp.2] at hr
+  exact hr
+
+theorem ledger_sub_rhs_retained (a b : LedgerSnap) (y : Nat) (row rhs : List (List Nat))
+    (ha : canonicalLedgerSnap a) (hd : ledgerSubDomainOK a b y = true)
+    (hr : row ∈ a.constraints) (hp : ledgerIsolatedPivot y row = some rhs) :
+    ∀ m, m ∈ rhs → ∀ x, x ∈ m → x ∈ b.live := by
+  intro m hm x hx
+  have hk := canonical_ledger_support_known a ha
+  have hx' := hk.2 row hr m (ledger_pivot_rhs_member y row rhs hp m hm) x hx
+  have hn : x ≠ y := fun he => ledger_pivot_rhs_fresh y row rhs hp m hm (he ▸ hx)
+  exact ((ledger_sub_domain_sound a b y hd).2.2.2 x).mpr ⟨hx',hn⟩
+
+-- Exactly one of the two Boolean pivot extensions satisfies the
+-- chosen source equation. All remaining weights stay explicit.
+theorem ledger_pivot_extension (y : Nat) (row rhs : List (List Nat))
+    (hp : ledgerIsolatedPivot y row = some rhs) (v : Nat → Bool) (b : Bool) :
+    anfValue (setVal v y b) row = false ↔ b = anfValue v rhs := by
+  rw [ledger_pivot_equation y row rhs hp, set_val_eq, ledger_pivot_rhs_independent y row rhs hp]
+
+theorem ledger_sub_unique_fiber {A : Type} [Zero A] [Add A]
+    (zl : ∀ a : A, 0+a=a) (zr : ∀ a : A, a+0=a)
+    (y : Nat) (row rhs : List (List Nat))
+    (hp : ledgerIsolatedPivot y row = some rhs) (v : Nat → Bool)
+    (w : (Nat → Bool) → A) :
+    (if !anfValue (setVal v y false) row then w (setVal v y false) else 0) +
+    (if !anfValue (setVal v y true) row then w (setVal v y true) else 0) =
+      w (setVal v y (anfValue v rhs)) := by
+  have hf := ledger_pivot_anf y row rhs hp (setVal v y false)
+  have ht := ledger_pivot_anf y row rhs hp (setVal v y true)
+  rw [ledger_pivot_rhs_independent y row rhs hp, set_val_eq] at hf ht
+  rw [hf, ht]
+  cases h : anfValue v rhs with
+  | false => exact zr _
+  | true => exact zl _
+
 -- Localize any unexpected dependency to a definition vs theorem.
 #print axioms splitBytes
 #print axioms digits
@@ -5543,6 +5703,14 @@ theorem ledger_sub_pivot_controls :
 #print axioms ledgerSubPivot
 #print axioms ledger_sub_pivot_reject_gap
 #print axioms ledger_sub_pivot_controls
+#print axioms ledger_sub_pivot_witness
+#print axioms ledger_pivot_rhs_member
+#print axioms ledgerSubDomainOK
+#print axioms ledger_sub_domain_sound
+#print axioms ledger_sub_domain_partition
+#print axioms ledger_sub_rhs_retained
+#print axioms ledger_pivot_extension
+#print axioms ledger_sub_unique_fiber
 end QuPRS.CnfReplay
 
 def main (args : List String) : IO Unit := do

@@ -757,3 +757,95 @@ fn native_cost_aware_pivot_pilot(){
         println!("CRR_PIVOT_TIME {{\"case\":\"{case}\",\"variant\":\"{variant}\",\"repeat\":{rep},\"adaptive\":{adaptive},\"elapsed_s\":{elapsed},\"trials\":{},\"accepted\":{}}}",z.trials,z.accepted);
     }}
 }
+
+
+// Exact known Clifford lowering, isolated as a construction ablation.
+// Retain the scalar phase: source Rz(pi/2) Rx(pi/2) Rz(pi/2)=-iH;
+// target Ry(-pi/2) Rz(-pi)=iH, Ry(-pi/2) Rz(pi)=-iH.
+fn exact_h_lower(ops:&[quprs::ir::QuantumOp])->(Vec<quprs::ir::QuantumOp>,usize,i64){
+    use quprs::{ir::QuantumOp::*,rational::Angle};
+    let half=Angle::from_qasm_str("pi/2").unwrap();
+    let neg_half=Angle::from_qasm_str("-pi/2").unwrap();
+    let pi=Angle::from_qasm_str("pi").unwrap();
+    let neg_pi=Angle::from_qasm_str("-pi").unwrap();
+    let mut out=Vec::with_capacity(ops.len());let mut i=0;let mut hits=0;let mut phase=0i64;
+    while i<ops.len(){
+        if let Some([RZ(a,x),RX(b,y),RZ(c,z)])=ops.get(i..i+3){
+            if a==b&&b==c&&x==&half&&y==&half&&z==&half{
+                out.push(H(*a));hits+=1;phase-=1;i+=3;continue;
+            }
+        }
+        if let Some([RY(a,x),RZ(b,z)])=ops.get(i..i+2){
+            if a==b&&x==&neg_half&&(z==&pi||z==&neg_pi){
+                out.push(H(*a));hits+=1;phase+=if z==&neg_pi{1}else{-1};i+=2;continue;
+            }
+        }
+        out.push(ops[i].clone());i+=1;
+    }
+    (out,hits,phase)
+}
+// The two sides' common input prefix may be removed exactly. Only
+// wire-disjoint commutation and equal parsed operations are allowed;
+// no common suffix (which would conjugate the miter), no angle snapping.
+fn common_frontier(a:&mut Vec<quprs::ir::QuantumOp>,b:&mut Vec<quprs::ir::QuantumOp>,n:usize)->usize{
+    use quprs::ir::QuantumOp::*;
+    fn ready(g:&[quprs::ir::QuantumOp],n:usize)->Vec<usize>{
+        let mut blocked=vec![false;n];let mut out=Vec::new();
+        for(i,op)in g.iter().enumerate(){
+            let wires=match op{
+                H(q)|X(q)|Y(q)|Z(q)|S(q)|SDG(q)|T(q)|TDG(q)|RX(q,_)|RY(q,_)|RZ(q,_)|P(q,_)|U1(q,_)|U2(q,_,_)|U3(q,_,_,_)|U(q,_,_,_)=>vec![*q],
+                CX(a,b)|CZ(a,b)|SWAP(a,b)=>vec![*a,*b],
+                CCX(a,b,c)=>vec![*a,*b,*c],
+                GlobalPhase(_)=>break,
+            };
+            if wires.iter().all(|q|!blocked[*q]){out.push(i);}
+            for q in wires{blocked[q]=true;}
+        }
+        out
+    }
+    let mut matched=0;
+    loop{
+        let ar=ready(a,n);let br=ready(b,n);
+        let mut aa=FxHashSet::default();let mut bb=FxHashSet::default();
+        for i in ar{
+            if let Some(j)=br.iter().copied().find(|j|!bb.contains(j)&&a[i]==b[*j]){
+                aa.insert(i);bb.insert(j);
+            }
+        }
+        if aa.is_empty(){break;}
+        matched+=aa.len();
+        let mut i=0;a.retain(|_|{let keep=!aa.contains(&i);i+=1;keep});
+        let mut j=0;b.retain(|_|{let keep=!bb.contains(&j);j+=1;keep});
+    }
+    matched
+}
+#[test]
+fn native_frontier_pilot(){
+    use quprs::{ir::QuantumOp,rational::Angle};
+    let case=std::env::var("CRR_CASE").unwrap();
+    let variant=std::env::var("CRR_VARIANT").unwrap();
+    let arm=std::env::var("CRR_ARM").unwrap();
+    let policy=std::env::var("CRR_POLICY").unwrap();
+    let mode=std::env::var("CRR_MODE").unwrap();
+    let t=Instant::now();
+    let(a,n)=parse_qasm_str(&std::fs::read_to_string(std::env::var("CRR_SOURCE").unwrap()).unwrap()).unwrap();
+    let(b,m)=parse_qasm_str(&std::fs::read_to_string(std::env::var("CRR_TARGET").unwrap()).unwrap()).unwrap();assert_eq!(n,m);
+    let parse=t.elapsed().as_secs_f64();let counts=(a.len(),b.len());
+    let tick=Instant::now();
+    let (mut a,ha,pa,mut b,hb,pb)=if arm=="original"{(a,0,0,b,0,0)}else{
+        let(a,ha,pa)=exact_h_lower(&a);let(b,hb,pb)=exact_h_lower(&b);(a,ha,pa,b,hb,pb)
+    };
+    let matched=if arm=="frontier"{common_frontier(&mut a,&mut b,n)}else{0};
+    let half=Angle::from_qasm_str("pi/2").unwrap();
+    if pa!=0{a.push(QuantumOp::GlobalPhase(half.clone()*pa));}
+    if pb!=0{b.push(QuantumOp::GlobalPhase(half*pb));}
+    let lower=tick.elapsed().as_secs_f64();
+    println!("CRR_FRONTIER_PREP {{\"case\":\"{case}\",\"variant\":\"{variant}\",\"arm\":\"{arm}\",\"policy\":\"{policy}\",\"mode\":\"{mode}\",\"source_before\":{},\"target_before\":{},\"source_after\":{},\"target_after\":{},\"source_h\":{ha},\"target_h\":{hb},\"phase_a\":{pa},\"phase_b\":{pb},\"matched_prefix\":{matched},\"parse_s\":{parse},\"lower_s\":{lower}}}",counts.0,counts.1,a.len(),b.len());
+    let opts=VerificationOptions{
+        method:if mode=="hybrid"{VerificationMethod::Hybrid}else{VerificationMethod::ReductionRules},
+        rr_tolerance:if policy=="strict"{0.0}else{1e-10},gpmc_precision_digits:90,timeout_secs:15,..VerificationOptions::default()
+    };
+    let r=check_equivalence_with_options(n,&a,&b,&opts).unwrap();let p=r.final_pathsum();
+    if policy=="strict"{assert!(!p.rr_approximate);}
+    println!("CRR_FRONTIER_RESULT {{\"case\":\"{case}\",\"variant\":\"{variant}\",\"arm\":\"{arm}\",\"policy\":\"{policy}\",\"mode\":\"{mode}\",\"native\":\"{}\",\"hidden\":{},\"terms\":{},\"incidence\":{},\"rr_approximate\":{},\"residual_rr_approximate\":{},\"solver_invoked\":{},\"rr_s\":{},\"dimacs_s\":{:?},\"solver_s\":{:?},\"total_s\":{}}}",r.equivalent(),internal(p).len(),terms(p),incidence(p),r.rr_approximate,p.rr_approximate,r.solver_invoked,r.pathsum_time,r.to_dimacs_time.unwrap_or(0.0),r.tool_time.unwrap_or(0.0),t.elapsed().as_secs_f64());
+}

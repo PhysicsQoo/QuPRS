@@ -465,8 +465,66 @@ def pivot_pilot():
             summary.append(row)
     print("CRR_PIVOT_SUMMARY",json.dumps(dict(cases=summary,exact_local_checks=checks,mutations_rejected=mutations,source_truth_certified=False,production=False)),flush=True)
 
+
+def frontier_pilot():
+    import resource
+    manifest=json.loads((ROOT/"docs/development/paper-corpus-manifest.json").read_text())
+    cases={c["id"]:c for c in manifest["cohorts"]["table2_mqt"]["cases"]}
+    negative={"qwalk-noancilla_4":"ab5cda304a5ddb76e10a957b87baa343513b1d9e","qwalk-noancilla_5":"d927ecd21bf3676069d90a3ad3bc4e7ee434a0de"}
+    scope=("qwalk-noancilla_4","qwalk-noancilla_5","qpeexact_24","qft_24")
+    summary=[]
+    def limit():
+        resource.setrlimit(resource.RLIMIT_AS,(3*1024**3,3*1024**3))
+    for name in scope:
+        c=cases[name]
+        for variant in (("positive","random_rotation") if name in negative else ("positive",)):
+            target=c["transpiled"] if variant=="positive" else dict(path="benchmarks/MQTBench/Random_Rotation/"+Path(c["source"]["path"]).name,git_blob_sha1=negative[name])
+            env=dict(os.environ,CRR_CASE=name,CRR_VARIANT=variant)
+            for entry,key in ((c["source"],"CRR_SOURCE"),(target,"CRR_TARGET")):
+                p=ROOT/entry["path"];data=p.read_bytes()
+                assert hashlib.sha1(("blob %d"%len(data)).encode()+b"\x00"+data).hexdigest()==entry["git_blob_sha1"]
+                env[key]=str(p);print("CRR_FRONTIER_SOURCE",name,variant,key,hashlib.sha256(data).hexdigest(),flush=True)
+            # Independent processes keep timeout/memory censoring per arm.
+            plans=[(p,"rr",a) for p in ("default","strict") for a in ("original","lower","frontier")]
+            if name in ("qwalk-noancilla_5","qpeexact_24"):
+                plans += [("default","hybrid",a) for a in ("original","lower","frontier")]
+            for policy,mode,arm in plans:
+                cmd=["timeout","--kill-after=2s","20s","cargo","test","--release","--locked","--manifest-path","rust/Cargo.toml","-p","quprs","--test","conditional_rr_experiment","conditional_stitch::native_frontier_pilot","--","--exact","--nocapture"]
+                run=subprocess.run(cmd,cwd=ROOT,env=dict(env,CRR_POLICY=policy,CRR_MODE=mode,CRR_ARM=arm),capture_output=True,text=True,preexec_fn=limit)
+                print(run.stdout,flush=True)
+                prep=[json.loads(l.removeprefix("CRR_FRONTIER_PREP ")) for l in run.stdout.splitlines() if l.startswith("CRR_FRONTIER_PREP ")]
+                rows=[json.loads(l.removeprefix("CRR_FRONTIER_RESULT ")) for l in run.stdout.splitlines() if l.startswith("CRR_FRONTIER_RESULT ")]
+                identity=dict(case=name,variant=variant,policy=policy,mode=mode,arm=arm)
+                if run.returncode in (124,137) or (run.returncode!=0 and "memory allocation of" in run.stderr and "failed" in run.stderr):
+                    summary.append(dict(**identity,status="censored_timeout_or_memory",returncode=run.returncode,prep=prep,stderr=run.stderr[-1000:]))
+                    continue
+                assert run.returncode==0,(identity,run.returncode,run.stderr[-4000:])
+                assert len(prep)==len(rows)==1
+                assert all(rows[0][k]==v for k,v in identity.items())
+                summary.append(dict(**rows[0],status="returned",prep=prep[0]))
+    print("CRR_FRONTIER_SUMMARY",json.dumps(dict(cases=summary,source_truth_certified=False,production=False,single_observation=True)),flush=True)
+
+def qpe24_reuse():
+    manifest=json.loads((ROOT/"docs/development/paper-corpus-manifest.json").read_text())
+    c=next(x for x in manifest["cohorts"]["table2_mqt"]["cases"] if x["id"]=="qpeexact_24")
+    env=dict(os.environ,CRR_CASE=c["id"],CRR_REPEAT="0",CRR_SOLVER_SECS="12")
+    for entry,key in ((c["source"],"CRR_SOURCE"),(c["transpiled"],"CRR_TARGET")):
+        p=ROOT/entry["path"];data=p.read_bytes()
+        assert hashlib.sha1(("blob %d"%len(data)).encode()+b"\x00"+data).hexdigest()==entry["git_blob_sha1"]
+        env[key]=str(p);print("CRR_QPE24_SOURCE",key,hashlib.sha256(data).hexdigest(),flush=True)
+    cmd=["timeout","--kill-after=3s","90s","cargo","test","--release","--locked","--manifest-path","rust/Cargo.toml","-p","quprs","--test","conditional_rr_experiment","conditional_trace::native_full_pipeline_paired","--","--exact","--nocapture"]
+    r=subprocess.run(cmd,cwd=ROOT,env=env,capture_output=True,text=True)
+    print(r.stdout,flush=True)
+    if r.returncode in (124,137):print("CRR_QPE24_REUSE_CENSORED",r.returncode,flush=True)
+    else:
+        assert r.returncode==0,(r.returncode,r.stderr[-4000:])
+        assert len([l for l in r.stdout.splitlines() if l.startswith("CRR_FULL_CALL ")])==2
+        assert len([l for l in r.stdout.splitlines() if l.startswith("CRR_FULL_COMPARE ")])==1
+
 if __name__=="__main__":
-    if os.environ.get("CRR_PIVOT"):pivot_pilot()
+    if os.environ.get("CRR_FRONTIER"):frontier_pilot()
+    elif os.environ.get("CRR_QPE24_REUSE"):qpe24_reuse()
+    elif os.environ.get("CRR_PIVOT"):pivot_pilot()
     elif os.environ.get("CRR_ROTATION"):rotation_pilot()
     elif os.environ.get("CRR_WALSH_HH"):walsh_hh_pilot()
     elif os.environ.get("CRR_DEFAULT_RR"):default_rr_cohort()

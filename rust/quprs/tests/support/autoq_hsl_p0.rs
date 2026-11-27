@@ -1009,7 +1009,7 @@ fn hoare_autoq_c3_arm(){
     let start=std::time::Instant::now();
     let cap=std::time::Duration::from_millis(std::env::var("AQ_C3_BUDGET_MS").unwrap().parse().unwrap());
     let deadline=start+cap;
-    assert!(["rr","wmc","hybrid","hybrid-support","structural","hybrid-direct","structural-factor"].contains(&mode.as_str()));
+    assert!(["rr","wmc","hybrid","hybrid-support","structural","hybrid-direct","structural-factor","raw-factor"].contains(&mode.as_str()));
     let mut queries=0usize;let mut pairs=0usize;let mut visited=0usize;
     let mut route="baseline";let mut rejected=false;
     let mut witness=None;
@@ -1027,20 +1027,26 @@ fn hoare_autoq_c3_arm(){
             let &(_,a,b,c)=AQ_SOURCES.iter().chain(AQ_C3_HELDOUT.iter()).find(|r|r.0==base)?;
             let (_,aa)=aq_family(a)?;(aa.first()?.n,a,b,c)
         };
+        let build_start=std::time::Instant::now();
+        println!("AQ_CPS_STAGE stage=build-start");std::io::stdout().flush().ok()?;
         let mut ops=factor_source_ops(src,n);
         if quprs::qasm::parse_qasm_str_source_pinned(src).ok()? != (ops.clone(),n){return None;}
         if broken{ops.pop()?;}
         let mut ps=PathSum::new(n);ps.set_auto_reduce(false);
         for g in &ops{g.apply(&mut ps,false);}
         let h0=ops.iter().filter(|g|matches!(g,G::H(_))).count();
-        let (s,k)=if mode=="wmc"{(compact(&ps,n)?,h0)}else{
-            let (p,frame,scale,_)=native_rr_checkpoint(ps,n)?;
+        println!("AQ_CPS_STAGE stage=build-end ns={}",build_start.elapsed().as_nanos());std::io::stdout().flush().ok()?;
+        let (s,k)=if mode=="wmc"||mode=="raw-factor"{(compact(&ps,n)?,h0)}else{
+            println!("AQ_CPS_STAGE stage=rr-start");std::io::stdout().flush().ok()?;
+            let rr_start=std::time::Instant::now();
+            let (p,frame,scale,steps)=native_rr_checkpoint(ps,n)?;
+            println!("AQ_CPS_STAGE stage=rr-end ns={} steps={steps}",rr_start.elapsed().as_nanos());std::io::stdout().flush().ok()?;
             if frame.compact(&p)?!=Anf::from([0]){return None;}
             (compact(&p,n)?,h0.checked_sub(scale as usize)?)
         };
         println!("AQ_CPS_RESIDUAL raw_h={h0} residual_h={} k={k} phase_terms={} output_terms={}",
             s.h,s.phase.len(),s.output.iter().map(|p|p.len()).sum::<usize>());
-        if mode=="structural"||mode=="structural-factor"{
+        if mode=="structural"||mode=="structural-factor"||mode=="raw-factor"{
             if ghz&&k==1{
                 if let Some(w)=aq_ghz_witness(&s){
                     route="symbolic";
@@ -1107,7 +1113,7 @@ fn hoare_autoq_c3_arm(){
                 if std::time::Instant::now()>=deadline{return None;}
                 pairs+=1;
                 if (p.value^q.value)&p.mask&q.mask!=0{continue;}
-                let candidate=if mode=="structural-factor"&&s.h!=0{
+                let candidate=if (mode=="structural-factor"||mode=="raw-factor")&&s.h!=0{
                     let mut work=0;let v=aq_factor_ray(&s,x,b,k,&mut work,deadline);
                     factor_work+=work;if v.is_some(){factor_hits+=1;route="factor";}else{factor_rejects+=1;}v
                 }else if let Some(hist)=&hist{let v=aq_hist_ray(hist,b,k);if v.is_some(){direct_hits+=1;route="direct";}v}else{None};

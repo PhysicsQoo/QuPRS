@@ -2238,7 +2238,12 @@ mod exact_property_cnf {
         let mut g=NativeGuardFrame::new(&ps,Anf::from([0]))?;
         let mut scale=0u32;let mut steps=0;
         for _ in 0..32{
-            let Some(step)=guarded_native_step(&ps,n,&g) else{break;};
+            let trace=std::env::var_os("AQ_CPS_RR_TRACE").is_some();
+            let t=std::time::Instant::now();
+            if trace { use std::io::Write; println!("AQ_CPS_RR_STEP start={steps} h={} phase_terms={} output_terms={}",ps.v.path_vars.len().saturating_sub(n),ps.p.terms.len(),ps.f.functions.iter().map(|p|p.len()).sum::<usize>());let _=std::io::stdout().flush(); }
+            let step=guarded_native_step(&ps,n,&g);
+            if trace { use std::io::Write; println!("AQ_CPS_RR_STEP end={steps} accepted={} ns={}",step.is_some(),t.elapsed().as_nanos());let _=std::io::stdout().flush(); }
+            let Some(step)=step else{break;};
             scale=scale.checked_add(step.scale2)?;
             ps=step.ps;g=step.guard;steps+=1;
         }

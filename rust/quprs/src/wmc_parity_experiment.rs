@@ -140,6 +140,33 @@ impl WmcManager {
     }
 
     pub(crate) fn research_factored_manager(ps:&PathSum,epsilon:f64,cap:usize)->Result<(Self,usize,usize)> {
+        Self::research_factored_impl(ps,epsilon,cap,false)?.ok_or_else(||anyhow!("forced factored unexpectedly rejected"))
+    }
+
+    #[cfg(feature="research-parity-e2e")]
+    pub(crate) fn research_combined_manager(ps:&PathSum,epsilon:f64)->Result<Option<(Self,usize,usize,&'static str)>> {
+        // Retain the accepted D5a policy. Only consider factored after
+        // parity rejection; small/large residuals skip the second planner.
+        #[cfg(feature="browser-transport")]
+        if crate::browser_transport::active(){return Ok(None)}
+        if !ps.v.continuous_vars.is_empty() || ps.p.terms.values().any(|c|!c.symbols.is_empty()){return Ok(None)}
+        if let Some((w,work,bits))=Self::research_auto_parity_manager(ps,epsilon)? {
+            return Ok(Some((w,work,bits,"parity")))
+        }
+        if !(512..=10_000).contains(&ps.p.terms.len()) || ps.p.terms.keys().any(|m|m.len()>128){return Ok(None)}
+        Ok(Self::research_factored_impl(ps,epsilon,50_000,true)?.map(|(w,work,bits)|(w,work,bits,"factored")))
+    }
+
+    #[cfg(feature="research-parity-e2e")]
+    #[doc(hidden)]
+    pub fn research_combined_cnf(ps:&PathSum,epsilon:f64)->Result<(&'static str,Option<String>)> {
+        match Self::research_combined_manager(ps,epsilon)? {
+            Some((w,_,_,route))=>Ok((route,Some(w.try_to_dimacs_string("gpmc")?))),
+            None=>Ok(("flat",None))
+        }
+    }
+
+    fn research_factored_impl(ps:&PathSum,epsilon:f64,cap:usize,auto:bool)->Result<Option<(Self,usize,usize)>> {
         #[cfg(feature="browser-transport")]
         ensure!(!crate::browser_transport::active(),"native experiment only");
         ensure!(ps.v.continuous_vars.is_empty(),"continuous variables unsupported");
@@ -155,7 +182,43 @@ impl WmcManager {
         for f in &ps.f.functions {ensure!(f.iter().all(valid),"invalid output support");}
         let outputs=ps.f.functions.iter().fold(0usize,|a,f|a.saturating_add(f.len().saturating_mul(2).saturating_add(1)));
         ensure!(domain.len().saturating_add(ps.p.terms.len().saturating_mul(2)).saturating_add(outputs)<i32::MAX as usize,"DIMACS ID cap");
-        let (plan,unused,probes)=factor_plan(ps,cap.min(3_000_000))?;
+        let (plan,unused,probes)=match factor_plan(ps,cap.min(3_000_000)) {
+            Ok(v)=>v,
+            Err(_) if auto=>return Ok(None),
+            Err(e)=>return Err(e),
+        };
+        if auto {
+            // Exact structural accounting, before allocating any candidate
+            // CNF or computing MPFR weights. Weighted aliases plus unique
+            // neutral XOR pairs; same trace cost on both arms.
+            let factors=plan.len()+unused.len();
+            let mut shared=std::collections::BTreeSet::new();
+            let mut phase_c=unused.iter().map(|m|m.len()+1).sum::<usize>();
+            for (block,_) in &plan {
+                match block {
+                    Block::Complement(m,_)=>phase_c+=m.len()+2,
+                    Block::Xor(m,x,y)=>{phase_c+=m.len()+2;shared.insert(((*x).min(*y),(*x).max(*y)));},
+                }
+            }
+            phase_c+=4*shared.len();
+            let mut tv=0usize;let mut tc=0usize;
+            for f in &ps.f.functions {
+                if f.is_empty(){tv+=1;tc+=1;}
+                else {
+                    tv+=f.iter().filter(|m|m.len()!=1).count()+f.len()-1;
+                    tc+=f.iter().filter(|m|m.len()!=1).map(|m|m.len()+1).sum::<usize>()+4*(f.len()-1);
+                }
+                tc+=2;
+            }
+            let fv=domain.len()+tv+ps.p.terms.len();
+            let fc=tc+ps.p.terms.keys().map(|m|m.len()+1).sum::<usize>();
+            let cv=domain.len()+tv+factors+shared.len();
+            let cc=tc+phase_c;
+            // Cohort-derived exploratory gate: >=25% savings in factors,
+            // variables AND clauses. Not a solver-time guarantee.
+            if (factors as u128)*4>(ps.p.terms.len() as u128)*3 ||
+                (cv as u128)*4>(fv as u128)*3 || (cc as u128)*4>(fc as u128)*3 {return Ok(None)}
+        }
         let bits=crate::precise_weight::bits_for_distance(epsilon,ps.p.terms.len())?;
         let mut w=Self::new(ps);w.enable_precise_gpmc_weights(bits);
         for v in domain {w.get_dimacs_var(v);}
@@ -178,7 +241,7 @@ impl WmcManager {
             weighted(&mut w,&ops,&ps.p.terms[&m],bits)?;
         }
         canonical_trace(&mut w,ps);
-        Ok((w,probes,bits))
+        Ok(Some((w,probes,bits)))
     }
 }
 

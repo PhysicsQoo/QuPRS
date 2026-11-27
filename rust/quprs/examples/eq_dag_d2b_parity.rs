@@ -38,6 +38,18 @@ fn main()->Result<()>{
     let args:Vec<_>=std::env::args().collect();ensure!(args.len()==4,"residual.tsv expected.cnf output.cnf");
     let ps=load(Path::new(&args[1]))?;
     #[cfg(feature="research-parity-e2e")]
+    if std::env::var("QUPRS_RESEARCH_PARITY_E2E").as_deref()==Ok("combined"){
+        let t=Instant::now();
+        let (route,cnf)=WmcManager::research_combined_cnf(&ps,1e-8)?;
+        let elapsed=t.elapsed().as_secs_f64();
+        if let Some(text)=cnf {
+            ensure!(text.as_bytes()==fs::read(&args[2])?.as_slice(),"combined byte parity mismatch");
+            fs::write(&args[3],text)?;
+        }
+        println!("D5B_AUTO route={route} elapsed_s={elapsed:.9}");
+        return Ok(())
+    }
+    #[cfg(feature="research-parity-e2e")]
     if std::env::var("QUPRS_RESEARCH_PARITY_E2E").as_deref()==Ok("auto"){
         let t=Instant::now();
         let result=WmcManager::research_auto_parity_cnf(&ps,1e-8)?;

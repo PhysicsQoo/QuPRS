@@ -752,7 +752,16 @@ fn check_equivalence_with_distance_mode(
         #[cfg(feature="research-parity-e2e")]
         if tool_name=="gpmc" && !ps_miter.p.terms.is_empty() {
             let setting=std::env::var("QUPRS_RESEARCH_PARITY_E2E");
-            if setting.as_deref()==Ok("factored") {
+            if setting.as_deref()==Ok("combined") {
+                let _encode_scope=diagnostics::span("cnf_encode");
+                let started=Instant::now();
+                let mut route="flat";
+                if let Some((manager,work,bits,selected))=WmcManager::research_combined_manager(&ps_miter,eps)? {
+                    wmc_mgr=manager;research_parity=true;route=selected;
+                    eprintln!("D5B_SELECTED route={route} work={work} bits={bits}");
+                }
+                eprintln!("D5B_ROUTE route={route} elapsed_s={:.9}",started.elapsed().as_secs_f64());
+            } else if setting.as_deref()==Ok("factored") {
                 let _encode_scope=diagnostics::span("cnf_encode");
                 let started=Instant::now();
                 let (manager,work,bits)=WmcManager::research_factored_manager(&ps_miter,eps,3_000_000)?;

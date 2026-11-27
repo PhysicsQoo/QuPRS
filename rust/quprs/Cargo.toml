@@ -48,3 +48,9 @@ proptest = "1.0"
 # Use QUPRS_SOLVER_PROVISION=external to omit solver provisioning in a checkout.
 default = ["high-precision-gpmc"]
 high-precision-gpmc = []
+# Experimental capability; never selected by default verification.
+experimental-cpr = ["high-precision-gpmc"]
+
+[[example]]
+name = "cpr_native_optin"
+required-features = ["experimental-cpr"]

@@ -1518,3 +1518,65 @@ mod cpr_native_router_tests {
         println!("CPR_I2B_RESULT status={:?} total_s={} pathsum_s={} solve_s={:?} precision_reason={:?}",result.status,result.verification_time,result.pathsum_time,result.tool_time,result.wmc_precision_reason);
     }
 }
+
+
+/// Experimental strict numeric CPR entrypoint, deliberately separate from
+/// the stable API. No fallback or verdict on an incomplete builder.
+/// This capability is unavailable unless explicitly compiled in.
+#[cfg(feature="experimental-cpr")]
+#[doc(hidden)]
+pub fn check_equivalence_cpr_experimental(
+    num_qubits:usize,gates1:&[QuantumOp],gates2:&[QuantumOp],options:&VerificationOptions,
+)->Result<EquivalenceCheckResult>{
+    anyhow::ensure!(options.method==VerificationMethod::Hybrid
+        && options.strategy==VerificationStrategy::Difference
+        && options.tool_name=="gpmc" && options.rr_tolerance==0.0,
+        "experimental CPR requires strict Hybrid/Difference/GPMC");
+    anyhow::ensure!(matches!(options.gpmc_precision_digits,30|90),"invalid GPMC precision");
+    anyhow::ensure!(options.phase_tolerance.is_finite()&&options.phase_tolerance>0.0&&options.phase_tolerance<1.0,
+        "invalid phase tolerance");
+    anyhow::ensure!(options.phase_tolerance==1e-8||options.wmc_phase_tolerance==1e-8||
+        options.phase_tolerance==options.wmc_phase_tolerance,"conflicting phase tolerances");
+    let phase=if options.phase_tolerance!=1e-8{options.phase_tolerance}else{options.wmc_phase_tolerance};
+    let eps=options.approximate_distance_tolerance.unwrap_or(1e-8);
+    anyhow::ensure!(phase.is_finite()&&phase>0.0&&phase<1.0&&eps.is_finite()&&eps>0.0&&eps<1.0,
+        "invalid native precision request");
+    anyhow::ensure!(options.timeout_secs>0,"timeout must be positive");
+    let start=Instant::now();
+    let deadline=start.checked_add(std::time::Duration::from_secs(options.timeout_secs))
+        .ok_or_else(||anyhow::anyhow!("timeout duration cannot be represented"))?;
+    let session=diagnostics::Session::from_environment();
+    let build_start=Instant::now();
+    let build_deadline=deadline.min(start+std::time::Duration::from_secs(15));
+    let built=cpr::build_difference(num_qubits,gates1,gates2,build_deadline)
+        .map_err(|e|anyhow::anyhow!("experimental CPR construction stopped: {e:?}"))?;
+    anyhow::ensure!(built.gates_applied==gates1.len()+gates2.len(),"incomplete CPR stream");
+    finish_native_verification(
+        built.residual,num_qubits,gates1.len(),gates2.len(),options.method,options.strategy,
+        &options.tool_name,phase,options.rr_tolerance,eps,options.gpmc_precision_digits,
+        start,build_start,Some(deadline),session.as_ref(),Some(&built.pairs),true,
+    )
+}
+
+#[cfg(all(test,feature="experimental-cpr"))]
+mod cpr_experimental_entry_tests {
+    use super::*;
+    #[test]
+    fn i3b_rejects_out_of_scope_requests(){
+        let mut o=VerificationOptions::default();
+        o.rr_tolerance=0.0;
+        o.method=VerificationMethod::ReductionRules;
+        assert!(check_equivalence_cpr_experimental(1,&[],&[],&o).is_err());
+        o.method=VerificationMethod::Hybrid;
+        o.rr_tolerance=1e-10;
+        assert!(check_equivalence_cpr_experimental(1,&[],&[],&o).is_err());
+        o.rr_tolerance=0.0;o.timeout_secs=0;
+        assert!(check_equivalence_cpr_experimental(1,&[],&[],&o).is_err());
+        o.timeout_secs=27;o.approximate_distance_tolerance=Some(f64::NAN);
+        assert!(check_equivalence_cpr_experimental(1,&[],&[],&o).is_err());
+        o.approximate_distance_tolerance=Some(1e-8);
+        let r=check_equivalence_cpr_experimental(1,&[],&[],&o).unwrap();
+        assert_eq!(r.status,EquivalenceStatus::Equivalent);
+        assert!(!r.solver_invoked);
+    }
+}

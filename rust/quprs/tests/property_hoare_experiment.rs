@@ -1190,7 +1190,7 @@ mod exact_property_cnf {
     // IDs, never a compact snapshot's indices. Frame equality checks
     // layout, not a semantic provenance certificate for arbitrary guards.
     #[derive(Clone)]
-    struct NativeGuardFrame { ids:Vec<u32>, extra:Anf }
+    struct NativeGuardFrame { ids:Vec<u32>, extra:Anf, conjuncts:Vec<Anf> }
     fn native_ids(ps:&PathSum)->Option<Vec<u32>>{
         let mut ids:Vec<_>=ps.v.path_vars.iter().copied().collect();ids.sort_unstable();
         if ids.iter().any(|&i|i>=63){return None;}
@@ -1201,12 +1201,41 @@ mod exact_property_cnf {
             let ids=native_ids(ps)?;
             let live=ids.iter().fold(0u64,|a,&i|a|(1u64<<i));
             if extra.len()>256||extra.iter().any(|m|m&!live!=0){return None;}
-            Some(Self{ids,extra})
+            Some(Self{ids,extra,conjuncts:Vec::new()})
         }
-        fn compact(&self,ps:&PathSum)->Option<Anf>{
+        // One Boolean guard, stored as a conjunction only when bounded
+        // multiplication fails. Each factor retains the existing ANF cap.
+        fn factors(&self)->impl Iterator<Item=&Anf>{
+            std::iter::once(&self.extra).chain(self.conjuncts.iter())
+        }
+        fn from_factors(ps:&PathSum, factors:Vec<Anf>)->Option<Self>{
+            let ids=native_ids(ps)?;
+            let live=ids.iter().fold(0u64,|a,&i|a|(1u64<<i));
+            if factors.len()>32||factors.iter().map(|g|g.len()).sum::<usize>()>4096||
+                factors.iter().any(|g|g.len()>256||g.iter().any(|m|m&!live!=0)){return None;}
+            if factors.iter().any(|g|g.is_empty()){return Self::new(ps,Anf::new());}
+            let mut factors:Vec<_>=factors.into_iter().filter(|g|g!=&Anf::from([0])).collect();
+            if factors.is_empty(){return Self::new(ps,Anf::from([0]));}
+            // Do not partially distribute: this can make later substitutions
+            // much more expensive. Keep the original factors on overflow.
+            if let Some(merged)=factors.iter().try_fold(Anf::from([0]),|a,g|mul_anf(&a,g)){
+                return Self::new(ps,merged);
+            }
+            let extra=factors.remove(0);
+            Some(Self{ids,extra,conjuncts:factors})
+        }
+        fn compact_factors(&self,ps:&PathSum)->Option<Vec<Anf>>{
             if native_ids(ps)?!=self.ids{return None;}
-            Some(self.extra.iter().map(|&m|self.ids.iter().enumerate()
-                .fold(0u64,|a,(i,&j)|a|(((m>>j)&1)<<i))).collect())
+            let live=self.ids.iter().fold(0u64,|a,&i|a|(1u64<<i));
+            if self.conjuncts.len()>=32||self.factors().map(|g|g.len()).sum::<usize>()>4096||
+                self.factors().any(|g|g.len()>256||g.iter().any(|m|m&!live!=0)){return None;}
+            Some(self.factors().map(|g|g.iter().map(|&m|self.ids.iter().enumerate()
+                .fold(0u64,|a,(i,&j)|a|(((m>>j)&1)<<i))).collect()).collect())
+        }
+        // Legacy callers cannot accidentally discard conjuncts.
+        fn compact(&self,ps:&PathSum)->Option<Anf>{
+            if !self.conjuncts.is_empty(){return None;}
+            self.compact_factors(ps)?.into_iter().next()
         }
     }
     #[derive(Clone,Copy,Debug,PartialEq,Eq)]
@@ -1250,19 +1279,19 @@ mod exact_property_cnf {
     }
     fn guarded_native_step(ps:&PathSum,n:usize,g:&NativeGuardFrame)->Option<GuardedStep>{
         let s=compact(ps,n)?;
-        g.compact(ps)?;
+        g.compact_factors(ps)?;
         let ids=native_ids(ps)?;
         let mut candidates:Vec<_>=ps.get_reducible_vars().into_iter().filter(|&y|
-            (y as usize)>=n&&y<63&&g.extra.iter().all(|m|m&(1u64<<y)==0)).collect();
+            (y as usize)>=n&&y<63&&g.factors().all(|f|f.iter().all(|m|m&(1u64<<y)==0))).collect();
         candidates.sort_unstable();
         for rule in [GuardedRule::Elim,GuardedRule::Omega,GuardedRule::Hh]{
             for &y in &candidates{
                 let (extra,mut expected,scale2,section)=match rule{
-                    GuardedRule::Elim=>(g.extra.clone(),vec![y],2,vec![(y,Anf::new())]),
-                    GuardedRule::Omega=>(g.extra.clone(),vec![y],1,vec![(y,Anf::new())]),
+                    GuardedRule::Elim=>(g.factors().cloned().collect::<Vec<_>>(),vec![y],2,vec![(y,Anf::new())]),
+                    GuardedRule::Omega=>(g.factors().cloned().collect::<Vec<_>>(),vec![y],1,vec![(y,Anf::new())]),
                     GuardedRule::Hh=>{
                         let Some((target,repl))=guarded_hh_replacement(&s,&ids,y) else{continue;};
-                        let Some(extra)=substitute_guard(&g.extra,target,&repl) else{continue;};
+                        let Some(extra)=g.factors().map(|f|substitute_guard(f,target,&repl)).collect::<Option<Vec<_>>>() else{continue;};
                         (extra,vec![y,target],2,vec![(y,Anf::new()),(target,repl)])
                     }
                 };
@@ -1277,7 +1306,7 @@ mod exact_property_cnf {
                 let mut removed:Vec<_>=ps.v.path_vars.difference(&trial.v.path_vars).copied().collect();
                 removed.sort_unstable();expected.sort_unstable();
                 if removed!=expected||!trial.v.path_vars.is_subset(&ps.v.path_vars){return None;}
-                let guard=NativeGuardFrame::new(&trial,extra)?;
+                let guard=NativeGuardFrame::from_factors(&trial,extra)?;
                 return Some(GuardedStep{ps:trial,guard,rule,removed,scale2,section});
             }
         }
@@ -1372,12 +1401,12 @@ mod exact_property_cnf {
     #[derive(Clone,Debug,PartialEq,Eq)]
     struct GuardedSnapshot {
         n:usize, ids:Vec<u32>, phase:BTreeMap<u64,u8>,
-        output:Vec<Anf>, extra:Anf,
+        output:Vec<Anf>, extra:Anf, conjuncts:Vec<Anf>,
     }
     fn guarded_snapshot(ps:&PathSum,n:usize,g:&NativeGuardFrame)->Option<GuardedSnapshot>{
         let s=compact(ps,n)?;
-        g.compact(ps)?;
-        Some(GuardedSnapshot{n,ids:native_ids(ps)?,phase:s.phase,output:s.output,extra:g.extra.clone()})
+        g.compact_factors(ps)?;
+        Some(GuardedSnapshot{n,ids:native_ids(ps)?,phase:s.phase,output:s.output,extra:g.extra.clone(),conjuncts:g.conjuncts.clone()})
     }
     #[derive(Clone,Debug,PartialEq,Eq)]
     struct GuardedReceipt {
@@ -1524,6 +1553,7 @@ mod exact_property_cnf {
     }
     fn section_bad_cnf(before:&GuardedSnapshot,after:&GuardedSnapshot,
                        section:&[(u32,Anf)],pre:&[Anf],post:&[Anf])->Option<Cnf>{
+        if !before.conjuncts.is_empty()||!after.conjuncts.is_empty(){return None;}
         let n=before.n;
         if n!=after.n||n==0||n>16||before.output.len()!=n||after.output.len()!=n||
            before.ids.len()>63||after.ids.len()>63||
@@ -7042,12 +7072,17 @@ fn partition_export(dir:&std::path::Path){
     // R24: preserve the *actual* current survivor on both path copies.
     // No OR over old masks, no original-IR fallback. Keep shared input x.
     fn guarded_pair(s:&Symbolic,g:&Anf)->(Cnf,[Lit;3]){
+        guarded_pair_factors(s,std::slice::from_ref(g))
+    }
+    fn guarded_pair_factors(s:&Symbolic,gs:&[Anf])->(Cnf,[Lit;3]){
         let mut c=Cnf::new(s.n+2*s.h);
         let l:Vec<_>=(0..s.n+s.h).map(|i|i as Lit+2).collect();
         let r:Vec<_>=(0..s.n).map(|i|i as Lit+2)
             .chain((s.n+s.h..s.n+2*s.h).map(|i|i as Lit+2)).collect();
-        let a=c.anf(g,&l);c.enforce(a);
-        let b=c.anf(g,&r);c.enforce(b);
+        for g in gs{
+            let a=c.anf(g,&l);c.enforce(a);
+            let b=c.anf(g,&r);c.enforce(b);
+        }
         for o in &s.output{
             let a=c.anf(o,&l);let b=c.anf(o,&r);
             let d=c.xor(a,b);c.enforce(-d);

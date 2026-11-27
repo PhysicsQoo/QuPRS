@@ -81,6 +81,8 @@ jobs:
           grep -F 'CPS_CORE_CANONICAL padding=384' evidence/cps-core-closure.log
           timeout 60s "$(cat evidence/property_hoare_experiment.path)" --exact exact_property_cnf::hoare_cps_core_guarded_rr --nocapture | tee evidence/cps-core-rr.log
           grep -F 'CPS_CORE_RR traces=' evidence/cps-core-rr.log
+          timeout 30s "$(cat evidence/property_hoare_experiment.path)" --exact exact_property_cnf::hoare_cps_core_factored_guard --nocapture | tee evidence/cps-core-factored-guard.log
+          grep -F 'CPS_CORE_FACTORED_GUARD matrix=PASS native_rr=PASS replay_mutant=REJECTED wmc_plan=PASS' evidence/cps-core-factored-guard.log
           CPS_CORE_WMC_DIR="$PWD/evidence/cps-core-wmc" timeout 60s "$(cat evidence/property_hoare_experiment.path)" --exact exact_property_cnf::hoare_cps_core_wmc_export --nocapture | tee evidence/cps-core-wmc-export.log
           timeout 180s python3 rust/research/cps_core_wmc_p0.py evidence/cps-core-wmc "$RUNNER_TEMP/cps-gpmc" | tee evidence/cps-core-wmc.log
           grep -F 'CPS_CORE_WMC_SUMMARY ' evidence/cps-core-wmc.log

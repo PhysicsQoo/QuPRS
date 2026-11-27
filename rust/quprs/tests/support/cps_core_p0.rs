@@ -59,6 +59,13 @@ impl CpsCore{
     // CORE-3 must transport k via checked native RR receipts.
     fn from_derived(ps:PathSum,extra:Anf,k:i32)->Option<Self>{
         let guard=NativeGuardFrame::new(&ps,extra)?;
+        Self::from_frame(ps,guard,k)
+    }
+    fn from_factors(ps:PathSum,factors:Vec<Anf>,k:i32)->Option<Self>{
+        let guard=NativeGuardFrame::from_factors(&ps,factors)?;
+        Self::from_frame(ps,guard,k)
+    }
+    fn from_frame(ps:PathSum,guard:NativeGuardFrame,k:i32)->Option<Self>{
         let c=Self{ps,guard,k};if c.valid(){Some(c)}else{None}
     }
     fn n(&self)->usize{self.ps.v.num_qubits}
@@ -70,7 +77,7 @@ impl CpsCore{
             (0..n).any(|i|!live.contains(&(i as u32)))||
             ps.v.next_id>63||live.iter().any(|&v|v>=63||v>=ps.v.next_id)||
             ps.f.registers.iter().map(|r|r.size).sum::<usize>()!=q||
-            self.guard.compact(ps).is_none()||NativeGuardFrame::new(ps,self.guard.extra.clone()).is_none(){return false;}
+            self.guard.compact_factors(ps).is_none(){return false;}
         let mono_ok=|m:&Vec<u32>|m.windows(2).all(|w|w[0]<w[1])&&m.iter().all(|v|live.contains(v));
         ps.f.functions.iter().all(|p|p.iter().all(&mono_ok))&&
             ps.p.terms.iter().all(|(m,c)|mono_ok(m)&&core_phase8(c).is_some())
@@ -98,7 +105,7 @@ impl CpsCore{
             let id=ps.v.get_fresh_var();core_bit(id)?;map.insert(old,id);
         }
         let (mut p,mut f)=core_rename(&next.ps,&map)?;
-        let mut g=core_rename_anf(&next.guard.extra,&map)?;
+        let mut gs=next.guard.factors().map(|g|core_rename_anf(g,&map)).collect::<Option<Vec<_>>>()?;
         for (i,repl) in self.ps.f.functions.iter().enumerate(){
             let v=*map.get(&(i as u32))?;
             // Bound expansion before native substitution, not after an
@@ -106,14 +113,15 @@ impl CpsCore{
             if repl.len()>8{return None;}
             p.substitute_var_with_poly(v,repl);
             f.substitute_var_with_poly(v,repl);
-            g=substitute_guard(&g,v,&core_anf(repl)?)?;
+            let repl=core_anf(repl)?;
+            gs=gs.iter().map(|g|substitute_guard(g,v,&repl)).collect::<Option<Vec<_>>>()?;
             ps.v.path_vars.remove(&v);
             if p.terms.len()>CORE_TERMS||f.functions.iter().any(|q|q.len()>CORE_TERMS){return None;}
         }
         for (m,c) in p.terms{ps.p.add_term(m,c);}
         ps.f=f;
-        let guard=mul_anf(&self.guard.extra,&g)?;
-        Self::from_derived(ps,guard,k)
+        let mut factors=self.guard.factors().cloned().collect::<Vec<_>>();factors.extend(gs);
+        Self::from_factors(ps,factors,k)
     }
     // Old free inputs become bound; fresh free outputs are never
     // captured by the old input/path IDs. Keep k, not k+n.
@@ -125,18 +133,18 @@ impl CpsCore{
             let id=ps.v.get_fresh_var();core_bit(id)?;map.insert(old,id);
         }
         let (p,f)=core_rename(&self.ps,&map)?;
-        let mut guard=core_rename_anf(&self.guard.extra,&map)?;
+        let mut factors=self.guard.factors().map(|g|core_rename_anf(g,&map)).collect::<Option<Vec<_>>>()?;
         for (j,out) in f.functions.iter().enumerate(){
             // equality = 1 XOR f_j XOR z_j
             let mut eq=core_anf(out)?;xor_insert(&mut eq,0);xor_insert(&mut eq,core_bit(j as u32)?);
-            guard=mul_anf(&guard,&eq)?;
+            factors.push(eq);
         }
         for (m,c) in p.terms{ps.p.add_term(m,c*(-1));}
         ps.f=quprs::pathsum::BooleanState::new(self.n());
         for (i,out) in ps.f.functions.iter_mut().enumerate(){
             out.clear();out.insert(vec![*map.get(&(i as u32))?]);
         }
-        Self::from_derived(ps,guard,self.k)
+        Self::from_factors(ps,factors,self.k)
     }
 }
 
@@ -151,7 +159,7 @@ fn core_matrix(c:&CpsCore)->Vec<Vec<Root>>{
     let mut out=vec![vec![[0;4];1usize<<n];1usize<<q];
     for x in 0..1u64<<n{for y in 0..1u64<<ids.len(){
         let a=ids.iter().enumerate().fold(x,|v,(i,&id)|v|(((y>>i)&1)<<id));
-        if !eval(&c.guard.extra,a){continue;}
+        if !c.guard.factors().all(|g|eval(g,a)){continue;}
         let on=|m:&Vec<u32>|m.iter().all(|&id|a&(1u64<<id)!=0);
         let z=c.ps.f.functions.iter().enumerate().fold(0usize,|v,(i,p)|{
             v|((p.iter().filter(|m|on(m)).count()%2)<<i)
@@ -166,6 +174,7 @@ fn core_matrix(c:&CpsCore)->Vec<Vec<Root>>{
 // No canonical expansion is used by the timed/native algebraic route.
 fn core_check_canonical_padding(c:&CpsCore){
     let h=i32::try_from(c.ps.v.path_vars.len()-c.n()).unwrap();
+    assert!(c.guard.conjuncts.is_empty());
     let mut ps=c.ps.clone();let mut g=c.guard.extra.clone();
     let r=(c.k-h).abs();
     assert!(r<=8);
@@ -295,7 +304,7 @@ impl CpsCore {
         let native=guarded_receipt(&self.ps,self.n(),&self.guard,&step)?;
         let decrement=i32::try_from(native.scale2).ok()?;
         let after_k=self.k.checked_sub(decrement)?;
-        let next=Self::from_derived(step.ps,step.guard.extra,after_k)?;
+        let next=Self::from_frame(step.ps,step.guard,after_k)?;
         if next.guard.ids.len()>=self.guard.ids.len()||next.n()!=self.n()||next.q()!=self.q(){return None;}
         let receipt=CoreRrReceipt{native,before_k:self.k,after_k};
         Some((next,receipt))
@@ -403,8 +412,8 @@ impl CpsCore{
         let s=compact(&self.ps,self.n())?;
         let primary=s.n.checked_add(s.h.checked_mul(2)?)?;
         if primary>63{return None;}
-        let guard=self.guard.compact(&self.ps)?;
-        let (cnf,phase)=guarded_pair(&s,&guard);
+        let guard=self.guard.compact_factors(&self.ps)?;
+        let (cnf,phase)=guarded_pair_factors(&s,&guard);
         Some((cnf,phase,primary,self.k))
     }
 }
@@ -672,7 +681,8 @@ impl CpsCore {
             if ps.v.path_vars.len()!=before+usize::from(h)||!core_terms_ok(&ps){return None;}
             if h{k=k.checked_add(1)?;}
         }
-        Self::from_derived(ps,self.guard.extra.clone(),k)
+        let guard=NativeGuardFrame::from_factors(&ps,self.guard.factors().cloned().collect())?;
+        Self::from_frame(ps,guard,k)
     }
 }
 // A source-only obligation admission experiment, not an alternate
@@ -694,7 +704,7 @@ fn hoare_cps_core_source_obligation_admission(){
         let ua=a.then_circuit(&ops).expect("native gate composition");
         let h=ops.iter().filter(|g|matches!(g,G::H(_))).count();
         assert_eq!(ua.k,a.k+h as i32);assert_eq!((ua.n(),ua.q()),(a.n(),a.q()));
-        assert_eq!(ua.guard.extra,a.guard.extra);
+        assert_eq!(ua.guard.factors().collect::<Vec<_>>(),a.guard.factors().collect::<Vec<_>>());
         gate_ok+=1;
         // Cross-check specialized circuit composition with the already
         // admitted generic operation where the original cap permits it.
@@ -739,7 +749,7 @@ fn hoare_cps_core_source_obligation_admission(){
             };
             let Some(v)=ua.then(&bd) else{
                 blocked+=1;
-                println!("CPS_CORE_OBLIGATION case={case} variant={variant} oracle={expected} stage=composition verdict=UNKNOWN ua_h={} ua_phase={} adjoint_guard={}",ua.guard.ids.len()-ua.n(),ua.ps.p.terms.len(),bd.guard.extra.len());
+                println!("CPS_CORE_OBLIGATION case={case} variant={variant} oracle={expected} stage=composition verdict=UNKNOWN ua_h={} ua_phase={} adjoint_guard={}",ua.guard.ids.len()-ua.n(),ua.ps.p.terms.len(),bd.guard.factors().map(|g|g.len()).sum::<usize>());
                 continue;
             };
             let Some((cnf,_,primary,_))=v.wmc_norm_plan() else{
@@ -755,10 +765,34 @@ fn hoare_cps_core_source_obligation_admission(){
                 assert_eq!(norm,(if expected{1i64<<v.k}else{0},0));
                 exact+=1;
             }
-            println!("CPS_CORE_OBLIGATION case={case} variant={variant} oracle={expected} stage=ready verdict=NOT_RUN overlap_h={} overlap_guard={} primary={primary} vars={} clauses={}",v.guard.ids.len()-v.n(),v.guard.extra.len(),cnf.vars,cnf.clauses.len());
+            println!("CPS_CORE_OBLIGATION case={case} variant={variant} oracle={expected} stage=ready verdict=NOT_RUN overlap_h={} overlap_guard_terms={} guard_factors={} primary={primary} vars={} clauses={}",v.guard.ids.len()-v.n(),v.guard.factors().map(|g|g.len()).sum::<usize>(),v.guard.factors().count(),cnf.vars,cnf.clauses.len());
         }
     }
     assert_eq!((cases,gate_ok,exact),(9,3,3));
     assert_eq!(ready+blocked,cases);
     println!("CPS_CORE_OBLIGATION_SUMMARY cases={cases} gate_composition={gate_ok} bv_exact={exact} ready={ready} blocked={blocked}");
+}
+
+
+#[test]
+fn hoare_cps_core_factored_guard(){
+    let mut ps=PathSum::new(1);ps.set_auto_reduce(false);
+    let ids=(0..10).map(|_|ps.v.get_fresh_var()).collect::<Vec<_>>();
+    ps.v.get_fresh_var(); // independent integration path
+    let factor=|vs:&[u32]|->Anf{
+        (0..1usize<<vs.len()).map(|m|vs.iter().enumerate().fold(0u64,|acc,(i,&v)|acc|((((m>>i)&1) as u64)<<v))).collect()
+    };
+    let f=factor(&ids[..5]);let g=factor(&ids[5..]);
+    assert_eq!(f.len(),32);assert_eq!(g.len(),32);assert!(mul_anf(&f,&g).is_none());
+    let k=(ps.v.path_vars.len()-ps.v.num_qubits) as i32;
+    let c=CpsCore::from_factors(ps,vec![f,g],k).unwrap();
+    assert!(!c.guard.conjuncts.is_empty());assert!(c.guard.compact(&c.ps).is_none());
+    assert_eq!(core_norm_numerator(&c),(8,0));
+    let (next,r)=c.rr_step().unwrap();
+    assert_eq!(r.native.rule,GuardedRule::Elim);assert_eq!(next.k,9);
+    core_rr_equal(&c,&next);assert!(c.replay_rr(&[r.clone()]).is_some());
+    let mut bad=r.clone();xor_insert(&mut bad.native.after.conjuncts[0],0);
+    assert!(c.replay_rr(&[bad]).is_none());
+    let (cnf,_,primary,_)=c.wmc_norm_plan().unwrap();assert_eq!(primary,23);assert!(cnf.vars>=primary);
+    println!("CPS_CORE_FACTORED_GUARD matrix=PASS native_rr=PASS replay_mutant=REJECTED wmc_plan=PASS");
 }

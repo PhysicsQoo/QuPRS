@@ -652,3 +652,113 @@ fn hoare_cps_core_source_lowering(){
     assert_eq!((predicates,columns,entries),(6,20,4192));
     println!("CPS_CORE_SOURCE_SUMMARY predicates={predicates} oracle_columns={columns} oracle_entries={entries} rejection_controls=3 symbolic_families=2 bv_composition=PASS");
 }
+
+// CORE-5 entry: composition with a circuit is the existing native ket
+// gate application, not construction of another circuit IR. In particular
+// the input signature of a source predicate remains unchanged.
+// Reuse the original one-gate admission, but bound total live path IDs
+// and native polynomials instead of the early synthetic <=10 H cap.
+impl CpsCore {
+    fn then_circuit(&self,ops:&[G])->Option<Self>{
+        if !self.valid()||ops.len()>128||self.q()==0{return None;}
+        let mut ps=self.ps.clone();ps.set_auto_reduce(false);
+        let mut k=self.k;
+        for g in ops{
+            if !admitted(self.q(),std::slice::from_ref(g)){return None;}
+            let h=matches!(g,G::H(_));
+            if h&&ps.v.next_id>=63{return None;}
+            let before=ps.v.path_vars.len();
+            g.apply(&mut ps,false);
+            if ps.v.path_vars.len()!=before+usize::from(h)||!core_terms_ok(&ps){return None;}
+            if h{k=k.checked_add(1)?;}
+        }
+        Self::from_derived(ps,self.guard.extra.clone(),k)
+    }
+}
+// A source-only obligation admission experiment, not an alternate
+// verifier. Test the actual three variants and retain explicit UNKNOWN
+// at the first existing resource/admission boundary.
+#[test]
+fn hoare_cps_core_source_obligation_admission(){
+    let root=std::path::PathBuf::from(std::env::var("CPS_CORE_SOURCE_DIR").unwrap());
+    let mut cases=0;let mut ready=0;let mut blocked=0;let mut gate_ok=0;let mut exact=0;
+    for (case,pre,post,qasm) in AQ_SOURCES{
+        let family=match case{"bv03"=>"BV","grover03"=>"Grover","mogrover03"=>"MOGrover",_=>unreachable!()};
+        let folder=root.join("benchmarks").join("all").join(family).join("03");
+        for (file,embedded) in [("pre.hsl",pre),("post.hsl",post),("circuit.qasm",qasm)]{
+            assert_eq!(std::fs::read_to_string(folder.join(file)).unwrap(),embedded);
+        }
+        let a=core_hsl_lower(pre).unwrap();
+        let (ops,n)=quprs::qasm::parse_qasm_str_source_pinned(qasm).unwrap();
+        assert_eq!(ops,factor_source_ops(qasm,n));
+        let ua=a.then_circuit(&ops).expect("native gate composition");
+        let h=ops.iter().filter(|g|matches!(g,G::H(_))).count();
+        assert_eq!(ua.k,a.k+h as i32);assert_eq!((ua.n(),ua.q()),(a.n(),a.q()));
+        assert_eq!(ua.guard.extra,a.guard.extra);
+        gate_ok+=1;
+        // Cross-check specialized circuit composition with the already
+        // admitted generic operation where the original cap permits it.
+        if let Some(u)=CpsCore::circuit(n,&ops){
+            let direct=a.then(&u).unwrap();core_rr_equal(&direct,&ua);
+        }
+        // Independent dense *gate* oracle and existing finite HSL reference,
+        // used only to certify expected results for this source cohort.
+        let (_,pre_ref)=aq_family(pre).unwrap();
+        let variants=[
+            ("source",post.to_owned(),true),
+            ("relative",if case=="bv03"{post.replace("|1011>","|0011>")}else{post.replace("aH := 11 /","aH := -11 /")},false),
+            ("global",if case=="bv03"{post.replace("c1 := 1","c1 := -1")}else{post.replace("aH := 11 /","aH := -11 /").replace("aL := -1 /","aL := 1 /")},true),
+        ];
+        for (variant,src,expected) in variants{
+            let b=core_hsl_lower(&src).unwrap();
+            let (_,post_ref)=aq_family(&src).unwrap();
+            // StateSet semantics: check every input against every target
+            // in the oracle, not merely the same index. In this cohort
+            // the family has disjoint classical label supports.
+            let mut all=true;
+            for x in &pre_ref{
+                let state=dense_state(n,&ops,aq_fixed_input(x).unwrap());
+                let mut any=false;
+                for t in &post_ref{
+                    let mut dot=[0;4];
+                    for (z,v) in state.iter().enumerate(){
+                        let coeff=t.terms.iter().filter(|p|aq_match(&p.pattern,z as u64)).map(|p|p.signed).sum::<i64>();
+                        dot=add(dot,v.map(|q|q*coeff));
+                    }
+                    let norm=rus_mul(dot,rus_conj(dot));
+                    any|=norm==[1i64<<(h+t.k),0,0,0];
+                }
+                all&=any;
+            }
+            assert_eq!(all,expected,"independent source oracle {case}/{variant}");
+            cases+=1;
+            let Some(bd)=b.adjoint() else{
+                blocked+=1;
+                println!("CPS_CORE_OBLIGATION case={case} variant={variant} oracle={expected} stage=adjoint verdict=UNKNOWN ua_h={} ua_phase={} post_guard={} post_h={}",ua.guard.ids.len()-ua.n(),ua.ps.p.terms.len(),b.guard.extra.len(),b.guard.ids.len()-b.n());
+                continue;
+            };
+            let Some(v)=ua.then(&bd) else{
+                blocked+=1;
+                println!("CPS_CORE_OBLIGATION case={case} variant={variant} oracle={expected} stage=composition verdict=UNKNOWN ua_h={} ua_phase={} adjoint_guard={}",ua.guard.ids.len()-ua.n(),ua.ps.p.terms.len(),bd.guard.extra.len());
+                continue;
+            };
+            let Some((cnf,_,primary,_))=v.wmc_norm_plan() else{
+                blocked+=1;
+                println!("CPS_CORE_OBLIGATION case={case} variant={variant} oracle={expected} stage=wmc-admission verdict=UNKNOWN overlap_h={}",v.guard.ids.len()-v.n());
+                continue;
+            };
+            ready+=1;
+            // Only assert a definite result here for the already bounded
+            // scalar BV witness. No dense enumeration of large CPS.
+            if case=="bv03"{
+                let norm=core_norm_numerator(&v);
+                assert_eq!(norm,(if expected{1i64<<v.k}else{0},0));
+                exact+=1;
+            }
+            println!("CPS_CORE_OBLIGATION case={case} variant={variant} oracle={expected} stage=ready verdict=NOT_RUN overlap_h={} overlap_guard={} primary={primary} vars={} clauses={}",v.guard.ids.len()-v.n(),v.guard.extra.len(),cnf.vars,cnf.clauses.len());
+        }
+    }
+    assert_eq!((cases,gate_ok,exact),(9,3,3));
+    assert_eq!(ready+blocked,cases);
+    println!("CPS_CORE_OBLIGATION_SUMMARY cases={cases} gate_composition={gate_ok} bv_exact={exact} ready={ready} blocked={blocked}");
+}

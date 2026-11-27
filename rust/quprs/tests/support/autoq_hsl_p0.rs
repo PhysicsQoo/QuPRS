@@ -505,3 +505,226 @@ x qubits[2];
 h qubits[7];
 "####),
 ];
+
+
+// Source-locked GHZall HSL template: complete basis input family and the
+// complementary two-ket family with both relative signs. Scope is deliberately
+// narrow; this is not a general HSL parser or a separate reduction engine.
+fn aq_ghzall_admit(n:usize,pre:&str,post:&str)->bool{
+    n>=2 && n<=16 &&
+    pre.trim()==format!("Constants\nc1 := 1\nExtended Dirac\n{{c1 |ji> : |j|=1, |i|={}}}",n-1) &&
+    post.trim()==format!("Constants\ncp := 1/sqrt2\ncn := -1/sqrt2\nExtended Dirac\n{{cp |0i> + cp |1i'> : |i|={}}} ∪\n{{cp |0i> + cn |1i'> : |i|={}}}",n-1,n-1)
+}
+
+// C1: specialize the single live path variable using the existing ANF and
+// phase operations. The two outputs must be complementary on every input;
+// the first coordinate orders the two paths. The common normalization is
+// separately checked by the caller. No input/target enumeration.
+#[derive(Debug,PartialEq,Eq)]
+struct AqGhzWitness {
+    tail: Vec<BTreeSet<u64>>,
+    sign: BTreeMap<u64,u8>,
+}
+fn aq_ghz_witness(s:&Symbolic)->Option<AqGhzWitness>{
+    if s.n<2 || s.n>16 || s.h!=1 || s.output.len()!=s.n{return None;}
+    let y=1u64<<s.n;
+    let lo=Cube{mask:y,value:0};
+    let hi=Cube{mask:y,value:y};
+    if !specialize_bool(&s.output[0],lo).is_empty() ||
+        specialize_bool(&s.output[0],hi)!=Anf::from([0]) {return None;}
+    let mut tail=Vec::new();
+    for p in s.output.iter().skip(1){
+        let a=specialize_bool(p,lo);
+        let b=specialize_bool(p,hi);
+        // Restrict this first extractor to affine target-index functions.
+        if a.iter().any(|m|m.count_ones()>1){return None;}
+        let mut complement=a.clone();
+        if !complement.insert(0){complement.remove(&0);}
+        if complement!=b{return None;}
+        tail.push(a);
+    }
+    let p0=specialize_phase(&s.phase,lo);
+    let mut delta=specialize_phase(&s.phase,hi);
+    for (m,k) in p0{
+        let v=(delta.get(&m).copied().unwrap_or(0)+8-k)%8;
+        if v==0{delta.remove(&m);}else{delta.insert(m,v);}
+    }
+    // Relative phase must be exactly +1 or -1; input-dependent common
+    // phase is irrelevant to ray equality. Coefficients 0/4 are sufficient.
+    if delta.values().any(|&k|k!=4){return None;}
+    Some(AqGhzWitness{tail,sign:delta})
+}
+fn aq_ghz_index(w:&AqGhzWitness,x:u64)->u64{
+    w.tail.iter().enumerate().fold(0,|z,(i,p)|{
+        let b=p.iter().fold(false,|b,m|b^(x&m==*m));
+        z|((b as u64)<<(i+1))
+    })
+}
+fn aq_ghz_negative(w:&AqGhzWitness,x:u64)->bool{
+    w.sign.keys().fold(false,|b,m|b^(x&m==*m))
+}
+// C2: for a plus-only post family, a nonzero Boolean sign ANF provides
+// a witness without enumerating input states. A minimum-degree monomial
+// has no proper-subset term and evaluates to 1 on its own assignment.
+fn aq_ghz_minus_input(w:&AqGhzWitness)->Option<u64>{
+    let x=*w.sign.keys().min_by_key(|m|m.count_ones())?;
+    assert!(aq_ghz_negative(w,x));
+    Some(x)
+}
+#[test]
+fn hoare_autoq_ghzall_symbolic_witness(){
+    for (n,pre,post,src) in AQ_GHZALL_SOURCES{
+        assert!(aq_ghzall_admit(n,pre,post));
+        let t=std::time::Instant::now();
+        let ops=factor_source_ops(src,n);
+        let (parsed,width)=quprs::qasm::parse_qasm_str_source_pinned(src).expect("source-pinned GHZall parse");
+        assert_eq!((parsed,width),(ops.clone(),n));
+        let mut ps=PathSum::new(n);ps.set_auto_reduce(false);
+        for g in &ops{g.apply(&mut ps,false);}
+        let raw=compact(&ps,n).expect("native GHZall CPS");
+        let h0=ops.iter().filter(|g|matches!(g,G::H(_))).count();
+        assert_eq!(h0,1);assert_eq!(raw.h,1);
+        let build_ns=t.elapsed().as_nanos();
+        let t=std::time::Instant::now();
+        let w=aq_ghz_witness(&raw).expect("symbolic whole-domain witness");
+        let neg=aq_ghz_minus_input(&w).expect("plus-only post has counterexample");
+        let structural_ns=t.elapsed().as_nanos();
+
+        let (reduced,frame,scale,steps)=native_rr_checkpoint(ps,n).expect("native RR checkpoint");
+        assert_eq!(scale,0);assert_eq!(frame.compact(&reduced).unwrap(),Anf::from([0]));
+        let residual=compact(&reduced,n).unwrap();
+        assert_eq!(aq_ghz_witness(&residual).as_ref(),Some(&w));
+
+        // Separate dense exact gate oracle. Enumerate every target for each
+        // input only here, never in the symbolic route. Removing the minus
+        // branch is a genuine negative spec; flipping both signs is NOT.
+        let total=1u64<<n;let mask=total-1;
+        let mut matches=0u64;let mut plus_matches=0u64;
+        let mut pairs=0u64;
+        let t=std::time::Instant::now();
+        for x in 0..total{
+            let v=dense_state(n,&ops,x);
+            assert!(v.iter().all(|r|r[1..]==[0,0,0]));
+            assert_eq!(v.iter().map(|r|i128::from(r[0]).pow(2)).sum::<i128>(),2);
+            let index=aq_ghz_index(&w,x);
+            let minus=aq_ghz_negative(&w,x);
+            let mut found=Vec::new();
+            for i in 0..total/2{
+                let a=i<<1;let b=mask^a;
+                for s in [1i128,-1]{
+                    pairs+=1;
+                    let sum=i128::from(v[a as usize][0])+s*i128::from(v[b as usize][0]);
+                    if sum.abs()==2{
+                        found.push((a,s<0));
+                        if s>0{plus_matches+=1;}
+                    }
+                }
+            }
+            assert_eq!(found,vec![(index,minus)]);
+            matches+=1;
+        }
+        let dense_ns=t.elapsed().as_nanos();
+        let v=dense_state(n,&ops,neg);
+        assert!((0..total/2).all(|i|{
+            let a=i<<1;let b=mask^a;
+            (i128::from(v[a as usize][0])+i128::from(v[b as usize][0])).abs()!=2
+        }));
+        // Remove the last entangling gate from the actual source. A failed
+        // structural admission is UNKNOWN/fallback, not itself REFUTED.
+        let broken=&ops[..ops.len()-1];
+        let s=native(n,broken).expect("negative source native");
+        assert!(aq_ghz_witness(&s).is_none());
+        let v=dense_state(n,broken,0);
+        assert!((0..total/2).all(|i|{
+            let a=i<<1;let b=mask^a;
+            (i128::from(v[a as usize][0])+i128::from(v[b as usize][0])).abs()!=2 &&
+            (i128::from(v[a as usize][0])-i128::from(v[b as usize][0])).abs()!=2
+        }));
+        assert_eq!(matches,total);assert_eq!(plus_matches,total/2);
+        println!("AQ_GHZALL_SYMBOLIC n={n} full_pairs={pairs} symbolic_pairs=0 matched={matches} plus_matches={plus_matches} plus_only_refuted=true witness={neg} broken_unknown=true dense_oracle=true raw_residual_agree=true scale2={scale} rr_steps={steps} build_ns={build_ns} structural_ns={structural_ns} dense_oracle_ns={dense_ns}");
+    }
+}
+
+// AutoQ pin 7eed39ad7ba5615a87c3f532a24f866e08967c12; original source bytes (pre, post, circuit).
+const AQ_GHZALL_SOURCES:[(usize,&str,&str,&str);4]=[
+    (3,r####"Constants
+c1 := 1
+Extended Dirac
+{c1 |ji> : |j|=1, |i|=2}
+"####,r####"Constants
+cp := 1/sqrt2
+cn := -1/sqrt2
+Extended Dirac
+{cp |0i> + cp |1i'> : |i|=2} ∪
+{cp |0i> + cn |1i'> : |i|=2}
+"####,r####"OPENQASM 2.0;
+include "qelib1.inc";
+qreg qubits[3];
+
+h qubits[0];
+cx qubits[0], qubits[1];
+cx qubits[1], qubits[2];
+"####), // blobs 01a7d8579b1a6079fde76991cd3af5c4c7b3952c ba24ec21eef82940d34ca90822aedc3650293ac5 f1f040ec26312825a56db1f0ac735f81cad5dd9f
+    (4,r####"Constants
+c1 := 1
+Extended Dirac
+{c1 |ji> : |j|=1, |i|=3}
+"####,r####"Constants
+cp := 1/sqrt2
+cn := -1/sqrt2
+Extended Dirac
+{cp |0i> + cp |1i'> : |i|=3} ∪
+{cp |0i> + cn |1i'> : |i|=3}
+"####,r####"OPENQASM 2.0;
+include "qelib1.inc";
+qreg qubits[4];
+
+h qubits[0];
+cx qubits[0], qubits[1];
+cx qubits[1], qubits[2];
+cx qubits[2], qubits[3];
+"####), // blobs f735cf6987e054b53d2682edb43abb00463182e9 b47769284fba9e93c8de087848c2b5188a418235 34b355874a3658e45307c44529473a93258e5bd3
+    (5,r####"Constants
+c1 := 1
+Extended Dirac
+{c1 |ji> : |j|=1, |i|=4}
+"####,r####"Constants
+cp := 1/sqrt2
+cn := -1/sqrt2
+Extended Dirac
+{cp |0i> + cp |1i'> : |i|=4} ∪
+{cp |0i> + cn |1i'> : |i|=4}
+"####,r####"OPENQASM 2.0;
+include "qelib1.inc";
+qreg qubits[5];
+
+h qubits[0];
+cx qubits[0], qubits[1];
+cx qubits[1], qubits[2];
+cx qubits[2], qubits[3];
+cx qubits[3], qubits[4];
+"####), // blobs b67b488134a71aabb55f8277d3e91c52f2fcd014 f4122a5fffab2806442e925a2d768f28ec26fa40 ad462048e1513e80d53c397d215ad1e2dafe6a3e
+    (8,r####"Constants
+c1 := 1
+Extended Dirac
+{c1 |ji> : |j|=1, |i|=7}
+"####,r####"Constants
+cp := 1/sqrt2
+cn := -1/sqrt2
+Extended Dirac
+{cp |0i> + cp |1i'> : |i|=7} ∪
+{cp |0i> + cn |1i'> : |i|=7}
+"####,r####"OPENQASM 2.0;
+include "qelib1.inc";
+qreg qubits[8];
+
+h qubits[0];
+cx qubits[0], qubits[1];
+cx qubits[1], qubits[2];
+cx qubits[2], qubits[3];
+cx qubits[3], qubits[4];
+cx qubits[4], qubits[5];
+cx qubits[5], qubits[6];
+cx qubits[6], qubits[7];
+"####), // blobs a712713768d9605514ff30208785b5bfdbffad06 7a2693425da63470feca65ca62d93e9d19d3a461 f2c88eaf5779c0bd340a501514432290369fdf7f
+];

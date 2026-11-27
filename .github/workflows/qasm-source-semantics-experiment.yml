@@ -102,6 +102,8 @@ jobs:
           grep -F 'CPS_GUARD_INTERFACE small_parity=PASS wide_replacement=PASS transient_id=PASS formal_native_reject=PASS' evidence/cps-core-closure.log
           grep -F 'CPS_AFFINE_ADJOINT matrix=PASS unique_extension=PASS zero_row=PASS reject=PASS' evidence/cps-core-closure.log
           grep -F 'CPS_SHARED_AFFINE matrix=PASS zero_row=PASS high_id=PASS reject=PASS' evidence/cps-core-closure.log
+          timeout 30s "$(cat evidence/property_hoare_experiment.path)" --exact exact_property_cnf::hoare_cps_affine_phase_cancellation --nocapture | tee evidence/cps-affine-phase-cancellation.log
+          grep -F 'CPS_AFFINE_PHASE_CANCELLATION transient=PASS final_cap=PASS mixed_z8=PASS scratch_reject=PASS' evidence/cps-affine-phase-cancellation.log
           grep -F 'rejection_controls=9' evidence/cps-core-closure.log
           grep -F 'CPS_CORE_CANONICAL padding=384' evidence/cps-core-closure.log
           timeout 60s "$(cat evidence/property_hoare_experiment.path)" --exact exact_property_cnf::hoare_cps_core_guarded_rr --nocapture | tee evidence/cps-core-rr.log
@@ -187,7 +189,7 @@ jobs:
           set -euo pipefail
           src="$RUNNER_TEMP/autoq-matched"
           export LD_LIBRARY_PATH="$src:$src/build/lib:$src/build/cli:${LD_LIBRARY_PATH:-}"
-          CPS_CORE_SOURCE_DIR="$src" timeout 30s "$(cat evidence/release-bin.path)" --exact exact_property_cnf::hoare_cps_sparse_source_admission --nocapture | tee evidence/cps-sparse-source-admission.log
+          CPS_AFFINE_PHASE_DIAGNOSTIC=1 CPS_CORE_SOURCE_DIR="$src" timeout 30s "$(cat evidence/release-bin.path)" --exact exact_property_cnf::hoare_cps_sparse_source_admission --nocapture | tee evidence/cps-sparse-source-admission.log
           grep -F "CPS_SPARSE_SOURCE_ADMISSION case=MOGrover05 status=" evidence/cps-sparse-source-admission.log
           grep -F "CPS_SPARSE_AFFINE_ADMISSION case=MOGrover05 status=" evidence/cps-sparse-source-admission.log
           CPS_CORE_SOURCE_DIR="$src" timeout 90s "$(cat evidence/release-bin.path)" --exact exact_property_cnf::hoare_cps_core_heldout_predicates --nocapture | tee evidence/cps-core-heldout-predicates.log

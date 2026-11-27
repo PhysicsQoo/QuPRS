@@ -126,6 +126,53 @@ impl CoreGuardStorage for SparseGuardFrame {
     fn mono_ids(m:&SparseMono)->Vec<u32>{m.ids().to_vec()}
 }
 fn core_toggle<M:Ord>(p:&mut BTreeSet<M>,m:M){if !p.remove(&m){p.insert(m);}}
+// The affine B-adjoint fragment has Z8 coefficients 0 or 4.
+// Collect its substituted monomials modulo two before applying them to
+// native P. Keep a separate finite scratch budget; final admission
+// remains CORE_PHASE_TERMS, and mixed native Z8 coefficients are merged
+// using the existing PhasePolynomial::add_term.
+const AFFINE_SIGN_SCRATCH:usize=4096;
+struct CoreAffineSign<M:Ord>{
+    delta:BTreeSet<M>, emitted:usize, peak:usize,
+}
+impl<M:Ord> CoreAffineSign<M>{
+    fn new()->Self{Self{delta:BTreeSet::new(),emitted:0,peak:0}}
+    fn push(&mut self,terms:BTreeSet<M>)->Option<()>{
+        self.emitted=self.emitted.checked_add(terms.len())?;
+        if self.emitted>2_000_000{return None;}
+        for m in terms{
+            core_toggle(&mut self.delta,m);
+            self.peak=self.peak.max(self.delta.len());
+            if self.delta.len()>AFFINE_SIGN_SCRATCH{return None;}
+        }
+        Some(())
+    }
+}
+fn core_merge_affine_sign<F:CoreGuardStorage>(
+    p:&mut quprs::pathsum::PhasePolynomial,sign:CoreAffineSign<F::M>
+)->Result<String,String>{
+    let initial=p.terms.len();
+    let distinct=sign.delta.len();
+    let cancelled_in_delta=sign.emitted-distinct;
+    let mut removed=0usize;let mut added=0usize;let mut changed=0usize;
+    let mut peak=initial;
+    for v in sign.delta{
+        let m=F::mono_ids(&v);
+        let before=p.terms.contains_key(&m);
+        p.add_term(m.clone(),quprs::PhaseCoeff::HALF);
+        match (before,p.terms.contains_key(&m)){
+            (true,false)=>removed+=1,
+            (false,true)=>added+=1,
+            (true,true)=>changed+=1,
+            (false,false)=>return Err("sign-merge-invariant".into())
+        }
+        peak=peak.max(p.terms.len());
+    }
+    let final_terms=p.terms.len();
+    let detail=format!("initial={initial} emitted={} delta={distinct} delta_cancelled={cancelled_in_delta} delta_peak={} native_removed={removed} native_added={added} native_changed={changed} merge_peak={peak} final_terms={final_terms} limit={CORE_PHASE_TERMS}",sign.emitted,sign.peak);
+    if final_terms>CORE_PHASE_TERMS{return Err(format!("phase-term-cap {detail}"));}
+    Ok(detail)
+}
 fn core_storage_anf<F:CoreGuardStorage>(p:&CoreBool)->Option<BTreeSet<F::M>>{
     p.iter().map(|m|F::mono(m)).collect()
 }
@@ -277,14 +324,18 @@ impl<F:CoreGuardStorage> CpsCore<F>{
             Some(out)
         };
         for g in &gs{factors.push(subst(g).ok_or("guard-substitution-cap")?);}
-        for (m,c) in &b.ps.p.terms{
+        let mut sign=CoreAffineSign::<F::M>::new();
+        let mut phase_terms:Vec<_>=b.ps.p.terms.iter().collect();
+        phase_terms.sort_by(|a,b|a.0.cmp(b.0));
+        for (m,c) in phase_terms{
             if core_phase8(c)==Some(0){continue;}
             // -pi == pi; XOR sign monomials are exact modulo 2*pi.
             let g=subst(&BTreeSet::from([F::mono(m).ok_or("phase-mask")?])).ok_or("phase-substitution-cap")?;
-            for v in g{
-                ps.p.add_term(F::mono_ids(&v),quprs::PhaseCoeff::HALF);
-            }
-            if ps.p.terms.len()>CORE_PHASE_TERMS{return Err("phase-term-cap".into());}
+            sign.push(g).ok_or_else(||format!("phase-sign-scratch-cap emitted={} peak={} limit={AFFINE_SIGN_SCRATCH}",sign.emitted,sign.peak))?;
+        }
+        let phase_detail=core_merge_affine_sign::<F>(&mut ps.p,sign)?;
+        if std::env::var_os("CPS_AFFINE_PHASE_DIAGNOSTIC").is_some(){
+            println!("CPS_AFFINE_PHASE {phase_detail}");
         }
         ps.f=quprs::pathsum::BooleanState::new(b.n());
         for (i,out) in ps.f.functions.iter_mut().enumerate(){
@@ -1888,4 +1939,40 @@ fn hoare_cps_sparse_source_admission(){
         },
         Err(e)=>println!("CPS_SPARSE_AFFINE_ADMISSION case=MOGrover05 status=BLOCKED detail={e}")
     }
+}
+
+#[test]
+fn hoare_cps_affine_phase_cancellation(){
+    // A final-size bound must not reject a transient additional term.
+    // The narrow sorted delta visits the absent constant before the
+    // existing largest monomial. Use exact native Z8 coefficients.
+    let mut p=quprs::pathsum::PhasePolynomial::new();
+    for m in 1..=1024u64{
+        p.add_term(<NativeGuardFrame as CoreGuardStorage>::mono_ids(&m),quprs::PhaseCoeff::HALF);
+    }
+    let mut sign=CoreAffineSign::<u64>::new();
+    sign.push(Anf::from([0,1024,2048])).unwrap();
+    sign.push(Anf::from([2048])).unwrap();
+    let detail=core_merge_affine_sign::<NativeGuardFrame>(&mut p,sign).unwrap();
+    assert!(detail.contains("merge_peak=1025")&&detail.contains("final_terms=1024")&&detail.contains("delta_cancelled=2"));
+    assert_eq!(p.terms.len(),1024);
+    assert!(p.terms.contains_key(&Vec::<u32>::new())&&!p.terms.contains_key(&vec![10]));
+    for m in 1..1024u64{
+        assert_eq!(core_phase8(&p.terms[&<NativeGuardFrame as CoreGuardStorage>::mono_ids(&m)]),Some(4));
+    }
+    let mut overflow=CoreAffineSign::<u64>::new();
+    overflow.push(Anf::from([1024])).unwrap();
+    let e=core_merge_affine_sign::<NativeGuardFrame>(&mut p.clone(),overflow).unwrap_err();
+    assert!(e.contains("final_terms=1025")&&e.contains("limit=1024"));
+    // Mixed Z8 phase must be added modulo 8, not XOR-deleted.
+    let mut p=quprs::pathsum::PhasePolynomial::new();
+    p.add_term(vec![128],quprs::PhaseCoeff::new_constant(quprs::Rational::new(1,8)));
+    let mut sign=CoreAffineSign::<SparseMono>::new();
+    sign.push(SparseAnf::from([SparseMono::new(vec![128]).unwrap()])).unwrap();
+    core_merge_affine_sign::<SparseGuardFrame>(&mut p,sign).unwrap();
+    assert_eq!(core_phase8(&p.terms[&vec![128]]),Some(5));
+    // A separate scratch cap rejects genuinely unbounded expansion.
+    let mut sign=CoreAffineSign::<u64>::new();
+    assert!(sign.push((0..=AFFINE_SIGN_SCRATCH as u64).collect()).is_none());
+    println!("CPS_AFFINE_PHASE_CANCELLATION transient=PASS final_cap=PASS mixed_z8=PASS scratch_reject=PASS");
 }

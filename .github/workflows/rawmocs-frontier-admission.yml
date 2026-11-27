@@ -475,8 +475,8 @@ jobs:
           if-no-files-found: warn
 
   v020-pinned-integration:
-    if: github.event_name == 'workflow_dispatch' && inputs.suite == 'v020-pinned-integration'
-    name: v0.2.0 pinned QuPRS integration / ${{ matrix.case }}
+    if: github.event_name == 'push' || inputs.suite == 'v020-pinned-integration'
+    name: v0.2.0 extracted-source candidate QuPRS integration / ${{ matrix.case }}
     runs-on: ubuntu-24.04
     timeout-minutes: 12
     strategy:
@@ -491,7 +491,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: PhysicsQoo/RaWMoCS
-          ref: 0b8538be510718e7c8d79a79875681628b73f9be
+          ref: 5a16026285205e611af3451e76ac20eebc3b73cd
           path: .rawmocs-candidate
           persist-credentials: false
       - uses: actions/checkout@v4
@@ -521,7 +521,7 @@ jobs:
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = 0344851c7944d846ccdeae69404d3d4bef3e54d5
-          test "$(git -C .rawmocs-candidate rev-parse HEAD)" = 0b8538be510718e7c8d79a79875681628b73f9be
+          test "$(git -C .rawmocs-candidate rev-parse HEAD)" = 5a16026285205e611af3451e76ac20eebc3b73cd
           test "$(git -C .rawmocs-baseline rev-parse HEAD)" = b3d02b2720c2fae5231c0ed5cf44950164a5780d
           test "$(git -C .gpmc rev-parse HEAD)" = 89bbc89d0de918e7a5385740355df55765039230
           sudo apt-get -o Dir::Etc::sourcelist=/etc/apt/sources.list.d/ubuntu.sources -o Dir::Etc::sourceparts=- -o APT::Get::List-Cleanup=0 update
@@ -529,9 +529,29 @@ jobs:
           python -m pip install numpy sympy symengine 'qiskit==2.6.1' qiskit-qasm3-import psutil
           mkdir -p .v020-integration
           python -m pip freeze > .v020-integration/dependencies.txt
-          for repo in .rawmocs-candidate .rawmocs-baseline; do
-            cargo build --locked --release --manifest-path "$repo/crates/rawmocs-cli/Cargo.toml"
-          done
+          cargo build --locked --release --manifest-path .rawmocs-baseline/crates/rawmocs-cli/Cargo.toml
+          # Install the exact committed candidate from a deterministic source archive.
+          source_tmp="$(mktemp -d)"
+          trap 'rm -rf "$source_tmp"' EXIT
+          evidence="$GITHUB_WORKSPACE/.v020-integration"
+          git -C .rawmocs-candidate archive --format=tar --prefix=rawmocs-0.2.0/ HEAD | gzip -n > "$source_tmp/rawmocs-0.2.0-source.tar.gz"
+          git -C .rawmocs-candidate archive --format=tar --prefix=rawmocs-0.2.0/ HEAD | gzip -n > "$source_tmp/repeat.tar.gz"
+          cmp "$source_tmp/rawmocs-0.2.0-source.tar.gz" "$source_tmp/repeat.tar.gz"
+          (cd "$source_tmp"; sha256sum rawmocs-0.2.0-source.tar.gz) > "$evidence/source.sha256"
+          tar -xzf "$source_tmp/rawmocs-0.2.0-source.tar.gz" -C "$source_tmp"
+          src="$source_tmp/rawmocs-0.2.0"
+          test ! -e "$src/.git"
+          cmp "$src/crates/rawmocs-cli/Cargo.lock" .rawmocs-candidate/crates/rawmocs-cli/Cargo.lock
+          env CARGO_TARGET_DIR="$GITHUB_WORKSPACE/.rawmocs-candidate/crates/rawmocs-cli/target" cargo install --locked --path "$src/crates/rawmocs-cli" --root "$source_tmp/install"
+          installed="$source_tmp/install/bin/rawmocs"
+          test "$("$installed" --version)" = "rawmocs 0.2.0"
+          cp "$installed" .rawmocs-candidate/crates/rawmocs-cli/target/release/rawmocs
+          cmp "$installed" .rawmocs-candidate/crates/rawmocs-cli/target/release/rawmocs
+          git -C .rawmocs-candidate rev-parse HEAD > "$evidence/source-revision.txt"
+          git rev-parse HEAD > "$evidence/quprs-revision.txt"
+          "$installed" --version > "$evidence/installed-version.txt"
+          sha256sum "$src/crates/rawmocs-cli/Cargo.lock" > "$evidence/source-lock.sha256"
+          echo V020_EXTRACTED_SOURCE_INTEGRATION_INSTALL_PASS
           cmake -S .gpmc -B .gpmc/build -G Ninja -DCMAKE_BUILD_TYPE=Release
           cmake --build .gpmc/build --target gpmc-bin --parallel 2
           sha256sum .rawmocs-{candidate,baseline}/crates/rawmocs-cli/target/release/rawmocs .gpmc/build/gpmc > .v020-integration/binaries.sha256
@@ -1005,8 +1025,8 @@ jobs:
 
 
   v020-rust-integration:
-    if: github.event_name == 'workflow_dispatch' && inputs.suite == 'v020-rust-integration'
-    name: v0.2.0 pinned Rust FFI integration
+    if: github.event_name == 'push' || inputs.suite == 'v020-rust-integration'
+    name: v0.2.0 extracted-source candidate Rust FFI integration
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     env:
@@ -1020,7 +1040,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: PhysicsQoo/RaWMoCS
-          ref: 0b8538be510718e7c8d79a79875681628b73f9be
+          ref: 5a16026285205e611af3451e76ac20eebc3b73cd
           path: .rawmocs-candidate
           persist-credentials: false
       - uses: actions/checkout@v4
@@ -1051,15 +1071,35 @@ jobs:
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = fc739c7e17512c6d2d13e52bd479fc372d68be03
-          test "$(git -C .rawmocs-candidate rev-parse HEAD)" = 0b8538be510718e7c8d79a79875681628b73f9be
+          test "$(git -C .rawmocs-candidate rev-parse HEAD)" = 5a16026285205e611af3451e76ac20eebc3b73cd
           test "$(git -C .rawmocs-baseline rev-parse HEAD)" = b3d02b2720c2fae5231c0ed5cf44950164a5780d
           test "$(git -C .gpmc rev-parse HEAD)" = 89bbc89d0de918e7a5385740355df55765039230
           sudo apt-get -o Dir::Etc::sourcelist=/etc/apt/sources.list.d/ubuntu.sources -o Dir::Etc::sourceparts=- -o APT::Get::List-Cleanup=0 update
           sudo apt-get -o Dir::Etc::sourcelist=/etc/apt/sources.list.d/ubuntu.sources -o Dir::Etc::sourceparts=- install -y --no-install-recommends cmake ninja-build libgmp-dev libmpfr-dev zlib1g-dev m4 make gcc pkg-config
           mkdir -p .v020-rust-evidence/bin .v020-rust-evidence/wheels
-          for repo in .rawmocs-candidate .rawmocs-baseline; do
-            cargo build --locked --release --manifest-path "$repo/crates/rawmocs-cli/Cargo.toml"
-          done
+          cargo build --locked --release --manifest-path .rawmocs-baseline/crates/rawmocs-cli/Cargo.toml
+          # Install the exact committed candidate from a deterministic source archive.
+          source_tmp="$(mktemp -d)"
+          trap 'rm -rf "$source_tmp"' EXIT
+          evidence="$GITHUB_WORKSPACE/.v020-rust-evidence"
+          git -C .rawmocs-candidate archive --format=tar --prefix=rawmocs-0.2.0/ HEAD | gzip -n > "$source_tmp/rawmocs-0.2.0-source.tar.gz"
+          git -C .rawmocs-candidate archive --format=tar --prefix=rawmocs-0.2.0/ HEAD | gzip -n > "$source_tmp/repeat.tar.gz"
+          cmp "$source_tmp/rawmocs-0.2.0-source.tar.gz" "$source_tmp/repeat.tar.gz"
+          (cd "$source_tmp"; sha256sum rawmocs-0.2.0-source.tar.gz) > "$evidence/source.sha256"
+          tar -xzf "$source_tmp/rawmocs-0.2.0-source.tar.gz" -C "$source_tmp"
+          src="$source_tmp/rawmocs-0.2.0"
+          test ! -e "$src/.git"
+          cmp "$src/crates/rawmocs-cli/Cargo.lock" .rawmocs-candidate/crates/rawmocs-cli/Cargo.lock
+          env CARGO_TARGET_DIR="$GITHUB_WORKSPACE/.rawmocs-candidate/crates/rawmocs-cli/target" cargo install --locked --path "$src/crates/rawmocs-cli" --root "$source_tmp/install"
+          installed="$source_tmp/install/bin/rawmocs"
+          test "$("$installed" --version)" = "rawmocs 0.2.0"
+          cp "$installed" .rawmocs-candidate/crates/rawmocs-cli/target/release/rawmocs
+          cmp "$installed" .rawmocs-candidate/crates/rawmocs-cli/target/release/rawmocs
+          git -C .rawmocs-candidate rev-parse HEAD > "$evidence/source-revision.txt"
+          git rev-parse HEAD > "$evidence/quprs-revision.txt"
+          "$installed" --version > "$evidence/installed-version.txt"
+          sha256sum "$src/crates/rawmocs-cli/Cargo.lock" > "$evidence/source-lock.sha256"
+          echo V020_EXTRACTED_SOURCE_INTEGRATION_INSTALL_PASS
           cmake -S .gpmc -B .gpmc/build -G Ninja -DCMAKE_BUILD_TYPE=Release
           cmake --build .gpmc/build --target gpmc-bin --parallel 2
           python -m pip install 'maturin>=1.5,<2' 'qiskit==2.6.1'
@@ -1781,7 +1821,7 @@ jobs:
 
 
   v020-package-rehearsal:
-    if: github.event_name == 'push' || inputs.suite == 'v020-package-rehearsal'
+    if: github.event_name == 'workflow_dispatch' && inputs.suite == 'v020-package-rehearsal'
     name: v0.2.0 disposable version and source-package rehearsal (no publication)
     runs-on: ubuntu-24.04
     timeout-minutes: 25

@@ -3264,6 +3264,24 @@ pub(super) fn generic_trace_handoff(ps:&PathSum,pairs:&[(u32,u32)],case:&str,var
         println!("CRR_GENERIC_STOP case={case} variant={variant} arm={arm} reason=residual_admission");return;
     }
     let twice=(ps.v.num_qubits+ps.v.path_vars.len()) as i32;
+    // Diagnostic-only: compare two encodings of the very same residual.
+    // The normal solve path is unchanged; no solver invocation here.
+    if let Some(dir)=std::env::var_os("CPR_CNF_DIR"){
+        assert_eq!(arm,"conditional");
+        let dir=std::path::PathBuf::from(dir);
+        for mode in ["raw","extracted"]{
+            let begin=Instant::now();
+            let (view,rows)=if mode=="raw"{(ps.clone(),Vec::new())}else{extract_lift_integrators(ps,pairs)};
+            let mut mgr=quprs::wmc::WmcManager::new(&view);
+            mgr.enable_precise_gpmc_weights(256);
+            mgr.encode_trace_with_zero_constraints(&view,&rows).expect("trace");
+            let dimacs=mgr.try_to_dimacs_string("gpmc").expect("serialize");
+            let elapsed=begin.elapsed().as_secs_f64();
+            std::fs::write(dir.join(format!("{mode}.cnf")),dimacs).expect("write diagnostic CNF");
+            println!("CPR_CNF_EMITTED case={case} variant={variant} mode={mode} pairs={} extracted={} twice={twice} construct_s={construct_s} prepare_s={elapsed}",pairs.len(),rows.len());
+        }
+        return;
+    }
     let start=Instant::now();
     let (view,rows)=if arm=="conditional_raw"{(ps.clone(),Vec::new())}else{extract_lift_integrators(ps,pairs)};
     let mut mgr=quprs::wmc::WmcManager::new(&view);

@@ -6,11 +6,14 @@ on:
     branches:
       - experiment/qasm-source-semantics-ci
       - experiment/conditional-rr
+      - experiment/conditional-rr-core
+      - experiment/cost-aware-pathsum
     paths:
       - rust/quprs/tests/conditional_rr_experiment.rs
       - rust/quprs/tests/support/conditional_trace.rs
       - rust/quprs/tests/support/conditional_stitch.rs
       - rust/research/conditional_rr_stitch.py
+      - rust/research/cpr_cnf_structure.py
       - rust/research/conditional_rr_incidence.py
       - rust/research/conditional_rr_walltime.py
       - rust/research/conditional_rr_reference.py
@@ -1307,4 +1310,53 @@ jobs:
         if: always()
         with:
           name: conditional-rr-incidence
+          path: evidence/
+
+  conditional-rr-core-preflight:
+    if: github.ref == 'refs/heads/experiment/conditional-rr-core'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Record split checkpoint without rerunning historical cohorts
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor 981252c7df1bff08bea31498f7a73de901cd74c4 HEAD
+          git rev-parse HEAD
+          echo 'CRR_CORE_BRANCH_PREFLIGHT=PASS native_tests=NOT_RUN'
+
+  cpr-cnf-structure:
+    if: github.ref == 'refs/heads/experiment/cost-aware-pathsum'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      QUPRS_SOLVER_PROVISION: external
+      CARGO_TERM_COLOR: never
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: 'rust -> target'
+          key: cpr-cnf-structure
+      - name: Install native prerequisites
+        run: sudo apt-get update && sudo apt-get install -y cmake pkg-config libgmp-dev libmpfr-dev zlib1g-dev
+      - name: Compare raw and extracted encodings of the same residual
+        run: |
+          set -euo pipefail
+          mkdir -p evidence
+          git rev-parse HEAD | tee evidence/source-head.txt
+          sha256sum rust/quprs/src/wmc.rs rust/quprs/tests/support/conditional_stitch.rs rust/quprs/tests/support/conditional_trace.rs rust/research/cpr_cnf_structure.py rust/research/conditional_rr_stitch.py docs/development/paper-corpus-manifest.json > evidence/source-sha256.txt
+          cargo test --release --locked --manifest-path rust/Cargo.toml -p quprs --test conditional_rr_experiment --no-run
+          timeout --kill-after=5s 240s python3 rust/research/cpr_cnf_structure.py evidence 2>&1 | tee evidence/cpr-structure.log
+          find evidence -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > evidence/SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: cpr-cnf-structure
           path: evidence/

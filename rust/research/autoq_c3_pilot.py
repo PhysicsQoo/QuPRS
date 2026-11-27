@@ -19,14 +19,21 @@ from hoare_ganak_exact import (
 )
 
 CAP = 4.0
-MODES = ("rr", "wmc", "hybrid", "hybrid-support", "structural", "autoq")
+MODES = ("wmc", "hybrid-support", "hybrid-direct", "structural", "structural-factor", "autoq")
 CASES = {
     "ghz3": "PROVED", "ghz5": "PROVED", "ghz8": "PROVED",
     "ghz3-plus": "REFUTED", "ghz3-broken": "REFUTED",
     "bv03": "PROVED", "grover03": "PROVED", "mogrover03": "PROVED",
+    "grover03-relative": "REFUTED", "mogrover03-relative": "REFUTED",
+    "grover04": "PROVED", "mogrover04": "PROVED",
 }
 
 from autoq_decision_pair import BLOBS, GHZ_BLOBS, SHAPES, PIN, blob, classify, replace_once
+
+HELDOUT = {
+    "grover04": (("3cb06685b906e4a7da6adab65bd6b472370fe800","c5a97b5c984fb0ea92bfaa624ee41fccf875ece6","2493f92a4ae9b335b30b86d5d17aa70902402b13"),(7,100)),
+    "mogrover04": (("2b1c53ee628ef52edeeb09bf0dc70f1d601f968c","5e63ffba67c329e6fcb14693122c35cd0f004728","56e26972835eb604ee7ffd005ae0f10cdd081697"),(11,120)),
+}
 
 def prepare_autoq(root, out):
     fixtures=out/"source"
@@ -39,12 +46,15 @@ def prepare_autoq(root, out):
             folder=root/"benchmarks"/"all"/"GHZall"/f"{n:03d}"
             hashes=GHZ_BLOBS[n];shape=(n,n)
         else:
-            family={"bv03":"BV","grover03":"Grover","mogrover03":"MOGrover"}[case]
-            folder=root/"benchmarks"/"all"/family/"03"
-            hashes=BLOBS[case];shape=SHAPES[case]
+            key=case.removesuffix("-relative")
+            family={"bv":"BV","grover":"Grover","mogrover":"MOGrover"}[key[:-2]]
+            folder=root/"benchmarks"/"all"/family/key[-2:]
+            hashes,shape=HELDOUT[key] if key in HELDOUT else (BLOBS[key],SHAPES[key])
         names=("pre.hsl","post.hsl","circuit.qasm")
         data=[(folder/f).read_bytes() for f in names]
         assert tuple(map(blob,data))==hashes,(case,folder)
+        if case.endswith("-relative"):
+            data[1]=replace_once(data[1],b"aH := 11 /",b"aH := -11 /")
         if case.endswith("-plus"):
             parts=data[1].split(" ∪\n".encode())
             assert len(parts)==2
@@ -180,8 +190,9 @@ def main():
     # Correctness/route gate, not a speedup gate.
     for p in (0,1):
         for c in ("ghz3","ghz5","ghz8","ghz3-plus"):
-            r=next(r for r in rows if r["period"]==p and r["case"]==c and r["mode"]=="structural")
-            assert r["verdict"]==CASES[c] and r["queries"]==0 and r["native"]["route"]=="symbolic",r
+            for m in ("structural","structural-factor"):
+                r=next(r for r in rows if r["period"]==p and r["case"]==c and r["mode"]==m)
+                assert r["verdict"]==CASES[c] and r["queries"]==0 and r["native"]["route"]=="symbolic",r
     summary={m:dict(arms=sum(r["mode"]==m for r in rows),
                     definite=sum(r["mode"]==m and r["verdict"]!="UNKNOWN" for r in rows),
                     known_queries=sum(r["queries"] or 0 for r in rows if r["mode"]==m),

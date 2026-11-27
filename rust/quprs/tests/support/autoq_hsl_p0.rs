@@ -87,7 +87,7 @@ fn aq_family(hsl:&str)->Option<(usize,Vec<AqState>)>{
     };
     let (var,w)=domain.strip_suffix('}')?.strip_prefix('|')?.split_once("|=")?;
     let w=w.parse::<usize>().ok()?;
-    if var.len()!=1||!var.as_bytes()[0].is_ascii_lowercase()||w==0||w>3{return None;}
+    if var.len()!=1||!var.as_bytes()[0].is_ascii_lowercase()||w==0||w>4{return None;}
     let (header,expr)=prefix.rsplit_once('\n')?;
     if !expr.starts_with('{'){return None;}
     let mut rows=Vec::new();
@@ -961,10 +961,11 @@ fn hoare_autoq_c3_arm(){
     let start=std::time::Instant::now();
     let cap=std::time::Duration::from_millis(std::env::var("AQ_C3_BUDGET_MS").unwrap().parse().unwrap());
     let deadline=start+cap;
-    assert!(["rr","wmc","hybrid","hybrid-support","structural"].contains(&mode.as_str()));
+    assert!(["rr","wmc","hybrid","hybrid-support","structural","hybrid-direct","structural-factor"].contains(&mode.as_str()));
     let mut queries=0usize;let mut pairs=0usize;let mut visited=0usize;
     let mut route="baseline";let mut rejected=false;
     let mut witness=None;
+    let mut factor_work=0usize;let mut factor_hits=0usize;let mut factor_rejects=0usize;let mut direct_hits=0usize;
     let result=(||->Option<bool>{
         let ghz=case.starts_with("ghz");
         let plus=case.ends_with("-plus");let broken=case.ends_with("-broken");
@@ -974,7 +975,8 @@ fn hoare_autoq_c3_arm(){
             if !aq_ghzall_admit(n,a,b){return None;}
             (n,a,b,c)
         }else{
-            let &(_,a,b,c)=AQ_SOURCES.iter().find(|r|r.0==case.as_str())?;
+            let base=case.strip_suffix("-relative").unwrap_or(&case);
+            let &(_,a,b,c)=AQ_SOURCES.iter().chain(AQ_C3_HELDOUT.iter()).find(|r|r.0==base)?;
             let (_,aa)=aq_family(a)?;(aa.first()?.n,a,b,c)
         };
         let mut ops=factor_source_ops(src,n);
@@ -988,7 +990,7 @@ fn hoare_autoq_c3_arm(){
             if frame.compact(&p)?!=Anf::from([0]){return None;}
             (compact(&p,n)?,h0.checked_sub(scale as usize)?)
         };
-        if mode=="structural"{
+        if mode=="structural"||mode=="structural-factor"{
             if ghz&&k==1{
                 if let Some(w)=aq_ghz_witness(&s){
                     route="symbolic";
@@ -1014,13 +1016,16 @@ fn hoare_autoq_c3_arm(){
                 }
             }
             (aa,bb)
-        }else{(aq_family(pre)?.1,aq_family(post)?.1)};
+        }else{
+            let post=if case.ends_with("-relative"){post.replace("aH := 11 /","aH := -11 /")}else{post.to_owned()};
+            (aq_family(pre)?.1,aq_family(&post)?.1)
+        };
         if mode=="rr"&&s.h!=0{return None;}
         let cubes:Vec<_>=bb.iter().map(aq_support_cube).collect();
         // Phase-blind exact support index: only two distinct fixed kets
         // and one live path, at the original 1/sqrt2 scale.
         let mut index=BTreeMap::<(u64,u64),Vec<usize>>::new();
-        let indexed=mode=="hybrid-support"&&s.h==1&&k==1&&bb.iter().enumerate().all(|(j,b)|{
+        let indexed=["hybrid-support","hybrid-direct","structural-factor"].contains(&mode.as_str())&&s.h==1&&k==1&&bb.iter().enumerate().all(|(j,b)|{
             if let [a,b]=b.terms.as_slice(){
                 if let (AqPattern::Fixed(u),AqPattern::Fixed(v))=(a.pattern,b.pattern){
                     if u!=v{index.entry((u.min(v),u.max(v))).or_default().push(j);return true;}
@@ -1035,6 +1040,7 @@ fn hoare_autoq_c3_arm(){
             visited+=1;
             let p=aq_output_cube(&s,x);
             let mut matched=false;let mut unknown=false;
+            let hist=if mode=="hybrid-direct"&&s.h!=0{aq_direct_hist(&s,x,deadline)}else{None};
             let all;
             let selected=if indexed{
                 let output=|y:u64|s.output.iter().enumerate().fold(0u64,|z,(i,p)|
@@ -1051,7 +1057,11 @@ fn hoare_autoq_c3_arm(){
                 if std::time::Instant::now()>=deadline{return None;}
                 pairs+=1;
                 if (p.value^q.value)&p.mask&q.mask!=0{continue;}
-                let v=if mode!="wmc"&&s.h==0{
+                let candidate=if mode=="structural-factor"&&s.h!=0{
+                    let mut work=0;let v=aq_factor_ray(&s,x,b,k,&mut work,deadline);
+                    factor_work+=work;if v.is_some(){factor_hits+=1;route="factor";}else{factor_rejects+=1;}v
+                }else if let Some(hist)=&hist{let v=aq_hist_ray(hist,b,k);if v.is_some(){direct_hits+=1;route="direct";}v}else{None};
+                let v=if candidate.is_some(){candidate}else if mode!="wmc"&&s.h==0{
                     aq_rr_terminal(&s,x,b)
                 }else if mode=="rr"{None}else{
                     let (c,phase,primary)=aq_overlap(&s,x,b)?;
@@ -1079,5 +1089,383 @@ fn hoare_autoq_c3_arm(){
     let verdict=if std::time::Instant::now()>=deadline{"UNKNOWN"}else{
         match result{Some(true)=>"PROVED",Some(false)=>"REFUTED",None=>"UNKNOWN"}
     };
-    println!("AQ_C3_NATIVE case={case} mode={mode} verdict={verdict} route={route} rejected={rejected} queries={queries} pairs={pairs} visited={visited} witness={witness:?} native_ns={}",start.elapsed().as_nanos());
+    println!("AQ_C3_NATIVE case={case} mode={mode} verdict={verdict} route={route} rejected={rejected} queries={queries} pairs={pairs} visited={visited} witness={witness:?} factor_work={factor_work} factor_hits={factor_hits} factor_rejects={factor_rejects} direct_hits={direct_hits} native_ns={}",start.elapsed().as_nanos());
+}
+
+const AQ_C3_HELDOUT:[(&str,&str,&str,&str);2]=[
+    ("grover04",r####"Constants
+c1 := 1
+Extended Dirac
+{c1 |0000000>}
+"####,r####"Constants
+aH := 251 / (sqrt2 ^ 16)
+aL := -13 / (sqrt2 ^ 16)
+Extended Dirac
+{aH |0101001> + aL ∑ |i|=4, i≠0101 |i001>}
+"####,r####"OPENQASM 2.0;
+include "qelib1.inc";
+qreg qubits[7];
+x qubits[6];
+
+h qubits[0];
+h qubits[1];
+h qubits[2];
+h qubits[3];
+h qubits[6];
+
+x qubits[0];
+x qubits[2];
+ccx qubits[0], qubits[1], qubits[4];
+ccx qubits[4], qubits[2], qubits[5];
+cz qubits[5], qubits[3];
+ccx qubits[4], qubits[2], qubits[5];
+ccx qubits[0], qubits[1], qubits[4];
+x qubits[0];
+x qubits[2];
+h qubits[0];
+h qubits[1];
+h qubits[2];
+h qubits[3];
+x qubits[0];
+x qubits[1];
+x qubits[2];
+x qubits[3];
+ccx qubits[0], qubits[1], qubits[4];
+ccx qubits[4], qubits[2], qubits[5];
+cz qubits[5], qubits[3];
+ccx qubits[4], qubits[2], qubits[5];
+ccx qubits[0], qubits[1], qubits[4];
+x qubits[0];
+x qubits[1];
+x qubits[2];
+x qubits[3];
+h qubits[0];
+h qubits[1];
+h qubits[2];
+h qubits[3];
+x qubits[6];
+
+x qubits[0];
+x qubits[2];
+ccx qubits[0], qubits[1], qubits[4];
+ccx qubits[4], qubits[2], qubits[5];
+cz qubits[5], qubits[3];
+ccx qubits[4], qubits[2], qubits[5];
+ccx qubits[0], qubits[1], qubits[4];
+x qubits[0];
+x qubits[2];
+h qubits[0];
+h qubits[1];
+h qubits[2];
+h qubits[3];
+x qubits[0];
+x qubits[1];
+x qubits[2];
+x qubits[3];
+ccx qubits[0], qubits[1], qubits[4];
+ccx qubits[4], qubits[2], qubits[5];
+cz qubits[5], qubits[3];
+ccx qubits[4], qubits[2], qubits[5];
+ccx qubits[0], qubits[1], qubits[4];
+x qubits[0];
+x qubits[1];
+x qubits[2];
+x qubits[3];
+h qubits[0];
+h qubits[1];
+h qubits[2];
+h qubits[3];
+x qubits[6];
+
+x qubits[0];
+x qubits[2];
+ccx qubits[0], qubits[1], qubits[4];
+ccx qubits[4], qubits[2], qubits[5];
+cz qubits[5], qubits[3];
+ccx qubits[4], qubits[2], qubits[5];
+ccx qubits[0], qubits[1], qubits[4];
+x qubits[0];
+x qubits[2];
+h qubits[0];
+h qubits[1];
+h qubits[2];
+h qubits[3];
+x qubits[0];
+x qubits[1];
+x qubits[2];
+x qubits[3];
+ccx qubits[0], qubits[1], qubits[4];
+ccx qubits[4], qubits[2], qubits[5];
+cz qubits[5], qubits[3];
+ccx qubits[4], qubits[2], qubits[5];
+ccx qubits[0], qubits[1], qubits[4];
+x qubits[0];
+x qubits[1];
+x qubits[2];
+x qubits[3];
+h qubits[0];
+h qubits[1];
+h qubits[2];
+h qubits[3];
+x qubits[6];
+
+h qubits[6];
+"####), // blobs 3cb06685b906e4a7da6adab65bd6b472370fe800 c5a97b5c984fb0ea92bfaa624ee41fccf875ece6 2493f92a4ae9b335b30b86d5d17aa70902402b13
+    ("mogrover04",r####"Constants
+c1 := 1
+Extended Dirac
+{c1 |s0000000> : |s|=4}
+"####,r####"Constants
+aH := 251 / (sqrt2 ^ 16)
+aL := -13 / (sqrt2 ^ 16)
+Extended Dirac
+{aH |ss001> + aL ∑ |i|=4, i≠s |si001> : |s|=4}
+"####,r####"OPENQASM 2.0;
+include "qelib1.inc";
+qreg qubits[11];
+x qubits[10];
+
+x qubits[0];
+x qubits[1];
+x qubits[2];
+x qubits[3];
+h qubits[4];
+h qubits[5];
+h qubits[6];
+h qubits[7];
+h qubits[10];
+
+cx qubits[0], qubits[4];
+cx qubits[1], qubits[5];
+cx qubits[2], qubits[6];
+cx qubits[3], qubits[7];
+ccx qubits[4], qubits[5], qubits[8];
+ccx qubits[8], qubits[6], qubits[9];
+cz qubits[9], qubits[7];
+ccx qubits[8], qubits[6], qubits[9];
+ccx qubits[4], qubits[5], qubits[8];
+cx qubits[0], qubits[4];
+cx qubits[1], qubits[5];
+cx qubits[2], qubits[6];
+cx qubits[3], qubits[7];
+h qubits[4];
+h qubits[5];
+h qubits[6];
+h qubits[7];
+x qubits[4];
+x qubits[5];
+x qubits[6];
+x qubits[7];
+ccx qubits[4], qubits[5], qubits[8];
+ccx qubits[8], qubits[6], qubits[9];
+cz qubits[9], qubits[7];
+ccx qubits[8], qubits[6], qubits[9];
+ccx qubits[4], qubits[5], qubits[8];
+x qubits[4];
+x qubits[5];
+x qubits[6];
+x qubits[7];
+h qubits[4];
+h qubits[5];
+h qubits[6];
+h qubits[7];
+x qubits[10];
+
+cx qubits[0], qubits[4];
+cx qubits[1], qubits[5];
+cx qubits[2], qubits[6];
+cx qubits[3], qubits[7];
+ccx qubits[4], qubits[5], qubits[8];
+ccx qubits[8], qubits[6], qubits[9];
+cz qubits[9], qubits[7];
+ccx qubits[8], qubits[6], qubits[9];
+ccx qubits[4], qubits[5], qubits[8];
+cx qubits[0], qubits[4];
+cx qubits[1], qubits[5];
+cx qubits[2], qubits[6];
+cx qubits[3], qubits[7];
+h qubits[4];
+h qubits[5];
+h qubits[6];
+h qubits[7];
+x qubits[4];
+x qubits[5];
+x qubits[6];
+x qubits[7];
+ccx qubits[4], qubits[5], qubits[8];
+ccx qubits[8], qubits[6], qubits[9];
+cz qubits[9], qubits[7];
+ccx qubits[8], qubits[6], qubits[9];
+ccx qubits[4], qubits[5], qubits[8];
+x qubits[4];
+x qubits[5];
+x qubits[6];
+x qubits[7];
+h qubits[4];
+h qubits[5];
+h qubits[6];
+h qubits[7];
+x qubits[10];
+
+cx qubits[0], qubits[4];
+cx qubits[1], qubits[5];
+cx qubits[2], qubits[6];
+cx qubits[3], qubits[7];
+ccx qubits[4], qubits[5], qubits[8];
+ccx qubits[8], qubits[6], qubits[9];
+cz qubits[9], qubits[7];
+ccx qubits[8], qubits[6], qubits[9];
+ccx qubits[4], qubits[5], qubits[8];
+cx qubits[0], qubits[4];
+cx qubits[1], qubits[5];
+cx qubits[2], qubits[6];
+cx qubits[3], qubits[7];
+h qubits[4];
+h qubits[5];
+h qubits[6];
+h qubits[7];
+x qubits[4];
+x qubits[5];
+x qubits[6];
+x qubits[7];
+ccx qubits[4], qubits[5], qubits[8];
+ccx qubits[8], qubits[6], qubits[9];
+cz qubits[9], qubits[7];
+ccx qubits[8], qubits[6], qubits[9];
+ccx qubits[4], qubits[5], qubits[8];
+x qubits[4];
+x qubits[5];
+x qubits[6];
+x qubits[7];
+h qubits[4];
+h qubits[5];
+h qubits[6];
+h qubits[7];
+x qubits[10];
+
+x qubits[0];
+x qubits[1];
+x qubits[2];
+x qubits[3];
+h qubits[10];
+"####), // blobs 2b1c53ee628ef52edeeb09bf0dc70f1d601f968c 5e63ffba67c329e6fcb14693122c35cd0f004728 56e26972835eb604ee7ffd005ae0f10cdd081697
+];
+
+
+// Predicate-level exact sign partition, independent of RR. Fixed x
+// specialization is reused from the existing native symbolic engine.
+// The factors are integer weights in {-1,0,1}; no amplitude IR changes.
+// Unsupported phase, factor width, work or time => no result/fallback.
+struct AqSignFactor { mask:u64, values:Vec<i128> }
+fn aq_deposit(mut x:usize,mut mask:u64)->u64{
+    let mut a=0;
+    while mask!=0{let b=mask&mask.wrapping_neg();if x&1!=0{a|=b;}x>>=1;mask^=b;}
+    a
+}
+fn aq_gather(x:u64,mut mask:u64)->usize{
+    let mut a=0;let mut i=0;
+    while mask!=0{let b=mask&mask.wrapping_neg();if x&b!=0{a|=1usize<<i;}i+=1;mask^=b;}
+    a
+}
+fn aq_factor_table(mask:u64,work:&mut usize,deadline:std::time::Instant,
+                   mut f:impl FnMut(u64)->Option<i128>)->Option<AqSignFactor>{
+    if mask.count_ones()>12||std::time::Instant::now()>=deadline{return None;}
+    let len=1usize<<mask.count_ones();
+    *work=work.checked_add(len)?;
+    if *work>262144{return None;}
+    let mut values=Vec::with_capacity(len);
+    for i in 0..len{if i%256==0&&std::time::Instant::now()>=deadline{return None;}
+        values.push(f(aq_deposit(i,mask))?);}
+    Some(AqSignFactor{mask,values})
+}
+fn aq_sign_cube(s:&Symbolic,x:u64,mask:u64,z:u64,work:&mut usize,
+                deadline:std::time::Instant)->Option<i128>{
+    if s.h>32||s.n+s.h>63{return None;}
+    let pre=Cube{mask:(1u64<<s.n)-1,value:x};
+    let mut factors=Vec::new();
+    // Ignore the input-dependent common phase; it multiplies every
+    // overlap term by the same unit complex number.
+    for (m,k) in specialize_phase(&s.phase,pre){
+        if m==0{continue;}
+        if k!=4{return None;}
+        let m=m>>s.n;
+        factors.push(aq_factor_table(m,work,deadline,|a|Some(if a&m==m{-1}else{1}))?);
+    }
+    for i in 0..s.n{
+        if mask>>i&1==0{continue;}
+        let p:Anf=specialize_bool(&s.output[i],pre).into_iter().map(|m|m>>s.n).collect();
+        let scope=p.iter().fold(0u64,|v,m|v|m);
+        let want=z>>i&1!=0;
+        factors.push(aq_factor_table(scope,work,deadline,|a|Some(i128::from(eval(&p,a)==want)))?);
+    }
+    let mut remaining=(1u64<<s.h)-1;
+    let mut scalar=1i128;
+    while remaining!=0{
+        if std::time::Instant::now()>=deadline{return None;}
+        // Greedy induced width; no source name or known verdict routing.
+        let v=(0..s.h).filter(|i|remaining>>i&1!=0).min_by_key(|i|{
+            let bit=1u64<<i;
+            factors.iter().filter(|f|f.mask&bit!=0).fold(0u64,|a,f|a|f.mask).count_ones()
+        })?;
+        let bit=1u64<<v;remaining^=bit;
+        let mut local=Vec::new();let mut rest=Vec::new();
+        for f in factors{if f.mask&bit!=0{local.push(f);}else{rest.push(f);}}
+        if local.is_empty(){scalar=scalar.checked_mul(2)?;factors=rest;continue;}
+        let union=local.iter().fold(0u64,|a,f|a|f.mask);
+        if union.count_ones()>12{return None;}
+        let scope=union^bit;
+        let cost=(1usize<<union.count_ones()).checked_mul(local.len())?;
+        *work=work.checked_add(cost)?;if *work>262144{return None;}
+        let factor=aq_factor_table(scope,work,deadline,|a|{
+            let product=|x:u64|local.iter().try_fold(1i128,|v,f|v.checked_mul(f.values[aq_gather(x,f.mask)]));
+            product(a)?.checked_add(product(a|bit)?)
+        })?;
+        rest.push(factor);factors=rest;
+    }
+    factors.iter().try_fold(scalar,|a,f|if f.mask==0{a.checked_mul(f.values[0])}else{None})
+}
+fn aq_factor_ray(s:&Symbolic,x:u64,b:&AqState,k:usize,work:&mut usize,
+                 deadline:std::time::Instant)->Option<bool>{
+    let all=(1u64<<s.n)-1;let mut sum=0i128;
+    let mut cache=BTreeMap::<(u64,u64),i128>::new();
+    let mut cube=|mask:u64,z:u64|->Option<i128>{
+        if let Some(&a)=cache.get(&(mask,z)){return Some(a);}
+        let a=aq_sign_cube(s,x,mask,z,work,deadline)?;
+        cache.insert((mask,z),a);Some(a)
+    };
+    for t in &b.terms{
+        let a=match t.pattern{
+            AqPattern::Fixed(z)=>cube(all,z)?,
+            AqPattern::Except{offset,width,excluded,outside}=>{
+                let m=((1u64<<width)-1)<<offset;
+                cube(all^m,outside)?.checked_sub(cube(all,outside|(excluded<<offset))?)?
+            }
+        };
+        sum=sum.checked_add(a.checked_mul(i128::from(t.signed))?)?;
+    }
+    Some(sum.checked_mul(sum)?==1i128.checked_shl((k+b.k).try_into().ok()?)?)
+}
+// Strong exact residual baseline: one path histogram per input, shared
+// across every candidate target. Bounded work, no WMC, no dense gate oracle.
+fn aq_direct_hist(s:&Symbolic,x:u64,deadline:std::time::Instant)->Option<BTreeMap<u64,Root>>{
+    if s.h>16{return None;}
+    let mut hist=BTreeMap::new();
+    for y in 0..1u64<<s.h{
+        if y%256==0&&std::time::Instant::now()>=deadline{return None;}
+        let (z,p)=path(s,x,y);let a=hist.entry(z).or_insert([0;4]);
+        *a=add(*a,root(p));
+    }
+    Some(hist)
+}
+fn aq_hist_ray(hist:&BTreeMap<u64,Root>,b:&AqState,k:usize)->Option<bool>{
+    let mut a=[0i128;4];
+    for (&z,v) in hist{
+        for t in &b.terms{if aq_match(&t.pattern,z){
+            for i in 0..4{a[i]=a[i].checked_add(i128::from(v[i]).checked_mul(i128::from(t.signed))?)?;}
+        }}
+    }
+    let [a,b0,c,d]=a;
+    let real=a*a+b0*b0+c*c+d*d;
+    let radical=a*b0+b0*c+c*d-a*d;
+    Some(radical==0&&real==1i128.checked_shl((k+b.k).try_into().ok()?)?)
 }

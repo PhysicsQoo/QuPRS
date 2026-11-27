@@ -835,7 +835,7 @@ jobs:
           cargo test --locked --manifest-path rust/Cargo.toml -p quprs \
             --test property_hoare_experiment --no-run --message-format=json > "$src/aq-c3-build.jsonl"
           aq_bin="$(python3 -c 'import json,sys; a=[json.loads(l) for l in open(sys.argv[1])]; b=[x["executable"] for x in a if x.get("reason")=="compiler-artifact" and x.get("target",{}).get("name")=="property_hoare_experiment" and x.get("executable")]; assert len(b)==1,b; print(b[0])' "$src/aq-c3-build.jsonl")"
-          timeout 420s python3 rust/research/autoq_c3_pilot.py "$aq_bin" "$RUNNER_TEMP/aq-c3-gpmc" evidence/aq-c3 "$src/build/cli/autoq" "$src" \
+          timeout 660s python3 rust/research/autoq_c3_pilot.py "$aq_bin" "$RUNNER_TEMP/aq-c3-gpmc" evidence/aq-c3 "$src/build/cli/autoq" "$src" \
             2>&1 | tee evidence/aq-c3.log
           grep -F 'AQ_C3_SUMMARY ' evidence/aq-c3.log
 

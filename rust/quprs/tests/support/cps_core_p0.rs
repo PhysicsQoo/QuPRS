@@ -411,7 +411,8 @@ impl CpsCore{
         if !self.valid()||self.n()!=self.q(){return None;}
         let s=compact(&self.ps,self.n())?;
         let primary=s.n.checked_add(s.h.checked_mul(2)?)?;
-        if primary>63{return None;}
+        // Each ANF mask indexes one copy only; CNF literals index both copies.
+        if s.n+s.h>63||primary>126{return None;}
         let guard=self.guard.compact_factors(&self.ps)?;
         let (cnf,phase)=guarded_pair_factors(&s,&guard);
         Some((cnf,phase,primary,self.k))
@@ -743,20 +744,29 @@ fn hoare_cps_core_source_lowering(){
 // and native polynomials instead of the early synthetic <=10 H cap.
 impl CpsCore {
     fn then_circuit(&self,ops:&[G])->Option<Self>{
-        if !self.valid()||ops.len()>128||self.q()==0{return None;}
+        self.then_circuit_diagnostic(ops).ok()
+    }
+    fn then_circuit_diagnostic(&self,ops:&[G])->Result<Self,String>{
+        if !self.valid()||self.q()==0{return Err("invalid-input".into());}
+        if ops.len()>128{return Err(format!("gate-count gates={} limit=128",ops.len()));}
         let mut ps=self.ps.clone();ps.set_auto_reduce(false);
         let mut k=self.k;
-        for g in ops{
-            if !admitted(self.q(),std::slice::from_ref(g)){return None;}
+        for (i,g) in ops.iter().enumerate(){
+            let detail=|reason:&str,ps:&PathSum|format!(
+                "{reason} gate_index={i} gate={g:?} next_id={} live={} phase_terms={} max_output_terms={}",
+                ps.v.next_id,ps.v.path_vars.len(),ps.p.terms.len(),ps.f.functions.iter().map(|p|p.len()).max().unwrap_or(0));
+            if !admitted(self.q(),std::slice::from_ref(g)){return Err(detail("gate-admission",&ps));}
             let h=matches!(g,G::H(_));
-            if h&&ps.v.next_id>=63{return None;}
+            if h&&ps.v.next_id>=63{return Err(detail("stable-id-cap",&ps));}
             let before=ps.v.path_vars.len();
             g.apply(&mut ps,false);
-            if ps.v.path_vars.len()!=before+usize::from(h)||!core_terms_ok(&ps){return None;}
-            if h{k=k.checked_add(1)?;}
+            if ps.v.path_vars.len()!=before+usize::from(h){return Err(detail("path-count-contract",&ps));}
+            if !core_terms_ok(&ps){return Err(detail("native-polynomial-cap",&ps));}
+            if h{k=k.checked_add(1).ok_or_else(||detail("scale-overflow",&ps))?;}
         }
-        let guard=NativeGuardFrame::from_factors(&ps,self.guard.factors().cloned().collect())?;
-        Self::from_frame(ps,guard,k)
+        let guard=NativeGuardFrame::from_factors(&ps,self.guard.factors().cloned().collect())
+            .ok_or_else(||"guard-frame".to_owned())?;
+        Self::from_frame(ps,guard,k).ok_or_else(||"result-invariant".to_owned())
     }
 }
 // A source-only obligation admission experiment, not an alternate
@@ -986,7 +996,9 @@ fn hoare_cps_core_matched_worker(){
         stage="post-lowering";let b=core_hsl_lower(&post)?;
         stage="qasm-parse";let (ops,n)=quprs::qasm::parse_qasm_str_source_pinned(&src).ok()?;
         if n!=a.q()||n!=b.q(){return None;}
-        stage="native-gate-composition";let ua=a.then_circuit(&ops)?;
+        stage="native-gate-composition";let ua=match a.then_circuit_diagnostic(&ops){
+            Ok(v)=>v,Err(detail)=>{println!("CPS_COMPOSITION_DETAIL {detail}");return None;}
+        };
         stage="label-certificate";if !core_label_support(&ua,&b){return None;}
         stage="adjoint";let bd=b.adjoint()?;
         stage="composition";let mut c=ua.then(&bd)?;
@@ -1034,7 +1046,8 @@ impl CpsCore{
         if !self.valid()||self.n()!=self.q(){return None;}
         let s=compact(&self.ps,self.n())?;
         let primary=s.n.checked_add(s.h.checked_mul(2)?)?;
-        if primary>63{return None;}
+        // Each ANF mask indexes one copy only; CNF literals index both copies.
+        if s.n+s.h>63||primary>126{return None;}
         // Exact sign-only fast fragment; other Z8 phases retain the
         // existing general phase adder rather than silently approximating.
         if s.phase.values().any(|&k|k!=4){return None;}

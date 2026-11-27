@@ -39,7 +39,12 @@ def worker(binary,solver,folder,mode):
     assert len(markers)==1,markers
     m=markers[0]
     if m[0]=="UNSUPPORTED":
-        print(json.dumps(dict(verdict="UNKNOWN",reason="UNSUPPORTED",stage=m[1] if len(m)>1 else "unspecified")));return
+        detail=[l.removeprefix("CPS_COMPOSITION_DETAIL ") for l in p.stdout.splitlines() if l.startswith("CPS_COMPOSITION_DETAIL ")]
+        row=dict(verdict="UNKNOWN",reason="UNSUPPORTED",stage=m[1] if len(m)>1 else "unspecified")
+        if detail:
+            assert len(detail)==1 and row["stage"]=="native-gate-composition",detail
+            row["composition_detail"]=detail[0]
+        print(json.dumps(row));return
     status=m[0]
     n,k,h,ih,steps,primary,vars,clauses=map(int,m[1:9])
     phase=m[9];build_ns,rr_ns,encode_ns=map(int,m[10:])

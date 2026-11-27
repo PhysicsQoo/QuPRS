@@ -6,9 +6,9 @@
 // Rectangular maps are admitted here, not
 // passed to the square-only production reducer or gate API.
 #[derive(Clone)]
-struct CpsCore {
+struct CpsCore<F=NativeGuardFrame> {
     ps: PathSum,
-    guard: NativeGuardFrame,
+    guard: F,
     k: i32,
 }
 type CoreBool = rustc_hash::FxHashSet<Vec<u32>>;
@@ -70,6 +70,161 @@ fn core_rename(ps:&PathSum,map:&BTreeMap<u32,u32>)->Option<(quprs::pathsum::Phas
     for p in &mut f.functions{*p=p.iter().map(&rename).collect::<Option<CoreBool>>()?;}
     Some((phase,f))
 }
+
+use cps_guard_algebra::{GuardMonomial,SparseMono,SparseAnf};
+trait CoreGuardStorage:Clone {
+    type M:GuardMonomial;
+    const ID_LIMIT:u32;
+    fn ids(&self)->&[u32];
+    fn factors_ref(&self)->Vec<&BTreeSet<Self::M>>;
+    fn frame_valid(&self,ps:&PathSum)->bool;
+    fn from_parts(ps:&PathSum,gs:Vec<BTreeSet<Self::M>>)->Option<Self>;
+    fn mono(ids:&[u32])->Option<Self::M>;
+    fn mono_ids(m:&Self::M)->Vec<u32>;
+}
+impl CoreGuardStorage for NativeGuardFrame {
+    type M=u64;
+    const ID_LIMIT:u32=63;
+    fn ids(&self)->&[u32]{&self.ids}
+    fn factors_ref(&self)->Vec<&Anf>{self.factors().collect()}
+    fn frame_valid(&self,ps:&PathSum)->bool{self.compact_factors(ps).is_some()}
+    fn from_parts(ps:&PathSum,gs:Vec<Anf>)->Option<Self>{Self::from_factors(ps,gs)}
+    fn mono(ids:&[u32])->Option<u64>{core_mask(ids)}
+    fn mono_ids(m:&u64)->Vec<u32>{(0..63u32).filter(|&id|m&(1u64<<id)!=0).collect()}
+}
+#[derive(Clone)]
+struct SparseGuardFrame {
+    ids:Vec<u32>,
+    factors:Vec<SparseAnf>,
+}
+impl CoreGuardStorage for SparseGuardFrame {
+    type M=SparseMono;
+    // Explicit resource admission, not a machine-word representation limit.
+    const ID_LIMIT:u32=512;
+    fn ids(&self)->&[u32]{&self.ids}
+    fn factors_ref(&self)->Vec<&SparseAnf>{self.factors.iter().collect()}
+    fn frame_valid(&self,ps:&PathSum)->bool{
+        let mut ids:Vec<_>=ps.v.path_vars.iter().copied().collect();ids.sort_unstable();
+        ids==self.ids&&self.factors.len()<=32&&!self.factors.is_empty()&&
+        self.factors.iter().map(|g|g.len()).sum::<usize>()<=4096&&
+        self.factors.iter().all(|g|g.len()<=256&&g.iter().all(|m|m.ids().iter().all(|v|ps.v.path_vars.contains(v))))
+    }
+    fn from_parts(ps:&PathSum,gs:Vec<SparseAnf>)->Option<Self>{
+        let mut ids:Vec<_>=ps.v.path_vars.iter().copied().collect();ids.sort_unstable();
+        let mut frame=Self{ids,factors:if gs.is_empty(){vec![SparseAnf::from([Self::mono(&[])?])]}else{gs}};
+        if !frame.frame_valid(ps){return None;}
+        let one=SparseAnf::from([Self::mono(&[])?]);
+        if frame.factors.iter().any(|g|g.is_empty()){frame.factors=vec![SparseAnf::new()];}
+        else{
+            frame.factors.retain(|g|g!=&one);
+            if frame.factors.is_empty(){frame.factors.push(one);}
+            else if let Some(g)=frame.factors.iter().try_fold(one,|a,g|cps_guard_algebra::guard_mul(&a,g)){frame.factors=vec![g];}
+        }
+        Some(frame)
+    }
+    fn mono(ids:&[u32])->Option<SparseMono>{SparseMono::new(ids.to_vec())}
+    fn mono_ids(m:&SparseMono)->Vec<u32>{m.ids().to_vec()}
+}
+fn core_toggle<M:Ord>(p:&mut BTreeSet<M>,m:M){if !p.remove(&m){p.insert(m);}}
+fn core_storage_anf<F:CoreGuardStorage>(p:&CoreBool)->Option<BTreeSet<F::M>>{
+    p.iter().map(|m|F::mono(m)).collect()
+}
+fn core_storage_rename<F:CoreGuardStorage>(p:&BTreeSet<F::M>,map:&BTreeMap<u32,u32>)->Option<BTreeSet<F::M>>{
+    p.iter().map(|m|{
+        let mut ids=F::mono_ids(m).iter().map(|v|map.get(v).copied()).collect::<Option<Vec<_>>>()?;
+        ids.sort_unstable();ids.dedup();F::mono(&ids)
+    }).collect()
+}
+fn core_storage_pack<F:CoreGuardStorage>(factors:Vec<BTreeSet<F::M>>)->Option<Vec<BTreeSet<F::M>>>{
+    if factors.len()<=32{return Some(factors);}
+    let mut packed=Vec::new();
+    let mut acc=BTreeSet::from([F::mono(&[])?]);
+    for g in factors{
+        if let Some(next)=cps_guard_algebra::guard_mul(&acc,&g){acc=next;}
+        else{packed.push(acc);acc=g;}
+    }
+    packed.push(acc);Some(packed)
+}
+impl<F:CoreGuardStorage> CpsCore<F>{
+    fn n(&self)->usize{self.ps.v.num_qubits}
+    fn q(&self)->usize{self.ps.f.functions.len()}
+    fn shared_valid(&self)->bool{
+        let ps=&self.ps;let n=self.n();let q=self.q();let live=&ps.v.path_vars;
+        if n>16||q>16||ps.rr_approximate||ps.rr_tolerance!=0.0||
+            !ps.v.continuous_vars.is_empty()||!core_terms_ok(ps)||
+            (0..n).any(|i|!live.contains(&(i as u32)))||
+            ps.v.next_id>F::ID_LIMIT||live.iter().any(|&v|v>=F::ID_LIMIT||v>=ps.v.next_id)||
+            ps.f.registers.iter().map(|r|r.size).sum::<usize>()!=q||
+            !self.guard.frame_valid(ps){return false;}
+        let mono_ok=|m:&Vec<u32>|m.windows(2).all(|w|w[0]<w[1])&&m.iter().all(|v|live.contains(v));
+        ps.f.functions.iter().all(|p|p.iter().all(&mono_ok))&&
+            ps.p.terms.iter().all(|(m,c)|mono_ok(m)&&core_phase8(c).is_some())
+    }
+    fn shared_from_parts(ps:PathSum,gs:Vec<BTreeSet<F::M>>,k:i32)->Option<Self>{
+        let guard=F::from_parts(&ps,gs)?;
+        let c=Self{ps,guard,k};c.shared_valid().then_some(c)
+    }
+    fn shared_then_rebased(&self,next:&Self)->Option<Self>{
+        if !self.shared_valid()||!next.shared_valid()||self.q()!=next.n(){return None;}
+        let k=self.k.checked_add(next.k)?;
+        let mut ps=PathSum::new(self.n());ps.set_auto_reduce(false);
+        ps.v=self.ps.v.clone();ps.p=self.ps.p.clone();
+        if ps.v.next_id.checked_add(u32::try_from(next.guard.ids().len()).ok()?)?>F::ID_LIMIT{return None;}
+        let mut map=BTreeMap::new();
+        for &old in next.guard.ids(){
+            let id=ps.v.get_fresh_var();map.insert(old,id);
+        }
+        let (mut p,mut f)=core_rename(&next.ps,&map)?;
+        let mut gs=next.guard.factors_ref().into_iter().map(|g|core_storage_rename::<F>(g,&map)).collect::<Option<Vec<_>>>()?;
+        for (i,repl) in self.ps.f.functions.iter().enumerate(){
+            let v=*map.get(&(i as u32))?;
+            if repl.len()>8{return None;}
+            p.substitute_var_with_poly(v,repl);
+            f.substitute_var_with_poly(v,repl);
+            let repl=core_storage_anf::<F>(repl)?;
+            gs=gs.iter().map(|g|cps_guard_algebra::guard_substitute(g,v,&repl)).collect::<Option<Vec<_>>>()?;
+            ps.v.path_vars.remove(&v);
+            if p.terms.len()>CORE_PHASE_TERMS||f.functions.iter().any(|q|q.len()>CORE_TERMS){return None;}
+        }
+        for (m,c) in p.terms{ps.p.add_term(m,c);}
+        ps.f=f;
+        let mut factors=self.guard.factors_ref().into_iter().cloned().collect::<Vec<_>>();factors.extend(gs);
+        Self::shared_from_parts(ps,factors,k)
+    }
+    fn shared_adjoint(&self)->Result<Self,String>{
+        if !self.shared_valid(){return Err("invalid-input".into());}
+        let mut ps=PathSum::new(self.q());ps.set_auto_reduce(false);
+        let mut map=BTreeMap::new();
+        for &old in self.guard.ids(){
+            if ps.v.next_id>=F::ID_LIMIT{return Err(format!("stable-id-cap next_id={} source_live={} q={}",ps.v.next_id,self.guard.ids().len(),self.q()));}
+            let id=ps.v.get_fresh_var();map.insert(old,id);
+        }
+        let (p,f)=core_rename(&self.ps,&map).ok_or("native-rename")?;
+        let mut factors=self.guard.factors_ref().into_iter().map(|g|core_storage_rename::<F>(g,&map)).collect::<Option<Vec<_>>>().ok_or("guard-rename")?;
+        for (j,out) in f.functions.iter().enumerate(){
+            let mut eq=core_storage_anf::<F>(out).ok_or("output-mask")?;
+            core_toggle(&mut eq,F::mono(&[]).ok_or("constant")?);
+            core_toggle(&mut eq,F::mono(&[j as u32]).ok_or("output-id")?);
+            factors.push(eq);
+        }
+        let raw=factors.len();
+        let factors=core_storage_pack::<F>(factors).ok_or("guard-pack")?;
+        let packed=factors.len();let terms=factors.iter().map(|g|g.len()).sum::<usize>();
+        let max=factors.iter().map(|g|g.len()).max().unwrap_or(0);
+        for (m,c) in p.terms{ps.p.add_term(m,c*(-1));}
+        ps.f=quprs::pathsum::BooleanState::new(self.n());
+        for (i,out) in ps.f.functions.iter_mut().enumerate(){out.clear();out.insert(vec![*map.get(&(i as u32)).ok_or("input-map")?]);}
+        Self::shared_from_parts(ps,factors,self.k).ok_or_else(||format!("result-invariant raw_factors={raw} packed_factors={packed} terms={terms} max_factor={max} source_live={} q={}",self.guard.ids().len(),self.q()))
+    }
+}
+impl CpsCore {
+    fn to_sparse(&self)->Option<CpsCore<SparseGuardFrame>>{
+        if !self.valid(){return None;}
+        let gs=self.guard.factors().map(|g|g.iter().map(|m|SparseMono::new(<NativeGuardFrame as CoreGuardStorage>::mono_ids(m))).collect::<Option<SparseAnf>>()).collect::<Option<Vec<_>>>()?;
+        CpsCore::<SparseGuardFrame>::shared_from_parts(self.ps.clone(),gs,self.k)
+    }
+}
+
 impl CpsCore{
     // Only canonical source ingress. Derive k from the declared summed
     // variables, not the number of active/satisfying assignments.
@@ -91,20 +246,7 @@ impl CpsCore{
     fn from_frame(ps:PathSum,guard:NativeGuardFrame,k:i32)->Option<Self>{
         let c=Self{ps,guard,k};if c.valid(){Some(c)}else{None}
     }
-    fn n(&self)->usize{self.ps.v.num_qubits}
-    fn q(&self)->usize{self.ps.f.functions.len()}
-    fn valid(&self)->bool{
-        let ps=&self.ps;let n=self.n();let q=self.q();let live=&ps.v.path_vars;
-        if n>16||q>16||ps.rr_approximate||ps.rr_tolerance!=0.0||
-            !ps.v.continuous_vars.is_empty()||!core_terms_ok(ps)||
-            (0..n).any(|i|!live.contains(&(i as u32)))||
-            ps.v.next_id>63||live.iter().any(|&v|v>=63||v>=ps.v.next_id)||
-            ps.f.registers.iter().map(|r|r.size).sum::<usize>()!=q||
-            self.guard.compact_factors(ps).is_none(){return false;}
-        let mono_ok=|m:&Vec<u32>|m.windows(2).all(|w|w[0]<w[1])&&m.iter().all(|v|live.contains(v));
-        ps.f.functions.iter().all(|p|p.iter().all(&mono_ok))&&
-            ps.p.terms.iter().all(|(m,c)|mono_ok(m)&&core_phase8(c).is_some())
-    }
+    fn valid(&self)->bool{self.shared_valid()}
     // Explicit raw embedding only. An already reduced PathSum cannot be
     // imported as raw: it must enter via a checked transformation receipt.
     fn circuit(n:usize,ops:&[G])->Option<Self>{
@@ -128,33 +270,7 @@ impl CpsCore{
             self.ps.f.functions.iter().map(|p|p.len()).max().unwrap_or(0)))
     }
     fn then_legacy(&self,next:&Self)->Option<Self>{
-        if !self.valid()||!next.valid()||self.q()!=next.n(){return None;}
-        let k=self.k.checked_add(next.k)?;
-        let mut ps=PathSum::new(self.n());ps.set_auto_reduce(false);
-        ps.v=self.ps.v.clone();ps.p=self.ps.p.clone();
-        if ps.v.next_id.checked_add(u32::try_from(next.guard.ids.len()).ok()?)?>63{return None;}
-        let mut map=BTreeMap::new();
-        for &old in &next.guard.ids{
-            let id=ps.v.get_fresh_var();core_bit(id)?;map.insert(old,id);
-        }
-        let (mut p,mut f)=core_rename(&next.ps,&map)?;
-        let mut gs=next.guard.factors().map(|g|core_rename_anf(g,&map)).collect::<Option<Vec<_>>>()?;
-        for (i,repl) in self.ps.f.functions.iter().enumerate(){
-            let v=*map.get(&(i as u32))?;
-            // Bound expansion before native substitution, not after an
-            // arbitrarily large XOR expansion. This is an admission cap.
-            if repl.len()>8{return None;}
-            p.substitute_var_with_poly(v,repl);
-            f.substitute_var_with_poly(v,repl);
-            let repl=core_anf(repl)?;
-            gs=gs.iter().map(|g|substitute_guard(g,v,&repl)).collect::<Option<Vec<_>>>()?;
-            ps.v.path_vars.remove(&v);
-            if p.terms.len()>CORE_PHASE_TERMS||f.functions.iter().any(|q|q.len()>CORE_TERMS){return None;}
-        }
-        for (m,c) in p.terms{ps.p.add_term(m,c);}
-        ps.f=f;
-        let mut factors=self.guard.factors().cloned().collect::<Vec<_>>();factors.extend(gs);
-        Self::from_factors(ps,factors,k)
+        self.shared_then_rebased(next)
     }
     // Exact fallback when B's formal inputs occur only in its guard.
     // Allocate only B's bound variables. Substitution into G_B is
@@ -317,33 +433,7 @@ impl CpsCore{
     fn adjoint(&self)->Option<Self>{
         self.adjoint_diagnostic().ok()
     }
-    fn adjoint_diagnostic(&self)->Result<Self,String>{
-        if !self.valid(){return Err("invalid-input".into());}
-        let mut ps=PathSum::new(self.q());ps.set_auto_reduce(false);
-        let mut map=BTreeMap::new();
-        for &old in &self.guard.ids{
-            if ps.v.next_id>=63{return Err(format!("stable-id-cap next_id={} source_live={} q={}",ps.v.next_id,self.guard.ids.len(),self.q()));}
-            let id=ps.v.get_fresh_var();map.insert(old,id);
-        }
-        let (p,f)=core_rename(&self.ps,&map).ok_or("native-rename")?;
-        let mut factors=self.guard.factors().map(|g|core_rename_anf(g,&map)).collect::<Option<Vec<_>>>().ok_or("guard-rename")?;
-        for (j,out) in f.functions.iter().enumerate(){
-            // equality = 1 XOR f_j XOR z_j
-            let mut eq=core_anf(out).ok_or("output-mask")?;xor_insert(&mut eq,0);xor_insert(&mut eq,core_bit(j as u32).ok_or("output-id")?);
-            factors.push(eq);
-        }
-        let raw=factors.len();
-        let factors=core_pack_guard_factors(factors);
-        let packed=factors.len();
-        let terms=factors.iter().map(|g|g.len()).sum::<usize>();
-        let max=factors.iter().map(|g|g.len()).max().unwrap_or(0);
-        for (m,c) in p.terms{ps.p.add_term(m,c*(-1));}
-        ps.f=quprs::pathsum::BooleanState::new(self.n());
-        for (i,out) in ps.f.functions.iter_mut().enumerate(){
-            out.clear();out.insert(vec![*map.get(&(i as u32)).ok_or("input-map")?]);
-        }
-        Self::from_factors(ps,factors,self.k).ok_or_else(||format!("result-invariant raw_factors={raw} packed_factors={packed} terms={terms} max_factor={max} source_live={} q={}",self.guard.ids.len(),self.q()))
-    }
+    fn adjoint_diagnostic(&self)->Result<Self,String>{self.shared_adjoint()}
 }
 
 // Independent bounded matrix oracle evaluates the native fields directly;
@@ -439,6 +529,11 @@ fn hoare_cps_core_closure(){
             core_check_canonical_padding(v);
         }
         let am=core_matrix(&a);let bm=core_matrix(&b);
+        let sa=a.to_sparse().unwrap();let sb=b.to_sparse().unwrap();
+        let sc=sa.shared_then_rebased(&sb).expect("sparse closure");
+        assert_eq!(sc.k,a.k+b.k);assert_eq!(sparse_core_matrix(&sc),core_product(&am,&bm));
+        let sd=sa.shared_adjoint().expect("sparse adjoint");
+        assert_eq!(sd.k,a.k);assert_eq!(sparse_core_matrix(&sd),core_dagger(&am));
         let ba=a.then(&b).unwrap();assert_eq!(ba.k,a.k+b.k);
         assert_eq!(core_matrix(&ba),core_product(&am,&bm));comp+=1;entries+=(1<<n)*(1<<q);
         let ad=a.adjoint().unwrap();assert_eq!(ad.k,a.k);
@@ -1702,4 +1797,69 @@ fn hoare_cps_shared_guard_algebra(){
     let missing=SparseAnf::from([SparseMono::new(vec![999]).unwrap()]);
     assert!(sparse_guard_lit(&mut c,&missing,&map).is_none());
     println!("CPS_SHARED_GUARD_ALGEBRA checks={checks} narrow_wide=PASS primary67=PASS unique_extension=PASS malformed_reject=PASS");
+}
+
+fn sparse_core_matrix(c:&CpsCore<SparseGuardFrame>)->Vec<Vec<Root>>{
+    assert!(c.shared_valid());
+    let n=c.n();let q=c.q();
+    let ids:Vec<_>=c.guard.ids.iter().copied().filter(|&v|v as usize>=n).collect();
+    assert!(n<=3&&q<=8&&ids.len()<=18);
+    let mut out=vec![vec![[0;4];1usize<<n];1usize<<q];
+    for x in 0..1u64<<n{for y in 0..1u64<<ids.len(){
+        let mut on_ids:BTreeSet<u32>=(0..n as u32).filter(|&i|x&(1u64<<i)!=0).collect();
+        on_ids.extend(ids.iter().enumerate().filter_map(|(i,&v)|(y&(1u64<<i)!=0).then_some(v)));
+        if !c.guard.factors.iter().all(|g|g.iter().fold(false,|v,m|v^m.ids().iter().all(|id|on_ids.contains(id)))){continue;}
+        let on=|m:&Vec<u32>|m.iter().all(|id|on_ids.contains(id));
+        let z=c.ps.f.functions.iter().enumerate().fold(0usize,|v,(i,p)|v|((p.iter().filter(|m|on(m)).count()%2)<<i));
+        let k=c.ps.p.terms.iter().filter(|(m,_)|on(m)).map(|(_,p)|core_phase8(p).unwrap() as usize).sum::<usize>();
+        out[z][x as usize]=add(out[z][x as usize],root(k));
+    }}
+    out
+}
+#[test]
+fn hoare_cps_sparse_frame(){
+    // A real high stable ID, with only one summed path; no wide-bit
+    // matrix enumeration or hand-selected scale.
+    let mut ps=PathSum::new(1);ps.set_auto_reduce(false);
+    ps.v.next_id=128;let v=ps.v.get_fresh_var();
+    ps.f.functions[0]=CoreBool::from_iter([vec![v]]);
+    ps.p.add_term(vec![0,v],quprs::PhaseCoeff::HALF);
+    let a=CpsCore::<SparseGuardFrame>::shared_from_parts(ps,vec![SparseAnf::from([SparseMono::new(vec![]).unwrap()])],1).unwrap();
+    let h=CpsCore::circuit(1,&[G::H(0)]).unwrap();
+    assert_eq!(sparse_core_matrix(&a),core_matrix(&h));
+    let b=h.to_sparse().unwrap();
+    let ab=a.shared_then_rebased(&b).unwrap();
+    assert_eq!(ab.k,2);assert_eq!(sparse_core_matrix(&ab),core_product(&core_matrix(&h),&core_matrix(&h)));
+    let ad=a.shared_adjoint().unwrap();assert_eq!(sparse_core_matrix(&ad),core_dagger(&core_matrix(&h)));
+    let bad=SparseAnf::from([SparseMono::new(vec![127]).unwrap()]);
+    assert!(CpsCore::<SparseGuardFrame>::shared_from_parts(a.ps.clone(),vec![bad],a.k).is_none());
+    let mut ps=PathSum::new(1);ps.set_auto_reduce(false);
+    for _ in 0..66{ps.v.get_fresh_var();}
+    let gs=vec![SparseAnf::from([SparseMono::new(vec![]).unwrap(),SparseMono::new(vec![66]).unwrap()])];
+    let wide=CpsCore::<SparseGuardFrame>::shared_from_parts(ps,gs,66).unwrap();
+    let wd=wide.shared_adjoint().unwrap();
+    let prod=wide.shared_then_rebased(&wd).unwrap();
+    assert_eq!(prod.guard.ids.len(),134);assert_eq!(prod.k,132);
+    println!("CPS_SPARSE_FRAME high_id=PASS matrix=PASS adjoint=PASS live134=PASS missing_id=REJECTED");
+}
+#[test]
+fn hoare_cps_sparse_source_admission(){
+    let root=std::path::PathBuf::from(std::env::var("CPS_CORE_SOURCE_DIR").unwrap());
+    let dir=root.join("benchmarks/all/MOGrover/05");
+    let a=core_hsl_lower(&std::fs::read_to_string(dir.join("pre.hsl")).unwrap()).unwrap();
+    let b=core_hsl_lower(&std::fs::read_to_string(dir.join("post.hsl")).unwrap()).unwrap();
+    let (ops,_)=quprs::qasm::parse_qasm_str_source_pinned(&std::fs::read_to_string(dir.join("circuit.qasm")).unwrap()).unwrap();
+    let ua=a.then_circuit_diagnostic(&ops).unwrap();
+    assert!(core_label_support(&ua,&b));
+    let su=ua.to_sparse().unwrap();let sb=b.to_sparse().unwrap();
+    let bd=sb.shared_adjoint().unwrap();
+    assert_eq!((bd.n(),bd.q(),bd.k),(b.q(),b.n(),b.k));
+    match su.shared_then_rebased(&bd){
+        Some(c)=>{
+            assert_eq!((c.n(),c.q(),c.k),(ua.n(),b.n(),ua.k+b.k));
+            assert_eq!(c.guard.ids.len(),86);
+            println!("CPS_SPARSE_SOURCE_ADMISSION case=MOGrover05 status=READY live={} next_id={} k={} factors={} phase_terms={}",c.guard.ids.len(),c.ps.v.next_id,c.k,c.guard.factors.len(),c.ps.p.terms.len());
+        },
+        None=>println!("CPS_SPARSE_SOURCE_ADMISSION case=MOGrover05 status=BLOCKED stage=rebased-composition")
+    }
 }

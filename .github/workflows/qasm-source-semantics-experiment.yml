@@ -110,6 +110,8 @@ jobs:
           grep -F 'CPS_PREFIX_RR full_matrix=PASS replay=PASS insufficient=REJECTED' evidence/cps-core-rr.log
           timeout 30s "$(cat evidence/property_hoare_experiment.path)" --exact exact_property_cnf::hoare_cps_shared_guard_algebra --nocapture | tee evidence/cps-shared-guard-algebra.log
           grep -F 'CPS_SHARED_GUARD_ALGEBRA checks=4096 narrow_wide=PASS primary67=PASS unique_extension=PASS malformed_reject=PASS' evidence/cps-shared-guard-algebra.log
+          timeout 30s "$(cat evidence/property_hoare_experiment.path)" --exact exact_property_cnf::hoare_cps_sparse_frame --nocapture | tee evidence/cps-sparse-frame.log
+          grep -F 'CPS_SPARSE_FRAME high_id=PASS matrix=PASS adjoint=PASS live134=PASS missing_id=REJECTED' evidence/cps-sparse-frame.log
           timeout 30s "$(cat evidence/property_hoare_experiment.path)" --exact exact_property_cnf::hoare_cps_core_factored_guard --nocapture | tee evidence/cps-core-factored-guard.log
           grep -F 'CPS_CORE_FACTORED_GUARD matrix=PASS native_rr=PASS replay_mutant=REJECTED wmc_plan=PASS' evidence/cps-core-factored-guard.log
           CPS_CORE_WMC_DIR="$PWD/evidence/cps-core-wmc" timeout 60s "$(cat evidence/property_hoare_experiment.path)" --exact exact_property_cnf::hoare_cps_core_wmc_export --nocapture | tee evidence/cps-core-wmc-export.log
@@ -184,6 +186,8 @@ jobs:
           set -euo pipefail
           src="$RUNNER_TEMP/autoq-matched"
           export LD_LIBRARY_PATH="$src:$src/build/lib:$src/build/cli:${LD_LIBRARY_PATH:-}"
+          CPS_CORE_SOURCE_DIR="$src" timeout 30s "$(cat evidence/release-bin.path)" --exact exact_property_cnf::hoare_cps_sparse_source_admission --nocapture | tee evidence/cps-sparse-source-admission.log
+          grep -F "CPS_SPARSE_SOURCE_ADMISSION case=MOGrover05 status=" evidence/cps-sparse-source-admission.log
           CPS_CORE_SOURCE_DIR="$src" timeout 90s "$(cat evidence/release-bin.path)" --exact exact_property_cnf::hoare_cps_core_heldout_predicates --nocapture | tee evidence/cps-core-heldout-predicates.log
           grep -F 'CPS_HELDOUT_PREDICATE_SUMMARY predicates=12' evidence/cps-core-heldout-predicates.log
           test "$(grep -c '^CPS_HELDOUT_ADJOINT ' evidence/cps-core-heldout-predicates.log)" -eq 12

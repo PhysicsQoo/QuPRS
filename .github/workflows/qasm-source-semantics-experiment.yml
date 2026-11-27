@@ -61,6 +61,24 @@ jobs:
           bins=single_fibre_decode(parse_gpmc_integer(run.stdout,"wmc",bound*radix**7),radix,bound,8)
           assert bins == [1,1,1,1,0,0,0,0],bins
           print("CPS_PACKED_SMOKE=PASS",bins)
+          # Qualify packed MPZ counts above the old 63-primary boundary.
+          # Each primary appears in a unique-extension alias, so this is
+          # not dependent on handling unused DIMACS variables.
+          for primary in (80,92,126):
+              rows=["1 0"]
+              for j in range(primary):
+                  x=j+2
+                  a=primary+j+2
+                  rows.extend((f"{-a} {x} 0",f"{a} {-x} 0"))
+              base=f"p cnf {2*primary+1} {len(rows)}\n"+"\n".join(rows)+"\n"
+              data,radix,bound=single_fibre_pack(base,[2,3,-1],primary)
+              path=pathlib.Path(f"evidence/packed-wide-{primary}.cnf")
+              path.write_text(data)
+              run=subprocess.run([sys.argv[1],"-mode=1","-natw",str(path)],capture_output=True,text=True,timeout=20,check=True)
+              pathlib.Path(f"evidence/packed-wide-{primary}.log").write_text(run.stdout+run.stderr)
+              bins=single_fibre_decode(parse_gpmc_integer(run.stdout,"wmc",bound*radix**7),radix,bound,8)
+              assert bins==[1<<(primary-2)]*4+[0]*4,(primary,bins)
+              print("CPS_PACKED_WIDE_SMOKE=PASS",primary,bins)
           PY
       - name: Build and verify shared initial lowering
         run: |

@@ -30,6 +30,7 @@ class SolverResult:
     arguments: tuple[str, ...]
     returncode: int
     elapsed_seconds: float
+    sat: bool | None = None
 
 
 @dataclass(frozen=True)
@@ -140,6 +141,11 @@ def execute_solver(adapter, cnf_path, timeout, *, resource_resolver, process_run
     try:
         if remaining() <= 0:
             raise SolverTimeout("SolverTimeout: budget exhausted before solver launch")
+        native = getattr(adapter, "execute_native", None)
+        if native is not None:
+            count, sat = native(cnf_path, remaining(), capture_decimal=capture_decimal)
+            return SolverResult(adapter.solver_id, count, adapter.arguments, 0,
+                                time.monotonic() - started, sat)
         with adapter.resource(resource_resolver) as executable:
             adapter.verify_binary(executable, remaining())
             if remaining() <= 0:

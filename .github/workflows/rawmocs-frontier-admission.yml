@@ -4,12 +4,14 @@ on:
     branches: [experiment/rawmocs-integration]
     paths:
       - '.github/workflows/rawmocs-frontier-admission.yml'
+      - 'research/rawmocs_integration/native_*.py'
+      - 'src/QuPRS/utils/solver_adapter.py'
   workflow_dispatch:
     inputs:
       suite:
         description: Bounded Frontier admission suite
         type: choice
-        options: [frontier-release-quality, frontier-vqe16-gpmc-scout, v020-cross-family-scout, v020-pinned-integration, v020-planner-diagnosis, v020-width-transfer, v020-rust-integration, v020-final-admission, v020-frontier-holdout, v020-shared-contraction, v020-package-rehearsal]
+        options: [frontier-release-quality, frontier-vqe16-gpmc-scout, v020-cross-family-scout, v020-pinned-integration, v020-planner-diagnosis, v020-width-transfer, v020-rust-integration, v020-final-admission, v020-frontier-holdout, v020-shared-contraction, v020-package-rehearsal, p4-native-first]
         default: frontier-release-quality
 permissions:
   contents: read
@@ -475,7 +477,7 @@ jobs:
           if-no-files-found: warn
 
   v020-pinned-integration:
-    if: github.event_name == 'push' || inputs.suite == 'v020-pinned-integration'
+    if: github.event_name == 'workflow_dispatch' && inputs.suite == 'v020-pinned-integration'
     name: v0.2.0 exact-main extracted-source QuPRS integration / ${{ matrix.case }}
     runs-on: ubuntu-24.04
     timeout-minutes: 12
@@ -1025,7 +1027,7 @@ jobs:
 
 
   v020-rust-integration:
-    if: github.event_name == 'push' || inputs.suite == 'v020-rust-integration'
+    if: github.event_name == 'workflow_dispatch' && inputs.suite == 'v020-rust-integration'
     name: v0.2.0 exact-main extracted-source Rust FFI integration
     runs-on: ubuntu-24.04
     timeout-minutes: 15
@@ -1940,3 +1942,65 @@ jobs:
           include-hidden-files: true
           if-no-files-found: warn
           retention-days: 7
+
+  p4-native-first:
+    if: github.event_name == 'push' || inputs.suite == 'p4-native-first'
+    name: P4 scoped Native API and CLI/GPMC parity
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: PhysicsQoo/RaWMoCS
+          ref: abe8316737ab5c90305160ea2d41626482cd65b7
+          path: .rawmocs-candidate
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: PhysicsQoo/GPMC
+          ref: 89bbc89d0de918e7a5385740355df55765039230
+          path: .gpmc
+          submodules: recursive
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            .rawmocs-candidate/crates/rawmocs-cli -> target
+            .rawmocs-candidate/crates/rawmocs-python -> target
+      - name: Build source-pinned candidate and GPMC
+        run: |
+          set -euo pipefail
+          test "$(git -C .rawmocs-candidate rev-parse HEAD)" = abe8316737ab5c90305160ea2d41626482cd65b7
+          test "$(git -C .gpmc rev-parse HEAD)" = 89bbc89d0de918e7a5385740355df55765039230
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends cmake ninja-build libgmp-dev libmpfr-dev zlib1g-dev m4 make gcc pkg-config
+          python -m pip install maturin==1.8.3 numpy sympy symengine 'qiskit==2.6.1' qiskit-qasm3-import psutil
+          cargo build --locked --release --manifest-path .rawmocs-candidate/crates/rawmocs-cli/Cargo.toml
+          (cd .rawmocs-candidate; maturin build --locked --release --interpreter python --compatibility linux --out "$RUNNER_TEMP/p4-wheel")
+          python -m pip install --no-index "$RUNNER_TEMP"/p4-wheel/*.whl
+          cmake -S .gpmc -B .gpmc/build -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake --build .gpmc/build --target gpmc-bin --parallel 2
+          mkdir -p .p4-native-evidence
+          python -m pip freeze > .p4-native-evidence/dependencies.txt
+          sha256sum "$RUNNER_TEMP"/p4-wheel/*.whl .rawmocs-candidate/crates/rawmocs-cli/target/release/rawmocs .gpmc/build/gpmc > .p4-native-evidence/binaries.sha256
+      - name: Actual QuPRS run_wmc and public Python verdict parity
+        env:
+          PYTHONPATH: ${{ github.workspace }}/src:${{ github.workspace }}/.rawmocs-candidate/crates/rawmocs-cli/tools
+          PYTHONHASHSEED: '0'
+        run: |
+          set -euo pipefail
+          python research/rawmocs_integration/native_first.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: rawmocs-p4-native-first
+          path: .p4-native-evidence/
+          include-hidden-files: true
+          if-no-files-found: warn

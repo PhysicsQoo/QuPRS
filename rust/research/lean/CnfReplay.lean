@@ -5204,7 +5204,6 @@ theorem ledger_sub_pivot_witness (s : LedgerStep) (y : Nat) (rhs : List (List Na
             have hp := and_true_parts hg
             refine ⟨i,row,?_,?_,?_,hr,ledger_row_at_member _ _ _ hr,?_⟩
             · rw [← hz.1]
-              exact hparsed
             · rw [← hz.1]
               exact (nat_mem_iff _ _).mp hp.1
             · rw [← hz.1]
@@ -5402,14 +5401,16 @@ theorem ledger_sub_mono_raw_sound (y : Nat) (rhs : List (List Nat))
       (setVal v y (anfValue v rhs) x && andValue (xs.map (setVal v y (anfValue v rhs))))
     cases he : natMem x [y] with
     | true =>
-      rw [ledger_bool_true _ _ _ he, ledger_anf_mul, ih]
+      change anfValue v (ledgerAnfMul rhs (ledgerSubMonoRaw y rhs xs)) = _
+      rw [ledger_anf_mul, ih]
       have hx : x = y := by
         rcases List.mem_cons.mp ((nat_mem_iff x [y]).mp he) with hx | hx
         · exact hx
         · cases hx
       rw [hx, set_val_eq]
     | false =>
-      rw [ledger_bool_false _ _ _ he, ledger_anf_prefix, ih]
+      change anfValue v (ledgerAnfPrefix [x] (ledgerSubMonoRaw y rhs xs)) = _
+      rw [ledger_anf_prefix, ih]
       have hx : x ≠ y := by
         intro hxy
         have hm : natMem x [y] = true := (nat_mem_iff x [y]).mpr

@@ -1590,3 +1590,88 @@ fn cpr_reachable_external_hh_receipts() {
     }
     println!("CPR_N3_NATIVE_PIVOT_PASS");
 }
+
+
+// N4: bounded, gate-built exact audit; explicit lifts are reachable
+// representation transforms, NOT samples of the frozen adaptive policy.
+// No production ledger is added: k is recorded by this diagnostic only.
+#[test]
+fn cpr_elim_reachable_audit() {
+    use quprs::ir::QuantumOp::*;
+    type Step=(&'static str,usize,usize,usize,bool);
+    let cases: [(&str,&[Step]);6]=[
+        ("hh",&[("h",0,0,0,false),("h",0,0,0,false),("h",1,0,0,true),("h",1,0,0,true)]),
+        ("omega_t",&[("h",0,0,0,false),("s",0,0,0,false),("h",0,0,0,false),("t",0,0,0,false),("h",0,0,0,false),("cx",0,1,0,false),("h",1,0,0,false)]),
+        ("nonlinear",&[("h",1,0,0,false),("h",2,0,0,false),("h",0,0,0,false),("ccx",0,1,2,false),("ccx",1,2,0,false),("h",0,0,0,false),("h",1,0,0,false),("h",2,0,0,false)]),
+        ("bra_ket",&[("h",0,0,0,true),("h",1,0,0,false),("ccx",1,2,0,true),("t",0,0,0,true),("cx",0,2,0,false),("h",2,0,0,true),("s",1,0,0,false),("h",1,0,0,false)]),
+        ("nonlinear_phase",&[("h",0,0,0,false),("h",1,0,0,false),("ccx",0,1,2,false),("t",2,0,0,false),("cz",1,2,0,false),("h",2,0,0,false),("x",0,0,0,true),("h",0,0,0,false),("h",1,0,0,false)]),
+        ("mixed_inverse",&[("h",0,0,0,false),("h",1,0,0,false),("ccx",0,1,2,false),("s",2,0,0,false),("h",0,0,0,true),("h",1,0,0,true),("ccx",0,1,2,true),("s",2,0,0,true)]),
+    ];
+    fn emit(case:&str,arm:&str,step:usize,event:&str,ps:&PathSum,k:usize){
+        assert!(!ps.rr_approximate);
+        assert!(internal(ps).len()<=12);
+        assert!(ps.p.terms.values().all(|c|c.symbols.is_empty()&&c.radians.is_none()));
+        println!("CPR_N4_STATE {{\"case\":\"{case}\",\"arm\":\"{arm}\",\"step\":{step},\"event\":\"{event}\",\"k\":{k},\"state\":{}}}",ir(ps,None));
+    }
+    let mut reachable_elim_bits=0usize;
+    let mut rr_events=0usize;
+    for (case,steps) in cases {
+        for arm in ["original","output_lift","input_lift"] {
+            let mut ps=PathSum::new(3);
+            ps.rr_tolerance=0.0;ps.set_auto_reduce(false);
+            let mut k=0usize;
+            emit(case,arm,0,"initial",&ps,k);
+            for (i,&(kind,a,b,c,bra)) in steps.iter().enumerate(){
+                if i==2 {
+                    if arm=="output_lift"{lift_output(&mut ps,0);emit(case,arm,i,"lift",&ps,k);}
+                    if arm=="input_lift"{lift_input(&mut ps,0);emit(case,arm,i,"lift",&ps,k);}
+                }
+                let op=match kind{
+                    "h"=>H(a),"s"=>S(a),"t"=>T(a),"cx"=>CX(a,b),"ccx"=>CCX(a,b,c),
+                    "cz"=>CZ(a,b),"x"=>X(a),_=>panic!("unhandled gate")
+                };
+                op.apply(&mut ps,bra);
+                emit(case,arm,i+1,"gate",&ps,k);
+                if kind!="h"&&i+1!=steps.len(){continue;}
+                // Same native full_reduce on a copy, independently instrumented
+                // via the original rule entrypoints on the diagnostic state.
+                let mut native=ps.clone();native.set_auto_reduce(true);native.full_reduce();
+                let mut converged=false;
+                for _ in 0..24{
+                    let ids=ps.get_reducible_vars();
+                    let old_h=internal(&ps).len();
+                    if ps.try_reduce_elim(&ids){
+                        let removed=old_h-internal(&ps).len();assert!(removed>0);
+                        k+=removed;reachable_elim_bits+=removed;rr_events+=1;
+                        emit(case,arm,i+1,"elim",&ps,k);continue;
+                    }
+                    if ps.try_reduce_omega(&ids){
+                        assert_eq!(old_h,internal(&ps).len()+1);rr_events+=1;
+                        emit(case,arm,i+1,"omega",&ps,k);continue;
+                    }
+                    if ps.try_reduce_hh(&ids){
+                        assert_eq!(old_h,internal(&ps).len()+2);rr_events+=1;
+                        emit(case,arm,i+1,"hh",&ps,k);continue;
+                    }
+                    converged=true;break;
+                }
+                assert!(converged);
+                assert_eq!(ir(&native,None),ir(&ps,None),"native saturation mismatch");
+                emit(case,arm,i+1,"saturated",&ps,k);
+            }
+        }
+    }
+    // Synthetic but exactly unitary control: F=x, P=a(b OR c)/2,
+    // with a fourth isolated bit. Unitarity alone cannot exclude Elim.
+    let mut unitary=PathSum::new(1);unitary.set_auto_reduce(false);
+    let a=unitary.v.get_fresh_var();let b=unitary.v.get_fresh_var();
+    let c=unitary.v.get_fresh_var();let z=unitary.v.get_fresh_var();
+    for m in [vec![a,b],vec![a,c],vec![a,b,c]]{unitary.p.add_term(m,PhaseCoeff::HALF);}
+    emit("synthetic_unitary","control",0,"before",&unitary,0);
+    let ids=unitary.get_reducible_vars();
+    assert!(unitary.try_reduce_elim(&ids));
+    assert!(!unitary.v.path_vars.contains(&z));
+    assert_eq!(internal(&unitary).len(),3);
+    emit("synthetic_unitary","control",0,"elim",&unitary,1);
+    println!("CPR_N4_NATIVE {{\"reachable_arms\":18,\"reachable_elim_bits\":{reachable_elim_bits},\"rr_events\":{rr_events},\"synthetic_elim_bits\":1}}");
+}

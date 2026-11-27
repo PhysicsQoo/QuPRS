@@ -623,3 +623,137 @@ fn native_early_rotation_pilot(){
         }
     }
 }
+
+
+// Cost-aware HH pivot choice at the original online reduction checkpoints.
+// Exact-only experiment: same Difference schedule, same Elim/Omega priority,
+// same first eligible HH integrator, no approximate input-pivot extension.
+// Only trial one alternative internal pivot, bounded eight trials per miter.
+#[derive(Default)]
+struct PivotAudit {
+    trials:usize, accepted:usize, peak_incidence:usize, rows:Vec<String>,
+}
+fn pivot_saturate(ps:&mut PathSum,audit:&mut PivotAudit,record:bool){
+    assert_eq!(ps.rr_tolerance,0.0);
+    loop {
+        if audit.trials>=8||terms(ps)>TERM_CAP {
+            ps.full_reduce();break;
+        }
+        let ids=ps.get_reducible_vars();
+        if ids.is_empty(){break;}
+        if ps.try_reduce_elim(&ids)||ps.try_reduce_omega(&ids){continue;}
+        // Build a sparse incidence index only for this HH pass, not a
+        // separate symbolic IR. Preserve the original descending integrator.
+        let mut index=std::collections::BTreeMap::<u32,Option<Anf>>::new();
+        for &y in &ids{index.insert(y,Some(Anf::default()));}
+        for (m,c) in &ps.p.terms{
+            for &y in m{
+                if let Some(slot)=index.get_mut(&y){
+                    if !c.is_pure_half(){*slot=None;}
+                    else if let Some(phi)=slot{
+                        toggle(phi,m.iter().copied().filter(|v|*v!=y).collect());
+                    }
+                }
+            }
+        }
+        let mut hit=false;
+        for &y in &ids{
+            let Some(Some(phi))=index.get(&y) else{continue;};
+            let mut pivots:Vec<u32>=phi.iter().filter(|m|m.len()==1&&phi.iter().all(|n|n==*m||!n.contains(&m[0]))).map(|m|m[0]).collect();
+            pivots.sort_unstable();
+            let Some(&v)=pivots.last() else{continue;};
+            hit=true;
+            if pivots.len()<2||v<(ps.v.num_qubits as u32)||phi.len()>5{
+                assert!(ps.try_reduce_hh(&[y]));break;
+            }
+            let score=|v:u32|ps.p.terms.keys().chain(ps.f.functions.iter().flatten()).filter(|m|m.contains(&v)&&!m.contains(&y)).map(|m|1+m.len()).sum::<usize>();
+            let alt=pivots.iter().copied().filter(|z|*z!=v&&*z>=ps.v.num_qubits as u32&&ps.v.path_vars.contains(z)).min_by_key(|z|(score(*z),*z));
+            let Some(w)=alt else{assert!(ps.try_reduce_hh(&[y]));break;};
+            if score(w)>=score(v)||score(w).saturating_mul(1usize<<(phi.len()-1))>TERM_CAP{
+                assert!(ps.try_reduce_hh(&[y]));break;
+            }
+            audit.trials+=1;
+            let mut native=ps.clone();
+            assert!(native.try_reduce_hh(&[y]));
+            let mut rhs=phi.clone();rhs.remove(&vec![w]);
+            let mut cand=ps.clone();
+            cand.p.terms.retain(|m,_|!m.contains(&y));
+            cand.p.substitute_var_with_poly(w,&rhs);
+            cand.f.substitute_var_with_poly(w,&rhs);
+            cand.v.path_vars.remove(&y);cand.v.path_vars.remove(&w);
+            assert_eq!(internal(&native).len(),internal(&cand).len());
+            assert!(!cand.rr_approximate&&!native.rr_approximate);
+            assert!(cand.p.terms.keys().chain(cand.f.functions.iter().flatten()).flatten().all(|v|cand.v.path_vars.contains(v)));
+            let ni=incidence(&native);let ci=incidence(&cand);
+            if ci<ni&&terms(&cand)<=TERM_CAP{
+                audit.accepted+=1;
+                if record{
+                    audit.rows.push(format!("{{\"y\":{y},\"pivot\":{w},\"native_pivot\":{v},\"rhs\":{:?},\"before\":{},\"after\":{},\"native_after\":{},\"native_incidence\":{ni},\"candidate_incidence\":{ci},\"scale_exponent_delta\":-2}}",sorted(&rhs),ir(ps,None),ir(&cand,None),ir(&native,None)));
+                }
+                *ps=cand;
+            }else{*ps=native;}
+            break;
+        }
+        audit.peak_incidence=audit.peak_incidence.max(incidence(ps));
+        if !hit{
+            assert!(!ps.try_reduce_hh(&ids));break;
+        }
+    }
+}
+fn pivot_replay(n:usize,a:&[quprs::ir::QuantumOp],b:&[quprs::ir::QuantumOp],adaptive:bool,record:bool)->(PathSum,PivotAudit){
+    use quprs::ir::QuantumOp::*;
+    use similar::{Algorithm,DiffOp};
+    let mut ps=PathSum::quantum_circuit(&[quprs::pathsum::Register::new("q",n)],None);
+    let mut audit=PivotAudit::default();
+    let mut apply=|ps:&mut PathSum,op:&quprs::ir::QuantumOp,bra:bool|{
+        if !adaptive{op.apply(ps,bra);return;}
+        ps.set_auto_reduce(false);op.apply(ps,bra);ps.set_auto_reduce(true);
+        if matches!(op,H(_)|RX(..)|RY(..)|U2(..)|U3(..)|U(..)){
+            pivot_saturate(ps,&mut audit,record);
+        }
+        audit.peak_incidence=audit.peak_incidence.max(incidence(ps));
+    };
+    for op in similar::capture_diff_slices(Algorithm::Myers,a,b){
+        match op{
+            DiffOp::Equal{old_index,new_index,len}=>for i in 0..len{apply(&mut ps,&a[old_index+i],false);apply(&mut ps,&b[new_index+i],true);},
+            DiffOp::Delete{old_index,old_len,..}=>for i in 0..old_len{apply(&mut ps,&a[old_index+i],false);},
+            DiffOp::Insert{new_index,new_len,..}=>for i in 0..new_len{apply(&mut ps,&b[new_index+i],true);},
+            DiffOp::Replace{old_index,old_len,new_index,new_len}=>{
+                for i in 0..old_len{apply(&mut ps,&a[old_index+i],false);}
+                for i in 0..new_len{apply(&mut ps,&b[new_index+i],true);}
+            }
+        }
+    }
+    drop(apply);
+    if adaptive{pivot_saturate(&mut ps,&mut audit,record);}else{ps.full_reduce();}
+    (ps,audit)
+}
+#[test]
+fn native_cost_aware_pivot_pilot(){
+    let case=std::env::var("CRR_CASE").unwrap();
+    let variant=std::env::var("CRR_VARIANT").unwrap();
+    let source=std::fs::read_to_string(std::env::var("CRR_SOURCE").unwrap()).unwrap();
+    let target=std::fs::read_to_string(std::env::var("CRR_TARGET").unwrap()).unwrap();
+    let(a,n)=parse_qasm_str(&source).unwrap();let(b,m)=parse_qasm_str(&target).unwrap();assert_eq!(n,m);
+    let opts=VerificationOptions{method:VerificationMethod::ReductionRules,rr_tolerance:0.0,timeout_secs:20,..VerificationOptions::default()};
+    let baseline=check_equivalence_with_options(n,&a,&b,&opts).unwrap();
+    assert!(!baseline.solver_invoked&&!baseline.final_pathsum().rr_approximate);
+    let p=baseline.final_pathsum();
+    let (control,_)=pivot_replay(n,&a,&b,false,false);
+    assert_eq!(ir(p,None),ir(&control,None),"original Difference replay mismatch");
+    let(q,audit)=pivot_replay(n,&a,&b,true,true);
+    assert!(!q.rr_approximate);
+    for row in &audit.rows{println!("CRR_PIVOT_STEP {row}");}
+    let h=internal(&q).len();let original_h=internal(p).len();
+    let shape=if h!=0{"unknown"}else if q.is_identity_up_to_phase(){"identity_up_to_phase"}else{"nonidentity_zero_hidden"};
+    println!("CRR_PIVOT_CASE {{\"case\":\"{case}\",\"variant\":\"{variant}\",\"original_native\":\"{}\",\"original_hidden\":{original_h},\"candidate_hidden\":{h},\"original_incidence\":{},\"candidate_incidence\":{},\"candidate_shape\":\"{shape}\",\"trials\":{},\"accepted\":{},\"candidate_peak_sampled_incidence\":{},\"baseline\":{},\"candidate\":{}}}",baseline.equivalent(),incidence(p),incidence(&q),audit.trials,audit.accepted,audit.peak_incidence,ir(p,None),ir(&q,None));
+    // Repeat balanced order only for small bounded miter diagnostic.
+    // Timings include replay/selection, not receipt JSON serialization.
+    for rep in 0..3{for k in 0..2{
+        let adaptive=(rep+k)%2==1;
+        let start=Instant::now();let(r,z)=pivot_replay(n,&a,&b,adaptive,false);
+        let elapsed=start.elapsed().as_secs_f64();
+        assert_eq!(ir(&r,None),ir(if adaptive{&q}else{p},None));
+        println!("CRR_PIVOT_TIME {{\"case\":\"{case}\",\"variant\":\"{variant}\",\"repeat\":{rep},\"adaptive\":{adaptive},\"elapsed_s\":{elapsed},\"trials\":{},\"accepted\":{}}}",z.trials,z.accepted);
+    }}
+}

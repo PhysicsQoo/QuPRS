@@ -394,8 +394,80 @@ def rotation_pilot():
                     summary.append(dict(case=name,variant=variant,policy=policy,lower=arm,native=z[0]["native"],hidden=z[0]["hidden"],incidence=z[0]["incidence"],residual_rr_approximate=z[0]["residual_rr_approximate"],median_total_s=statistics.median(x["total_s"] for x in z),median_verify_s=statistics.median(x["verify_s"] for x in z)))
     print("CRR_ROTATION_SUMMARY",json.dumps(dict(arms=summary,source_truth_certified=False,production=False)),flush=True)
 
+
+def verify_pivot_step(row):
+    a,b,c=(row[k] for k in ("before","after","native_after"))
+    y,v,w=row["y"],row["pivot"],row["native_pivot"]
+    assert v!=w and v<w and y!=v and y!=w
+    assert a["n"]==b["n"]==c["n"]
+    assert all(i>=a["n"] and i in a["live"] for i in (y,v,w))
+    p,fs,g=decode(a)
+    assert g is None and all(y not in m for f in fs for m in f)
+    dep={m:k for m,k in p.items() if y in m}
+    assert dep and all(k==(F(1,2),F(0)) for k in dep.values())
+    phi=anf(tuple(i for i in m if i!=y) for m in dep)
+    pivots=[m[0] for m in phi if len(m)==1 and all(m[0] not in k or k==m for k in phi)]
+    assert w==max(pivots) and v in pivots
+    assert row["scale_exponent_delta"]==-2
+    p={m:k for m,k in p.items() if y not in m}
+    for i,out in ((v,b),(w,c)):
+        rhs=phi-{(i,)}
+        if i==v:assert rhs==anf(row["rhs"])
+        assert set(out["live"])==set(a["live"])-{y,i}
+        q,gs,g2=decode(out)
+        assert g2 is None
+        assert substitute_phase(p,i,lift(rhs))==q
+        assert [substitute_anf(f,i,rhs) for f in fs]==gs
+        assert all(set(m)<=set(out["live"]) for m in q)
+        assert all(set(m)<=set(out["live"]) for f in gs for m in f)
+    assert row["candidate_incidence"]<row["native_incidence"]
+    return 1
+
+def pivot_pilot():
+    import copy,statistics
+    manifest=json.loads((ROOT/"docs/development/paper-corpus-manifest.json").read_text())
+    cases={c["id"]:c for c in manifest["cohorts"]["table2_mqt"]["cases"]}
+    ids=("grover-noancilla_4","qnn_4","vqe_4","qwalk-noancilla_3","ghz_32","qpeexact_24","qwalk-noancilla_5")
+    neg={"qnn_4":"fed46a5b63719525b28be193aa0a43ab9d10c6d7","vqe_4":"21776de4a2b0168f208d7dfba62ee198301a8357"}
+    summary=[];checks=mutations=0
+    for name in ids:
+        c=cases[name]
+        for variant in (("positive","random_rotation") if name in neg else ("positive",)):
+            env=dict(os.environ,CRR_CASE=name,CRR_VARIANT=variant)
+            target=c["transpiled"] if variant=="positive" else dict(path="benchmarks/MQTBench/Random_Rotation/"+Path(c["source"]["path"]).name,git_blob_sha1=neg[name])
+            for entry,key in ((c["source"],"CRR_SOURCE"),(target,"CRR_TARGET")):
+                path=ROOT/entry["path"];data=path.read_bytes()
+                assert hashlib.sha1(("blob %d"%len(data)).encode()+b"\x00"+data).hexdigest()==entry["git_blob_sha1"]
+                env[key]=str(path);print("CRR_PIVOT_SOURCE",name,variant,key,hashlib.sha256(data).hexdigest(),flush=True)
+            cmd=["timeout","--kill-after=3s","45s","cargo","test","--release","--locked","--manifest-path","rust/Cargo.toml","-p","quprs","--test","conditional_rr_experiment","conditional_stitch::native_cost_aware_pivot_pilot","--","--exact","--nocapture"]
+            r=subprocess.run(cmd,cwd=ROOT,env=env,capture_output=True,text=True)
+            print(r.stdout,flush=True)
+            if r.returncode in (124,137):
+                summary.append(dict(case=name,variant=variant,status="censored_timeout_or_kill"))
+                continue
+            assert r.returncode==0,(name,variant,r.returncode,r.stderr[-4000:])
+            rec=lambda p:[json.loads(l.removeprefix(p)) for l in r.stdout.splitlines() if l.startswith(p)]
+            rows=rec("CRR_PIVOT_CASE ");steps=rec("CRR_PIVOT_STEP ");timing=rec("CRR_PIVOT_TIME ")
+            assert len(rows)==1 and len(timing)==6 and len(steps)==rows[0]["accepted"]
+            for row in steps:
+                checks+=verify_pivot_step(row)
+                for field in ("phase","scale","domain"):
+                    bad=copy.deepcopy(row)
+                    if field=="phase":bad["after"]["phase"].append([[],"1/8","0"])
+                    elif field=="scale":bad["scale_exponent_delta"]=0
+                    else:bad["after"]["live"].append(row["pivot"])
+                    try:verify_pivot_step(bad)
+                    except AssertionError:mutations+=1
+                    else:raise AssertionError("mutation accepted")
+            row={k:v for k,v in rows[0].items() if k not in ("baseline","candidate")}
+            row["status"]="complete"
+            row["median_replay_s"]={str(arm).lower():statistics.median(x["elapsed_s"] for x in timing if x["adaptive"]==arm) for arm in (False,True)}
+            summary.append(row)
+    print("CRR_PIVOT_SUMMARY",json.dumps(dict(cases=summary,exact_local_checks=checks,mutations_rejected=mutations,source_truth_certified=False,production=False)),flush=True)
+
 if __name__=="__main__":
-    if os.environ.get("CRR_ROTATION"):rotation_pilot()
+    if os.environ.get("CRR_PIVOT"):pivot_pilot()
+    elif os.environ.get("CRR_ROTATION"):rotation_pilot()
     elif os.environ.get("CRR_WALSH_HH"):walsh_hh_pilot()
     elif os.environ.get("CRR_DEFAULT_RR"):default_rr_cohort()
     elif os.environ.get("CRR_KET_COHORT"):ket_cohort()

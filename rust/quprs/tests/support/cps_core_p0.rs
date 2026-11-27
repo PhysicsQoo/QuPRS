@@ -1,7 +1,9 @@
 
 // CORE-1/2 research contract: native PathSum is the sole P/f/variable
 // representation. Reuse the existing stable-ID guard frame, with an
-// independent signed scale. Rectangular maps are admitted here, not
+// derived signed normalization ledger (not an independent semantic input).
+// Canonical CPS scale is 2^(-h/2), h = number of summed variables.
+// Rectangular maps are admitted here, not
 // passed to the square-only production reducer or gate API.
 #[derive(Clone)]
 struct CpsCore {
@@ -46,7 +48,16 @@ fn core_rename(ps:&PathSum,map:&BTreeMap<u32,u32>)->Option<(quprs::pathsum::Phas
     Some((phase,f))
 }
 impl CpsCore{
-    fn new(ps:PathSum,extra:Anf,k:i32)->Option<Self>{
+    // Only canonical source ingress. Derive k from the declared summed
+    // variables, not the number of active/satisfying assignments.
+    fn canonical(ps:PathSum,extra:Anf)->Option<Self>{
+        let h=ps.v.path_vars.len().checked_sub(ps.v.num_qubits)?;
+        Self::from_derived(ps,extra,i32::try_from(h).ok()?)
+    }
+    // Internal operation result only. k is a receipt of canonical source
+    // ingress and legal transformations, not an externally supplied scale.
+    // CORE-3 must transport k via checked native RR receipts.
+    fn from_derived(ps:PathSum,extra:Anf,k:i32)->Option<Self>{
         let guard=NativeGuardFrame::new(&ps,extra)?;
         let c=Self{ps,guard,k};if c.valid(){Some(c)}else{None}
     }
@@ -64,15 +75,15 @@ impl CpsCore{
         ps.f.functions.iter().all(|p|p.iter().all(&mono_ok))&&
             ps.p.terms.iter().all(|(m,c)|mono_ok(m)&&core_phase8(c).is_some())
     }
-    // Explicit raw embedding only: callers must supply the true scale of
-    // an already reduced native PathSum via new(), not infer it from h.
+    // Explicit raw embedding only. An already reduced PathSum cannot be
+    // imported as raw: it must enter via a checked transformation receipt.
     fn circuit(n:usize,ops:&[G])->Option<Self>{
         if !admitted(n,ops){return None;}
         let mut ps=PathSum::new(n);ps.set_auto_reduce(false);
         for g in ops{g.apply(&mut ps,false);if !core_terms_ok(&ps){return None;}}
         let k=i32::try_from(ops.iter().filter(|g|matches!(g,G::H(_))).count()).ok()?;
         if ps.v.path_vars.len()!=n+k as usize{return None;}
-        Self::new(ps,Anf::from([0]),k)
+        Self::canonical(ps,Anf::from([0]))
     }
     // self=A, next=B, returns B A. Rebase *all* B IDs, including its
     // formal inputs, before any substitution: no sequential capture.
@@ -102,7 +113,7 @@ impl CpsCore{
         for (m,c) in p.terms{ps.p.add_term(m,c);}
         ps.f=f;
         let guard=mul_anf(&self.guard.extra,&g)?;
-        Self::new(ps,guard,k)
+        Self::from_derived(ps,guard,k)
     }
     // Old free inputs become bound; fresh free outputs are never
     // captured by the old input/path IDs. Keep k, not k+n.
@@ -125,7 +136,7 @@ impl CpsCore{
         for (i,out) in ps.f.functions.iter_mut().enumerate(){
             out.clear();out.insert(vec![*map.get(&(i as u32))?]);
         }
-        Self::new(ps,guard,self.k)
+        Self::from_derived(ps,guard,self.k)
     }
 }
 
@@ -149,6 +160,29 @@ fn core_matrix(c:&CpsCore)->Vec<Vec<Root>>{
         out[z][x as usize]=add(out[z][x as usize],root(k));
     }}
     out
+}
+// Test-only proof witness for erasing the ledger. If k>h, fixed padding
+// has one extension; if k<h, free padding has 2^(h-k) extensions.
+// No canonical expansion is used by the timed/native algebraic route.
+fn core_check_canonical_padding(c:&CpsCore){
+    let h=i32::try_from(c.ps.v.path_vars.len()-c.n()).unwrap();
+    let mut ps=c.ps.clone();let mut g=c.guard.extra.clone();
+    let r=(c.k-h).abs();
+    assert!(r<=8);
+    for _ in 0..r{
+        let v=ps.v.get_fresh_var();assert!(v<63);
+        if c.k>h{
+            let fixed_zero=Anf::from([0,1u64<<v]);
+            g=mul_anf(&g,&fixed_zero).unwrap();
+        }
+    }
+    let canonical=CpsCore::canonical(ps,g).unwrap();
+    assert_eq!(canonical.k,h+r);
+    let factor=if c.k<h{1i64<<r}else{1};
+    assert_eq!(canonical.k-c.k,if c.k<h{2*r}else{0});
+    let expected:Vec<Vec<Root>>=core_matrix(c).into_iter()
+        .map(|row|row.into_iter().map(|v|v.map(|x|x*factor)).collect()).collect();
+    assert_eq!(core_matrix(&canonical),expected);
 }
 fn core_product(a:&[Vec<Root>],b:&[Vec<Root>])->Vec<Vec<Root>>{
     assert_eq!(a.len(),b[0].len());
@@ -181,13 +215,22 @@ fn hoare_cps_core_closure(){
         for m in phases{ps.p.add_term(m,quprs::PhaseCoeff::new_constant(quprs::Rational::new(rand(8) as i64,8)));}
         let mut guard=Anf::from([0]);
         if zero{guard.clear();}else{xor_insert(&mut guard,1u64<<ids[rand(ids.len())]);}
-        CpsCore::new(ps,guard,rand(7) as i32-3).unwrap()
+        // Test-only adversarial ledger fixture: validate the compressed
+        // representation against its canonical fixed-scale expansion below.
+        // This is not a source constructor or a claim of RR reachability.
+        CpsCore::from_derived(ps,guard,rand(7) as i32-3).unwrap()
     };
     let(mut comp,mut adj,mut assoc,mut reverse,mut entries,mut rectangular,mut negative,mut zeros)=(0,0,0,0,0,0,0,0);
+    let(mut fixed,mut free,mut same)=(0,0,0);
     for i in 0..128{
         let n=i%2;let r=(i/2)%2+1;let q=(i/4)%2;let w=(i/8)%2+1;
         let a=fixture(n,r,i%16==0);let b=fixture(r,q,false);let c=fixture(q,w,false);
         if n!=r||r!=q{rectangular+=1;}if a.k<0||b.k<0{negative+=1;}if i%16==0{zeros+=1;}
+        for v in [&a,&b,&c]{
+            let h=(v.ps.v.path_vars.len()-v.n()) as i32;
+            match v.k.cmp(&h){std::cmp::Ordering::Greater=>fixed+=1,std::cmp::Ordering::Less=>free+=1,std::cmp::Ordering::Equal=>same+=1}
+            core_check_canonical_padding(v);
+        }
         let am=core_matrix(&a);let bm=core_matrix(&b);
         let ba=a.then(&b).unwrap();assert_eq!(ba.k,a.k+b.k);
         assert_eq!(core_matrix(&ba),core_product(&am,&bm));comp+=1;entries+=(1<<n)*(1<<q);
@@ -218,15 +261,20 @@ fn hoare_cps_core_closure(){
     assert!(a.then(&h).is_none());
     let mut stale=a.clone();stale.ps.v.get_fresh_var();assert!(!stale.valid());assert!(stale.adjoint().is_none());
     let mut unsupported=PathSum::new(1);unsupported.p.add_term(vec![0],quprs::PhaseCoeff::new_constant(quprs::Rational::new(1,3)));
-    assert!(CpsCore::new(unsupported,Anf::from([0]),0).is_none());
+    assert!(CpsCore::canonical(unsupported,Anf::from([0])).is_none());
     let mut dangling=PathSum::new(1);dangling.f.functions[0].insert(vec![19]);
-    assert!(CpsCore::new(dangling,Anf::from([0]),0).is_none());
+    assert!(CpsCore::canonical(dangling,Anf::from([0])).is_none());
     let mut overflow=h.clone();overflow.k=i32::MAX;assert!(overflow.then(&h).is_none());
     let mut bad_id=h.clone();bad_id.ps.v.next_id=u32::MAX;assert!(!bad_id.valid());assert!(bad_id.then(&h).is_none());
     let mut bad_guard=h.clone();bad_guard.guard.extra.insert(1u64<<62);assert!(!bad_guard.valid());
     let mut near_cap=h.clone();near_cap.ps.v.next_id=63;assert!(near_cap.valid());assert!(near_cap.then(&h).is_none());
     let mut malformed=PathSum::new(1);let mut phase=quprs::PhaseCoeff::HALF;phase.constant.numer=2;phase.constant.denom=4;
-    malformed.p.terms.insert(vec![0],phase);assert!(CpsCore::new(malformed,Anf::from([0]),0).is_none());
+    malformed.p.terms.insert(vec![0],phase);assert!(CpsCore::canonical(malformed,Anf::from([0])).is_none());
     assert_eq!((comp,adj,assoc,reverse),(128,128,128,128));
+    assert_eq!(fixed+free+same,384);assert!(fixed>0&&free>0&&same>0);
+    // Guard support changes do not re-normalize the canonical scale.
+    let raw=h.ps.clone();let masked=CpsCore::canonical(raw,Anf::new()).unwrap();
+    assert_eq!(masked.k,h.k);assert_eq!(core_matrix(&masked),vec![vec![[0;4];2];2]);
+    println!("CPS_CORE_CANONICAL padding=384 fixed={fixed} free={free} unchanged={same} zero_guard_scale=PASS");
     println!("CPS_CORE_CLOSURE composition={comp} adjoint={adj} associativity={assoc} reverse={reverse} entries={entries} rectangular={rectangular} negative_scale={negative} zero_guards={zeros} circuit_columns=4 strict_eq=1 rejection_controls=9");
 }

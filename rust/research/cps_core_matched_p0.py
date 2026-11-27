@@ -24,6 +24,34 @@ assert len({(a,b) for order in ORDERS for a,b in zip(order,order[1:])})==30
 VARIANTS=("source","relative-mutant","global-sign")
 def sha(p):
     return hashlib.sha256(p.read_bytes()).hexdigest()
+def atomic_receipt(folder,name,data):
+    tmp=folder/(name+".tmp")
+    tmp.write_text(json.dumps(data)+"\n")
+    tmp.replace(folder/name)
+def timeout_row(folder,mode):
+    row=dict(verdict="UNKNOWN",reason="PROCESS_TIMEOUT")
+    receipt=folder/"query-ready.json"
+    if mode=="autoq" or not receipt.is_file():return row
+    ready=json.loads(receipt.read_text())
+    assert ready["verdict"]=="UNKNOWN" and ready["reason"]=="QUERY_PREPARED",ready
+    assert ready["cnf_sha256"]==sha(folder/"base.cnf")
+    assert ready["packed_sha256"]==sha(folder/"packed.cnf")
+    assert ready["initial_sha256"]==sha(folder/"initial.txt")
+    row.update(ready)
+    row.update(verdict="UNKNOWN",reason="PROCESS_TIMEOUT",query_prepared=True,solver_invoked=None,timeout_boundary="prepared-no-launch-receipt")
+    launch=folder/"solver-launch.json"
+    done=folder/"solver-exit.json"
+    if launch.is_file():
+        started=json.loads(launch.read_text())
+        assert started["packed_sha256"]==ready["packed_sha256"] and started["pid"]>0,started
+        row.update(solver_invoked=True,timeout_boundary="launched-no-exit-receipt")
+    if done.is_file():
+        assert launch.is_file()
+        exited=json.loads(done.read_text())
+        assert exited["packed_sha256"]==ready["packed_sha256"] and exited["pid"]==started["pid"],exited
+        row.update(solver_invoked=True,timeout_boundary="exit-observed-before-worker-result",
+                   solver_s=exited["solver_s"],solver_returncode=exited["returncode"])
+    return row
 def sign(a,b):
     if a==0:return (b>0)-(b<0)
     if b==0 or (a>0)==(b>0):return (a>0)-(a<0)
@@ -44,6 +72,19 @@ def worker(binary,solver,folder,mode):
         if detail:
             assert len(detail)==1 and row["stage"] in ("native-gate-composition","composition","adjoint"),detail
             row["composition_detail"]=detail[0]
+        enc=[l.removeprefix("CPS_SPARSE_ENCODER_DETAIL ") for l in p.stdout.splitlines() if l.startswith("CPS_SPARSE_ENCODER_DETAIL ")]
+        if enc:
+            assert len(enc)==1 and row["stage"] in ("flat-encoder","dag-encoder"),enc
+            row["encoder_detail"]=enc[0]
+        sparse=[l.removeprefix("CPS_SPARSE_MATCHED ") for l in p.stdout.splitlines() if l.startswith("CPS_SPARSE_MATCHED ")]
+        if sparse:
+            assert len(sparse)==1,sparse
+            row.update(storage="sparse",sparse_detail=sparse[0])
+            if (folder/"initial.txt").is_file():row["initial_sha256"]=sha(folder/"initial.txt")
+            if (folder/"sparse-rr.txt").is_file():
+                assert not mode.startswith("wmc"),mode
+                row["sparse_rr_sha256"]=sha(folder/"sparse-rr.txt")
+            if row["stage"]=="flat-encoder":assert enc,row
         print(json.dumps(row));return
     status=m[0]
     n,k,h,ih,steps,primary,vars,clauses=map(int,m[1:9])
@@ -75,20 +116,27 @@ def worker(binary,solver,folder,mode):
         base=(folder/"base.cnf").read_text()
         packed,radix,bound=single_fibre_pack(base,list(map(int,phase.split(","))),primary)
         query=folder/"packed.cnf";query.write_text(packed)
-        row.update(solver_invoked=True,cnf_sha256=sha(folder/"base.cnf"),packed_sha256=sha(query))
-        # Persist the exact prepared query even if the outer deadline kills
-        # the worker. This proves readiness, not a solver verdict.
-        receipt=dict(row,verdict="UNKNOWN",reason="QUERY_PREPARED")
-        tmp=folder/"query-ready.tmp"
-        tmp.write_text(json.dumps(receipt)+"\n")
-        tmp.replace(folder/"query-ready.json")
+        row.update(cnf_sha256=sha(folder/"base.cnf"),packed_sha256=sha(query))
+        # Distinguish prepared query, successful process launch and observed exit.
+        # A missing receipt cannot prove that the process did not run.
+        atomic_receipt(folder,"query-ready.json",dict(row,verdict="UNKNOWN",reason="QUERY_PREPARED",solver_invoked=None))
         start=time.monotonic()
-        p=subprocess.run([str(solver),"-mode=1","-natw",str(query)],capture_output=True,text=True)
-        row["solver_s"]=time.monotonic()-start
-        (folder/"solver.stdout").write_text(p.stdout);(folder/"solver.stderr").write_text(p.stderr)
+        try:
+            p=subprocess.Popen([str(solver),"-mode=1","-natw",str(query)],stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
+        except OSError as exc:
+            row.update(reason="SOLVER_LAUNCH_ERROR",launch_error=str(exc))
+            print(json.dumps(row));return
+        with p:
+            row["solver_invoked"]=True
+            launch=dict(packed_sha256=row["packed_sha256"],pid=p.pid)
+            atomic_receipt(folder,"solver-launch.json",launch)
+            stdout,stderr=p.communicate()
+            row["solver_s"]=time.monotonic()-start
+            atomic_receipt(folder,"solver-exit.json",dict(launch,solver_s=row["solver_s"],returncode=p.returncode))
+        (folder/"solver.stdout").write_text(stdout);(folder/"solver.stderr").write_text(stderr)
         if p.returncode!=0:row.update(reason="SOLVER_ERROR",returncode=p.returncode)
         else:
-            try:bins=single_fibre_decode(parse_gpmc_integer(p.stdout,"wmc",bound*radix**7),radix,bound,8)
+            try:bins=single_fibre_decode(parse_gpmc_integer(stdout,"wmc",bound*radix**7),radix,bound,8)
             except (ValueError,OverflowError):row.update(reason="INVALID_COUNT")
             else:
                 assert all(bins[i]==bins[-i%8] for i in range(8)),bins
@@ -125,7 +173,7 @@ def main(binary,solver,autoq,root,out):
                 p=subprocess.run(["/usr/bin/time","-f","%e %M","-o",str(folder/"resource.txt"),"timeout","--kill-after=1s",str(CAP),*args],capture_output=True,text=True,errors="replace")
                 wall=time.monotonic()-t
                 (folder/"stdout").write_text(p.stdout);(folder/"stderr").write_text(p.stderr)
-                if p.returncode in (124,137):row=dict(verdict="UNKNOWN",reason="PROCESS_TIMEOUT")
+                if p.returncode in (124,137):row=timeout_row(folder,mode)
                 elif mode=="autoq":
                     result=classify(p.stdout,p.stderr,p.returncode,SHAPES[case])
                     row=dict(verdict=result if result in ("PROVED","REFUTED") else "UNKNOWN",reason=result)

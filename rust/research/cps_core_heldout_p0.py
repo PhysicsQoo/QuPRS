@@ -11,7 +11,7 @@ import sys
 import time
 from fractions import Fraction
 from autoq_decision_pair import PIN, blob, classify
-from cps_core_matched_p0 import MODES, ORDERS, CAP, sha
+from cps_core_matched_p0 import MODES, ORDERS, CAP, sha, timeout_row
 
 BLOBS={
  "BV/04":("9c369a362f5e504cd5d4cc64b4b5297a06661b42","2a659d2eaafbfd088cf1b778bc36b960db02286a","91e76da5257e307f92c4ff980ebecc19bc1aef2c"),
@@ -72,19 +72,7 @@ for ci,(case,hashes) in enumerate(BLOBS.items()):
             wall=time.monotonic()-t
             (folder/"stdout").write_text(p.stdout);(folder/"stderr").write_text(p.stderr)
             if p.returncode in (124,137):
-                receipt=folder/"query-ready.json"
-                row=dict(verdict="UNKNOWN",reason="PROCESS_TIMEOUT")
-                if mode!="autoq" and receipt.is_file():
-                    ready=json.loads(receipt.read_text())
-                    assert ready["verdict"]=="UNKNOWN" and ready["reason"]=="QUERY_PREPARED",ready
-                    assert ready["cnf_sha256"]==sha(folder/"base.cnf")
-                    assert ready["packed_sha256"]==sha(folder/"packed.cnf")
-                    assert ready["initial_sha256"]==sha(folder/"initial.txt")
-                    row.update(ready)
-                    row.update(verdict="UNKNOWN",reason="PROCESS_TIMEOUT",query_prepared=True)
-                    # The process deadline may expire before or during solver
-                    # execution; no fabricated solve duration or RSS.
-                    row["solver_invoked"]=None
+                row=timeout_row(folder,mode)
             elif mode=="autoq":
                 result=classify(p.stdout,p.stderr,p.returncode,(q,gates))
                 row=dict(verdict=result if result in ("PROVED","REFUTED") else "UNKNOWN",reason=result)

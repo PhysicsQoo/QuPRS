@@ -2141,16 +2141,16 @@ fn sparse_factor_anf(f:&mut FactorPilot,p:&SparseAnf,map:&BTreeMap<u32,Lit>,
 }
 impl CpsCore<SparseGuardFrame>{
     fn sparse_norm_plan(&self,dag:bool)->Option<(Cnf,[Lit;3],usize,i32)>{
-        if !self.shared_valid()||self.n()!=self.q(){return None;}
+        if !self.shared_valid()||self.n()!=self.q(){println!("CPS_SPARSE_ENCODER_DETAIL invalid-core-or-shape");return None;}
         let n=self.n();let h=self.guard.ids.len().checked_sub(n)?;
         let primary=n.checked_add(h.checked_mul(2)?)?;
         // Scoped encoder budget, not a count precision limit.
-        if primary>1024{return None;}
+        if primary>1024{println!("CPS_SPARSE_ENCODER_DETAIL primary-cap primary={primary} limit=1024");return None;}
         let l:Vec<Lit>=(0..n+h).map(|i|i as Lit+2).collect();
         let r:Vec<Lit>=(0..n).map(|i|i as Lit+2).chain((n+h..primary).map(|i|i as Lit+2)).collect();
         let maps:Vec<BTreeMap<u32,Lit>>=[&l,&r].iter().map(|bits|self.guard.ids.iter().copied().zip(bits.iter().copied()).collect()).collect();
-        let output=self.ps.f.functions.iter().map(core_storage_anf::<SparseGuardFrame>).collect::<Option<Vec<_>>>()?;
-        let phase:BTreeMap<Vec<u32>,u8>=self.ps.p.terms.iter().map(|(m,c)|Some((m.clone(),core_phase8(c)?))).collect::<Option<_>>()?;
+        let output=self.ps.f.functions.iter().map(core_storage_anf::<SparseGuardFrame>).collect::<Option<Vec<_>>>().or_else(||{println!("CPS_SPARSE_ENCODER_DETAIL output-anf");None})?;
+        let phase:BTreeMap<Vec<u32>,u8>=self.ps.p.terms.iter().map(|(m,c)|Some((m.clone(),core_phase8(c)?))).collect::<Option<_>>().or_else(||{println!("CPS_SPARSE_ENCODER_DETAIL phase-domain");None})?;
         if dag{
             if phase.values().any(|&k|k!=4){return None;}
             let mut f=FactorPilot{c:Cnf::new(primary),gates:BTreeMap::new(),polys:BTreeMap::new(),work:0};
@@ -2175,19 +2175,21 @@ impl CpsCore<SparseGuardFrame>{
             let mut c=Cnf::new(primary);
             for g in &self.guard.factors{
                 for map in &maps{
-                    let v=cps_guard_algebra::sparse_guard_lit(&mut c,g,map)?;c.enforce(v);
+                    let v=cps_guard_algebra::sparse_guard_lit(&mut c,g,map).or_else(||{println!("CPS_SPARSE_ENCODER_DETAIL flat-guard-literal");None})?;c.enforce(v);
                 }
             }
             for o in &output{
-                let a=cps_guard_algebra::sparse_guard_lit(&mut c,o,&maps[0])?;
-                let b=cps_guard_algebra::sparse_guard_lit(&mut c,o,&maps[1])?;
+                let a=cps_guard_algebra::sparse_guard_lit(&mut c,o,&maps[0]).or_else(||{println!("CPS_SPARSE_ENCODER_DETAIL flat-output-left");None})?;
+                let b=cps_guard_algebra::sparse_guard_lit(&mut c,o,&maps[1]).or_else(||{println!("CPS_SPARSE_ENCODER_DETAIL flat-output-right");None})?;
                 let d=c.xor(a,b);c.enforce(-d);
             }
+            let guard_output_vars=c.vars;let guard_output_clauses=c.clauses.len();
             let mut accs=Vec::new();
             for (j,map) in maps.iter().enumerate(){
                 let mut acc=[ZERO;3];
                 for (m,&k) in &phase{
-                    let v=cps_guard_algebra::sparse_guard_lit(&mut c,&SparseAnf::from([SparseMono::new(m.clone())?]),map)?;
+                    let mono=SparseMono::new(m.clone()).or_else(||{println!("CPS_SPARSE_ENCODER_DETAIL flat-phase-monomial");None})?;
+                    let v=cps_guard_algebra::sparse_guard_lit(&mut c,&SparseAnf::from([mono]),map).or_else(||{println!("CPS_SPARSE_ENCODER_DETAIL flat-phase-literal");None})?;
                     let k=if j==0{k}else{(8-k)%8};
                     let term=std::array::from_fn(|i|if k>>i&1!=0{v}else{ZERO});
                     acc=c.add3(acc,term);
@@ -2195,7 +2197,10 @@ impl CpsCore<SparseGuardFrame>{
                 accs.push(acc);
             }
             let d=c.add3(accs[0],accs[1]);
-            if c.vars>10_000||c.clauses.len()>40_000{return None;}
+            if c.vars>10_000||c.clauses.len()>40_000{
+                println!("CPS_SPARSE_ENCODER_DETAIL flat-final-cap primary={primary} vars={} clauses={} var_limit=10000 clause_limit=40000 guard_output_vars={guard_output_vars} guard_output_clauses={guard_output_clauses} phase_terms={}",c.vars,c.clauses.len(),phase.len());
+                return None;
+            }
             Some((c,d,primary,self.k))
         }
     }

@@ -5,6 +5,8 @@ from fractions import Fraction
 import gc
 import hashlib
 import json
+import os
+import statistics
 from pathlib import Path
 import sys
 import time
@@ -28,6 +30,11 @@ class MallInfo2(ctypes.Structure):
 def sha(p):return hashlib.sha256(p.read_bytes()).hexdigest()
 
 def main(arm):
+    policy=os.environ.get("P4_ALLOCATOR_POLICY","default")
+    assert policy in ("default","fixed-mmap")
+    expected_tunable="glibc.malloc.mmap_threshold=131072" if policy=="fixed-mmap" else ""
+    assert os.environ.get("GLIBC_TUNABLES", "")==expected_tunable
+    assert not any(k in os.environ for k in ("MALLOC_MMAP_THRESHOLD_","MALLOC_TRIM_THRESHOLD_","MALLOC_TOP_PAD_","MALLOC_MMAP_MAX_","MALLOC_ARENA_MAX","LD_PRELOAD"))
     ROOT.mkdir(exist_ok=True)
     path,=Path(".p4-safety-input").rglob("*-gpmc.cnf")
     witness,=Path(".p4-safety-input").rglob("prejoin-reference.json")
@@ -63,9 +70,9 @@ def main(arm):
         row=dict(sat=result.sat,real=str(real),imag=str(imag),route=result.route)
         check_count(row,ref,100)
         return row
-    report=dict(status="IN_PROGRESS",arm=arm,cnf_sha256=CNF_SHA,witness_sha256=REF_SHA,
+    report=dict(status="IN_PROGRESS",arm=arm,policy=policy,glibc_tunables=expected_tunable,cnf_sha256=CNF_SHA,witness_sha256=REF_SHA,
                 initial=snapshot(),rows=[],scope="glibc counters are diagnostic proxies, not allocator-independent live bytes")
-    def save():(ROOT/f"retention-{arm}.json").write_text(json.dumps(report,indent=2)+"\n")
+    def save():(ROOT/f"retention-{policy}-{arm}.json").write_text(json.dumps(report,indent=2)+"\n")
     save();expected=None
     for i in range(12):
         start=time.monotonic()
@@ -82,28 +89,44 @@ def main(arm):
     report["status"]="COMPLETE";save()
 
 def compare():
-    reports={a:json.loads((ROOT/f"retention-{a}.json").read_text()) for a in ("direct","adapter")}
-    assert all(r["status"]=="COMPLETE" and len(r["rows"])==12 for r in reports.values())
-    assert reports["direct"]["signature"]==reports["adapter"]["signature"]
+    reports={p:{a:json.loads((ROOT/f"retention-{p}-{a}.json").read_text())
+                for a in ("direct","adapter")} for p in ("default","fixed-mmap")}
+    assert all(r["status"]=="COMPLETE" and len(r["rows"])==12 for group in reports.values() for r in group.values())
+    signatures=[r["signature"] for group in reports.values() for r in group.values()]
+    assert all(sig==signatures[0] for sig in signatures)
     summary={}
-    for arm,r in reports.items():
-        rows=r["rows"]
-        def growth(k):
-            return max(0,max(x[k] for x in rows[2:])-max(x[k] for x in rows[:2]))
-        rss=growth("rss_kib")
-        live=growth("glibc_live_proxy_kib")
-        post=max(0,r["after_trim"]["rss_kib"]-max(x["rss_kib"] for x in rows[:2]))
-        summary[arm]=dict(raw_rss_growth_kib=rss,live_proxy_growth_kib=live,
-                          post_trim_rss_growth_kib=post,
-                          trim_released_rss_kib=r["before_trim"]["rss_kib"]-r["after_trim"]["rss_kib"],
-                          raw_rss_screen="PASS" if rss<=LIMIT else "REVIEW",
-                          diagnostic_live_screen="PASS" if live<=LIMIT and post<=LIMIT else "REVIEW")
-    # Preserve original raw RSS threshold; trimming is evidence, not a waiver.
-    status="RETENTION_SCREEN_PASS" if all(x["raw_rss_screen"]==x["diagnostic_live_screen"]=="PASS" for x in summary.values()) else "RETENTION_REVIEW"
-    out=dict(status=status,threshold_kib=LIMIT,summary=summary,scope="12 repetitions per isolated arm; not a leak-free proof")
+    for policy,group in reports.items():
+        summary[policy]={}
+        for arm,r in group.items():
+            rows=r["rows"]
+            def growth(k):
+                return max(0,max(x[k] for x in rows[2:])-max(x[k] for x in rows[:2]))
+            rss=growth("rss_kib")
+            live=growth("glibc_live_proxy_kib")
+            post=max(0,r["after_trim"]["rss_kib"]-max(x["rss_kib"] for x in rows[:2]))
+            summary[policy][arm]=dict(raw_rss_growth_kib=rss,live_proxy_growth_kib=live,
+                post_trim_rss_growth_kib=post,
+                max_rss_kib=max(x["rss_kib"] for x in rows),
+                median_rss_kib=statistics.median(x["rss_kib"] for x in rows[2:]),
+                max_uss_kib=max(x["uss_kib"] for x in rows),
+                max_free_arena_kib=max(x["glibc_free_kib"] for x in rows),
+                median_wall_s=statistics.median(x["wall_s"] for x in rows[2:]),
+                trim_released_rss_kib=r["before_trim"]["rss_kib"]-r["after_trim"]["rss_kib"],
+                raw_rss_screen="PASS" if rss<=LIMIT else "REVIEW",
+                diagnostic_live_screen="PASS" if live<=LIMIT and post<=LIMIT else "REVIEW")
+    for arm,tuned in summary["fixed-mmap"].items():
+        baseline=summary["default"][arm]
+        tuned["wall_ratio"]=tuned["median_wall_s"]/baseline["median_wall_s"]
+        tuned["performance_screen"]="PASS" if tuned["wall_ratio"]<=1.05 else "REVIEW"
+        tuned["absolute_rss_screen"]="PASS" if tuned["max_rss_kib"]<=baseline["max_rss_kib"] and tuned["median_rss_kib"]<=baseline["median_rss_kib"] else "REVIEW"
+    passed=all(all(t[k]=="PASS" for k in ("raw_rss_screen","diagnostic_live_screen","performance_screen","absolute_rss_screen"))
+               for t in summary["fixed-mmap"].values())
+    status="ALLOCATOR_POLICY_SCREEN_PASS" if passed else "ALLOCATOR_POLICY_REVIEW"
+    out=dict(status=status,threshold_kib=LIMIT,wall_ratio_limit=1.05,summary=summary,
+             scope="12 solves per isolated arm/policy; Linux-only diagnostic; no production allocator change or leak-free proof")
     (ROOT/"retention-summary.json").write_text(json.dumps(out,indent=2)+"\n")
-    print("P4_RETENTION_FINAL",json.dumps(out),flush=True)
-    assert status=="RETENTION_SCREEN_PASS","retention requires review; do not admit"
+    print("P4_ALLOCATOR_POLICY_FINAL",json.dumps(out),flush=True)
+    assert passed,"allocator policy requires review; do not admit"
 
 if __name__=="__main__":
     arm=sys.argv[1]

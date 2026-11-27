@@ -1511,4 +1511,32 @@ mod cpr_native_extraction_tests {
     }
 }
 
-
+#[cfg(test)]
+mod cpr_native_router_tests {
+    use super::*;
+    #[test]
+    #[ignore = "source-locked G2b harness supplies one QASM pair and pinned GPMC"]
+    fn i2b_locked_source_worker(){
+        // One subprocess per original heavy coordinate, no synthetic lift.
+        let source=std::env::var("CRR_SOURCE").expect("run through the G2b source-locked harness");
+        let target=std::env::var("CRR_TARGET").expect("run through the G2b source-locked harness");
+        let (a,n)=crate::qasm::parse_qasm_str(&std::fs::read_to_string(source).unwrap()).unwrap();
+        let (b,m)=crate::qasm::parse_qasm_str(&std::fs::read_to_string(target).unwrap()).unwrap();
+        assert_eq!(n,m);
+        let start=Instant::now();
+        let build_deadline=start+crate::clock::Duration::from_secs(15);
+        let deadline=start+crate::clock::Duration::from_secs(27);
+        let built=cpr::build_difference(n,&a,&b,build_deadline).unwrap();
+        assert_eq!(built.gates_applied,a.len()+b.len());
+        let pairs=built.pairs;
+        let twice=n+built.residual.v.path_vars.len();
+        println!("CPR_I2B_BUILD pairs={} twice={twice} gates={}",pairs.len(),built.gates_applied);
+        let result=finish_native_verification(
+            built.residual,n,a.len(),b.len(),VerificationMethod::Hybrid,VerificationStrategy::Difference,
+            "gpmc",1e-8,0.0,1e-8,90,start,start,Some(deadline),None,Some(&pairs),true
+        ).unwrap();
+        assert!(result.solver_invoked&&!result.rr_approximate);
+        assert_eq!(n+result.final_ps.v.path_vars.len(),twice);
+        println!("CPR_I2B_RESULT status={:?} total_s={} pathsum_s={} solve_s={:?} precision_reason={:?}",result.status,result.verification_time,result.pathsum_time,result.tool_time,result.wmc_precision_reason);
+    }
+}

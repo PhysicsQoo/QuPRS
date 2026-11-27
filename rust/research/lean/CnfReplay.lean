@@ -5010,6 +5010,161 @@ theorem ledger_alias_gap_local :
   rw [ledger_alias_gap_count.1, ledger_alias_gap_count.2]
   decide
 
+
+-- Extract exactly one singleton pivot, rejecting all other
+-- occurrences (including a second singleton) of that variable.
+def ledgerIsolatedPivot (y : Nat) : List (List Nat) → Option (List (List Nat))
+  | [] => none
+  | m :: ms =>
+    if natListEq m [y] then
+      if ms.all (fun q => !natMem y q) then some ms else none
+    else if natMem y m then none
+    else (ledgerIsolatedPivot y ms).map (List.cons m)
+
+theorem ledger_pivot_rhs_fresh (y : Nat) (row rhs : List (List Nat))
+    (h : ledgerIsolatedPivot y row = some rhs) :
+    ∀ m, m ∈ rhs → y ∉ m := by
+  induction row generalizing rhs with
+  | nil => cases h
+  | cons m ms ih =>
+    unfold ledgerIsolatedPivot at h
+    cases he : natListEq m [y] with
+    | true =>
+      rw [ledger_bool_true _ _ _ he] at h
+      cases hf : ms.all (fun q => !natMem y q) with
+      | false =>
+        rw [ledger_bool_false _ _ _ hf] at h
+        cases h
+      | true =>
+        rw [ledger_bool_true _ _ _ hf] at h
+        have hr := Option.some.inj h
+        rw [← hr]
+        intro q hq
+        exact fresh_not_mem y q (List.all_eq_true.mp hf q hq)
+    | false =>
+      rw [ledger_bool_false _ _ _ he] at h
+      cases hm : natMem y m with
+      | true =>
+        rw [ledger_bool_true _ _ _ hm] at h
+        cases h
+      | false =>
+        rw [ledger_bool_false _ _ _ hm] at h
+        cases ht : ledgerIsolatedPivot y ms with
+        | none => rw [ht] at h; cases h
+        | some tail =>
+          rw [ht] at h
+          have hh : some (m :: tail) = some rhs := h
+          rw [← Option.some.inj hh]
+          intro q hq
+          rcases List.mem_cons.mp hq with hq | hq
+          · subst q
+            intro hy
+            have hy' := (nat_mem_iff y m).mpr hy
+            rw [hm] at hy'
+            cases hy'
+          · exact ih tail ht q hq
+
+theorem ledger_pivot_anf (y : Nat) (row rhs : List (List Nat))
+    (h : ledgerIsolatedPivot y row = some rhs) (v : Nat → Bool) :
+    anfValue v row = (anfValue v rhs).xor (v y) := by
+  induction row generalizing rhs with
+  | nil => cases h
+  | cons m ms ih =>
+    unfold ledgerIsolatedPivot at h
+    cases he : natListEq m [y] with
+    | true =>
+      rw [ledger_bool_true _ _ _ he] at h
+      have hm := (nat_list_eq_iff m [y]).mp he
+      cases hf : ms.all (fun q => !natMem y q) with
+      | false =>
+        rw [ledger_bool_false _ _ _ hf] at h
+        cases h
+      | true =>
+        rw [ledger_bool_true _ _ _ hf] at h
+        have hr := Option.some.inj h
+        rw [hm, ← hr]
+        change (anfValue v ms).xor (v y && true) = (anfValue v ms).xor (v y)
+        rw [Bool.and_true]
+    | false =>
+      rw [ledger_bool_false _ _ _ he] at h
+      cases hm : natMem y m with
+      | true =>
+        rw [ledger_bool_true _ _ _ hm] at h
+        cases h
+      | false =>
+        rw [ledger_bool_false _ _ _ hm] at h
+        cases ht : ledgerIsolatedPivot y ms with
+        | none => rw [ht] at h; cases h
+        | some tail =>
+          rw [ht] at h
+          have hh : some (m :: tail) = some rhs := h
+          rw [← Option.some.inj hh]
+          change (anfValue v ms).xor (andValue (m.map v)) =
+            ((anfValue v tail).xor (andValue (m.map v))).xor (v y)
+          rw [ih tail ht]
+          cases anfValue v tail <;> cases andValue (m.map v) <;> cases v y <;> rfl
+
+theorem ledger_pivot_equation (y : Nat) (row rhs : List (List Nat))
+    (h : ledgerIsolatedPivot y row = some rhs) (v : Nat → Bool) :
+    anfValue v row = false ↔ v y = anfValue v rhs := by
+  rw [ledger_pivot_anf y row rhs h v]
+  cases anfValue v rhs <;> cases v y <;> decide
+
+theorem ledger_pivot_rhs_independent (y : Nat) (row rhs : List (List Nat))
+    (h : ledgerIsolatedPivot y row = some rhs) (v : Nat → Bool) (b : Bool) :
+    anfValue (setVal v y b) rhs = anfValue v rhs := by
+  apply ledger_anf_agree
+  intro m hm x hx
+  have hn : x ≠ y := fun he => ledger_pivot_rhs_fresh y row rhs h m hm (he ▸ hx)
+  exact set_val_ne v y x b hn
+
+-- Positional row lookup preserves the wire witness's zero-based
+-- index rather than searching for a different convenient equation.
+def ledgerRowAt : List (List (List Nat)) → Nat → Option (List (List Nat))
+  | [], _ => none
+  | row :: _, 0 => some row
+  | _ :: rows, i+1 => ledgerRowAt rows i
+
+theorem ledger_row_at_member (rows : List (List (List Nat))) (i : Nat)
+    (row : List (List Nat)) (h : ledgerRowAt rows i = some row) :
+    row ∈ rows := by
+  induction rows generalizing i with
+  | nil => cases h
+  | cons r rs ih =>
+    cases i with
+    | zero =>
+      have he : some r = some row := h
+      exact List.mem_cons.mpr (Or.inl (Option.some.inj he).symm)
+    | succ i =>
+      exact List.mem_cons.mpr (Or.inr (ih i h))
+
+-- Separate strengthened witness gate: not yet the full semantic
+-- checker. Phase/ANF transport and exact domain remain obligations.
+def ledgerSubPivot (s : LedgerStep) : Option (Nat × List (List Nat)) :=
+  match (splitBytes 44 s.witness).mapM parseNatToken with
+  | some [y,i] =>
+    if natMem y (removedIds s.before s.trial) && natLE s.before.n y then do
+      let row ← ledgerRowAt s.before.constraints i
+      let rhs ← ledgerIsolatedPivot y row
+      some (y,rhs)
+    else none
+  | _ => none
+
+theorem ledger_sub_pivot_reject_gap :
+    ledgerSubPivot ⟨2,true,[48,44,48],ledgerSubGapBefore,ledgerSubGapAfter⟩ = none := by
+  rfl
+
+theorem ledger_sub_pivot_controls :
+    ledgerIsolatedPivot 2 [[2],[0],[1]] = some [[0],[1]] ∧
+    ledgerIsolatedPivot 2 [[0],[2],[1]] = some [[0],[1]] ∧
+    ledgerIsolatedPivot 2 [[2]] = some [] ∧
+    ledgerIsolatedPivot 2 [[2],[]] = some [[]] ∧
+    ledgerIsolatedPivot 2 [[2],[2]] = none ∧
+    ledgerIsolatedPivot 2 [[2],[0,2]] = none ∧
+    ledgerIsolatedPivot 2 [[0,2],[2]] = none ∧
+    ledgerIsolatedPivot 2 [[0],[1]] = none := by
+  exact ⟨rfl,rfl,rfl,rfl,rfl,rfl,rfl,rfl⟩
+
 -- Localize any unexpected dependency to a definition vs theorem.
 #print axioms splitBytes
 #print axioms digits
@@ -5378,6 +5533,16 @@ theorem ledger_alias_gap_local :
 #print axioms ledger_alias_gap_count
 #print axioms ledger_sub_gap_local
 #print axioms ledger_alias_gap_local
+#print axioms ledgerIsolatedPivot
+#print axioms ledger_pivot_rhs_fresh
+#print axioms ledger_pivot_anf
+#print axioms ledger_pivot_equation
+#print axioms ledger_pivot_rhs_independent
+#print axioms ledgerRowAt
+#print axioms ledger_row_at_member
+#print axioms ledgerSubPivot
+#print axioms ledger_sub_pivot_reject_gap
+#print axioms ledger_sub_pivot_controls
 end QuPRS.CnfReplay
 
 def main (args : List String) : IO Unit := do

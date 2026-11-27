@@ -1482,3 +1482,70 @@ fn generic_lift_trigger(op:&quprs::ir::QuantumOp,ps:&PathSum,bra:bool)->bool{
     }
     false
 }
+
+
+ // N1: local native rewrite receipts, not a public verifier or an admission policy.
+ #[test]
+ fn cpr_normalization_receipts(){
+     use quprs::ir::QuantumOp::*;
+     use quprs::rational::Angle;
+     fn receipt(name:&str,before:&PathSum,after:&PathSum,k0:i32,k1:i32,rows:&[Vec<Monomial>],expect:&str){
+         assert!(before.p.terms.values().chain(after.p.terms.values()).all(|c|c.symbols.is_empty()&&c.radians.is_none()));
+         assert!(!before.rr_approximate&&!after.rr_approximate);
+         println!("CPR_N1_RECEIPT {{\"case\":\"{name}\",\"before\":{},\"after\":{},\"k0\":{k0},\"k1\":{k1},\"rows\":{rows:?},\"expect\":\"{expect}\"}}",ir(before,None),ir(after,None));
+     }
+     let mut native=PathSum::new(2);native.set_auto_reduce(false);
+     H(0).apply(&mut native,false);
+     T(0).apply(&mut native,false);
+     CX(0,1).apply(&mut native,false);
+     let mut lifted=native.clone();
+     let pair=lift_output(&mut lifted,1);
+     receipt("output_lift",&native,&lifted,0,0,&[],"equal");
+     let mut reduced=lifted.clone();
+     assert!(reduced.get_reducible_vars().contains(&pair.1));
+     assert!(reduced.try_reduce_hh(&[pair.1]));
+     assert_eq!(internal(&lifted).len(),internal(&reduced).len()+2);
+     receipt("internal_hh",&lifted,&reduced,0,0,&[],"equal");
+     let mut input=native.clone();lift_input(&mut input,0);
+     receipt("input_lift",&native,&input,0,0,&[],"equal");
+     let mut after_gate=lifted.clone();RZ(1,Angle::from_qasm_str("pi/2").unwrap()).apply(&mut after_gate,false);
+     let mut direct=native.clone();RZ(1,Angle::from_qasm_str("pi/2").unwrap()).apply(&mut direct,false);
+     receipt("lifted_gate",&direct,&after_gate,0,0,&[],"equal");
+     let mut isolated=native.clone();let a=isolated.v.get_fresh_var();let b=isolated.v.get_fresh_var();
+     let mut elim=isolated.clone();
+     assert!(elim.get_reducible_vars().contains(&a)&&elim.get_reducible_vars().contains(&b));
+     assert!(elim.try_reduce_elim(&[a,b]));
+     assert_eq!(internal(&isolated).len(),internal(&elim).len()+2);
+     receipt("elim_two",&isolated,&elim,0,2,&[],"needs_scale");
+     // Synthetic states test local rule semantics, not unitary reachability.
+     for (name,c) in [("omega_quarter",PhaseCoeff::QUARTER),("omega_three_quarters",PhaseCoeff::new_constant(Rational::new(3,4)))]{
+         let mut old=PathSum::new(2);old.set_auto_reduce(false);let y=old.v.get_fresh_var();
+         old.p.add_term(vec![y],c);old.p.add_term(vec![0,y],PhaseCoeff::HALF);
+         old.p.add_term(vec![0,1,y],PhaseCoeff::HALF);
+         let mut new=old.clone();assert!(new.get_reducible_vars().contains(&y));assert!(new.try_reduce_omega(&[y]));
+         assert_eq!(internal(&old).len(),internal(&new).len()+1);
+         receipt(name,&old,&new,0,0,&[],"equal");
+     }
+     let mut two=after_gate.clone();let pair2=lift_output(&mut two,1);
+     let (view,rows)=super::conditional_trace::extract_lift_integrators(&two,&[pair,pair2]);
+     assert_eq!(rows.len(),2);
+     receipt("extract_two",&two,&view,0,2,&rows,"needs_scale");
+     // Once extraction has created a row mentioning z2, z2 cannot be summed
+     // by the same unguarded rule. The second tracked pair must remain live.
+     let mut dep=PathSum::new(1);dep.set_auto_reduce(false);
+     let u1=dep.v.get_fresh_var();let z1=dep.v.get_fresh_var();
+     let u2=dep.v.get_fresh_var();let z2=dep.v.get_fresh_var();
+     dep.f.functions[0]=[vec![u1]].into_iter().collect();
+     for m in [vec![u1,z1],vec![z1,z2],vec![u2,z2]]{dep.p.add_term(m,PhaseCoeff::HALF);}
+     let (view,rows)=super::conditional_trace::extract_lift_integrators(&dep,&[(u1,z1),(u2,z2)]);
+     assert_eq!(rows.len(),1);assert!(view.v.path_vars.contains(&z2));
+     receipt("extract_guard_dependency",&dep,&view,0,1,&rows,"needs_scale");
+     // Native HH permits a pivot in the input domain. This synthetic
+     // counterexample deliberately demonstrates why a scalar cannot repair it.
+     let mut ext=PathSum::new(1);ext.set_auto_reduce(false);let y=ext.v.get_fresh_var();
+     ext.p.add_term(vec![0,y],PhaseCoeff::HALF);
+     let mut bad=ext.clone();assert!(bad.get_reducible_vars().contains(&y));
+     assert!(bad.try_reduce_hh(&[y]));assert!(bad.v.path_vars.contains(&0));
+     assert_eq!(internal(&ext).len(),internal(&bad).len()+1);
+     receipt("external_hh_counterexample",&ext,&bad,0,1,&[],"different_support");
+ }

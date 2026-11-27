@@ -3141,7 +3141,7 @@ fn exact_trace_interval_reference(){
 // Research-only late HH split: integrate the half-phase Fourier variable,
 // retain its Boolean relation instead of substituting a costly pivot.
 // Original trace normalization remains fixed and raw count is restored.
-fn extract_lift_integrators(ps:&PathSum,pairs:&[(u32,u32)])->(PathSum,Vec<Vec<Monomial>>){
+pub(super) fn extract_lift_integrators(ps:&PathSum,pairs:&[(u32,u32)])->(PathSum,Vec<Vec<Monomial>>){
     let mut view=ps.clone();
     let mut rows:Vec<Vec<Monomial>>=Vec::new();
     for &(u,z) in pairs{

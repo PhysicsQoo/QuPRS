@@ -3351,8 +3351,45 @@ fn cpr_router_controls(){
     println!("CPR_ROUTER_CONTROLS_PASS");
 }
 
+// Strict projective RR short-circuit on the unlifted native residual only.
+// Do not infer a unitary identity from output shape with live hidden paths.
+fn cpr_native_rr_identity(ps:&PathSum,pairs:&[(u32,u32)])->bool{
+    let n=ps.v.num_qubits;
+    pairs.is_empty()&&ps.rr_tolerance==0.0&&!ps.rr_approximate
+        &&ps.v.continuous_vars.is_empty()&&ps.v.path_vars.len()==n
+        &&(0..n).all(|x|ps.v.path_vars.contains(&(x as u32)))
+        &&ps.f.functions.len()==n&&ps.p.terms.values().all(|c|c.symbols.is_empty())
+        &&ps.get_global_phase().is_some()
+}
+#[test]
+fn cpr_rr_first_controls(){
+    use quprs::ir::QuantumOp;
+    let mut ps=PathSum::quantum_circuit(&[quprs::pathsum::Register::new("q",2)],None);
+    ps.rr_tolerance=0.0;
+    assert!(cpr_native_rr_identity(&ps,&[]));
+    ps.p.add_term(vec![],PhaseCoeff::HALF);
+    assert!(cpr_native_rr_identity(&ps,&[]));
+    assert!(!cpr_native_rr_identity(&ps,&[(2,3)]));
+    let mut hidden=ps.clone();hidden.v.get_fresh_var();
+    assert!(!cpr_native_rr_identity(&hidden,&[]));
+    let mut x=ps.clone();QuantumOp::X(0).apply(&mut x,false);
+    assert!(!cpr_native_rr_identity(&x,&[]));
+    let mut z=ps.clone();QuantumOp::Z(0).apply(&mut z,false);
+    assert!(!cpr_native_rr_identity(&z,&[]));
+    ps.rr_approximate=true;
+    assert!(!cpr_native_rr_identity(&ps,&[]));
+    println!("CPR_RR_FIRST_CONTROLS_PASS");
+}
+
 pub(super) fn generic_trace_handoff(ps:&PathSum,pairs:&[(u32,u32)],case:&str,variant:&str,arm:&str,construct_s:f64){
     use std::time::{Instant,Duration};
+    let rr_start=Instant::now();
+    if arm=="conditional_router"&&std::env::var_os("CPR_RR_FIRST").is_some()
+        &&std::env::var_os("CPR_CNF_DIR").is_none()&&construct_s<=15.0
+        &&cpr_native_rr_identity(ps,pairs){
+        println!("CRR_GENERIC_CALL case={case} variant={variant} arm={arm} status=complete verdict=Equivalent proof=rr_exact_projective solver=false pairs=0 extracted=0 construct_s={construct_s} prepare_s=0 solve_s=0 total_s={}",construct_s+rr_start.elapsed().as_secs_f64());
+        return;
+    }
     if Trace::from_native(ps).is_none()||ps.p.terms.len()+ps.f.functions.iter().map(|p|p.len()).sum::<usize>()>TERM_CAP{
         println!("CRR_GENERIC_STOP case={case} variant={variant} arm={arm} reason=residual_admission");return;
     }

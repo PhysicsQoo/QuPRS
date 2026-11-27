@@ -17,6 +17,7 @@ on:
       - rust/research/cpr_router_acceptance.py
       - rust/research/cpr_c3_matched.py
       - rust/research/cpr_c3_main.py
+      - rust/research/cpr_rr_first.py
       - rust/quprs/tests/cpr_public_hybrid.rs
       - rust/research/conditional_rr_incidence.py
       - rust/research/conditional_rr_walltime.py
@@ -1332,10 +1333,10 @@ jobs:
           git rev-parse HEAD
           echo 'CRR_CORE_BRANCH_PREFLIGHT=PASS native_tests=NOT_RUN'
 
-  cpr-c3-main:
+  cpr-rr-first:
     if: github.ref == 'refs/heads/experiment/cost-aware-pathsum'
     runs-on: ubuntu-24.04
-    timeout-minutes: 90
+    timeout-minutes: 50
     env:
       QUPRS_SOLVER_PROVISION: external
       CARGO_TERM_COLOR: never
@@ -1357,22 +1358,22 @@ jobs:
           key: cpr-c3-main
       - name: Install native prerequisites
         run: sudo apt-get update && sudo apt-get install -y cmake pkg-config libgmp-dev libmpfr-dev zlib1g-dev
-      - name: Pinned main and CPR native comparison
+      - name: Focused strict RR-first paired validation
         run: |
           set -euo pipefail
           mkdir -p evidence
           git rev-parse HEAD | tee evidence/source-head.txt
           git -C pinned-main rev-parse HEAD | tee evidence/main-head.txt
           test "$(cat evidence/main-head.txt)" = "b398f07d6845efc23540549ccbfec717c27b1722"
-          test "$(git rev-parse HEAD:rust/quprs/tests/support/conditional_trace.rs)" = "8c177f32a0cb4cfd331a6be60e88080049b5351e"
+          git diff ff3c6bbfadc83997b302f2486b99487e819ee9ee HEAD -- rust/quprs/tests/support/conditional_trace.rs | tee evidence/rr-first-diff.patch
           test "$(git rev-parse HEAD:rust/quprs/tests/support/conditional_stitch.rs)" = "f98bd48d711c1d7bed70982699db4d8061b664e1"
           test "$(git rev-parse HEAD:rust/quprs/src/wmc.rs)" = "584b889dafa9b5f428bed31627883f76238f276b"
           test "$(git rev-parse HEAD:rust/research/cpr_router_acceptance.py)" = "7053f0f60c2dc0adc0763677c004f7b609ca3fba"
           test "$(git rev-parse HEAD:rust/research/conditional_rr_source_ball.py)" = "681783d4fd4f072bc4f596d54da33924883e25d4"
           test "$(git rev-parse HEAD:rust/research/conditional_rr_tensor_source.py)" = "f6a9372c0bbe147e96eeb7446f2875819f68be77"
           test "$(git rev-parse HEAD:docs/development/paper-corpus-manifest.json)" = "cdfb2cf1a88b1ae7c026f331463ba5588b453622"
-          printf '%s\n' 'C2_FROZEN_BLOBS_PASS 57cd6677a99114e2acf8b541294ccf4a982a0bdf' | tee evidence/frozen-policy.txt
-          sha256sum rust/research/cpr_c3_main.py rust/quprs/tests/cpr_public_hybrid.rs rust/quprs/src/wmc.rs pinned-main/rust/quprs/src/lib.rs pinned-main/rust/quprs/src/wmc.rs rust/Cargo.lock pinned-main/rust/Cargo.lock > evidence/source-sha256.txt
+          printf '%s\n' 'C2_UNCHANGED_STITCH_SOLVER_ORACLE_MANIFEST_PASS 57cd6677a99114e2acf8b541294ccf4a982a0bdf' | tee evidence/frozen-policy.txt
+          sha256sum rust/quprs/tests/support/conditional_trace.rs rust/research/cpr_rr_first.py rust/quprs/tests/cpr_public_hybrid.rs rust/quprs/src/wmc.rs pinned-main/rust/quprs/src/lib.rs pinned-main/rust/quprs/src/wmc.rs rust/Cargo.lock pinned-main/rust/Cargo.lock > evidence/source-sha256.txt
           rustc -Vv > evidence/rustc.txt
           lscpu > evidence/cpu.txt
           tmp="$(mktemp -d)"
@@ -1388,19 +1389,21 @@ jobs:
             python3 -c 'import json,sys; rows=[json.loads(l) for l in open(sys.argv[1])]; p=[r["executable"] for r in rows if r.get("reason")=="compiler-artifact" and r.get("target",{}).get("name")==sys.argv[2] and r.get("executable")]; assert len(p)==1,p; print(p[0])' "$dest" "$name"
           }
           export CPR_BIN_MAIN="$(build_test pinned-main/rust/Cargo.toml cpr_public_hybrid evidence/main-build.jsonl)"
-          export CPR_BIN_BRANCH_PUBLIC="$(build_test rust/Cargo.toml cpr_public_hybrid evidence/branch-build.jsonl)"
           export CPR_BIN_CPR="$(build_test rust/Cargo.toml conditional_rr_experiment evidence/cpr-build.jsonl)"
+          export CPR_BIN_FROZEN="$CPR_BIN_CPR"
           test "$(git -C pinned-main diff --name-only)" = ""
           "$CPR_BIN_CPR" conditional_trace::cpr_router_controls --exact --nocapture | tee evidence/controls.log
           grep -Fx 'CPR_ROUTER_CONTROLS_PASS' evidence/controls.log
+          "$CPR_BIN_CPR" conditional_trace::cpr_rr_first_controls --exact --nocapture | tee evidence/rr-controls.log
+          grep -Fx 'CPR_RR_FIRST_CONTROLS_PASS' evidence/rr-controls.log
           set +e
-          timeout --kill-after=5s 3900s python3 rust/research/cpr_c3_main.py 2>&1 | tee evidence/matched.log
+          timeout --kill-after=5s 2100s python3 rust/research/cpr_rr_first.py 2>&1 | tee evidence/matched.log
           cohort_status=${PIPESTATUS[0]}
           set -e
           python3 -m venv "$tmp/reference-venv"
           "$tmp/reference-venv/bin/pip" install --disable-pip-version-check python-flint==0.9.0
           set +e
-          CRR_GENERIC_LOG=evidence/matched.log CRR_BALL_BITS=2048 timeout --kill-after=5s 240s "$tmp/reference-venv/bin/python" rust/research/cpr_c3_main.py 2>&1 | tee evidence/source-parity.log
+          CRR_GENERIC_LOG=evidence/matched.log CRR_BALL_BITS=2048 timeout --kill-after=5s 240s "$tmp/reference-venv/bin/python" rust/research/cpr_rr_first.py 2>&1 | tee evidence/source-parity.log
           source_status=${PIPESTATUS[0]}
           set -e
           find evidence -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > evidence/SHA256SUMS
@@ -1409,5 +1412,5 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: cpr-c3-main
+          name: cpr-rr-first
           path: evidence/

@@ -1675,3 +1675,36 @@ fn cpr_elim_reachable_audit() {
     emit("synthetic_unitary","control",0,"elim",&unitary,1);
     println!("CPR_N4_NATIVE {{\"reachable_arms\":18,\"reachable_elim_bits\":{reachable_elim_bits},\"rr_events\":{rr_events},\"synthetic_elim_bits\":1}}");
 }
+
+
+// N5b: nonempty Myers Difference (common X prefix followed by N2 witness).
+// Equal prefix cancels on the two sides; remaining operator is N2's source.
+#[test]
+fn cpr_hh_nonempty_difference_contract() {
+    use quprs::ir::QuantumOp::*;
+    let left=[X(0),H(1),H(2),H(0),CCX(0,1,2),CCX(1,2,0),H(0),H(1),H(2)];
+    let right=[X(0)];
+    let mut raw=PathSum::new(3);
+    raw.rr_tolerance=0.0;raw.set_auto_reduce(false);
+    let raw=quprs::VerificationStrategy::Difference.run(raw,&left,&right);
+    let mut fixed=PathSum::new(3);
+    fixed.rr_tolerance=0.0;fixed.set_auto_reduce(true);
+    let fixed=quprs::VerificationStrategy::Difference.run(fixed,&left,&right);
+    assert!(!raw.rr_approximate&&!fixed.rr_approximate);
+    assert_eq!(internal(&raw).len(),6);
+    assert_eq!(internal(&fixed).len(),2);
+    for (name,state) in [("raw",&raw),("fixed",&fixed)] {
+        println!("CPR_N5B_RECEIPT {{\"case\":\"{name}\",\"state\":{}}}",ir(state,None));
+    }
+    let opts=VerificationOptions{method:VerificationMethod::Hybrid,
+        strategy:quprs::VerificationStrategy::Difference,rr_tolerance:0.0,
+        timeout_secs:27,phase_tolerance:1e-8,wmc_phase_tolerance:1e-8,
+        approximate_distance_tolerance:Some(1e-8),gpmc_precision_digits:90,
+        tool_name:"gpmc".into()};
+    let result=check_equivalence_with_options(3,&left,&right,&opts).expect("public Hybrid");
+    assert_eq!(format!("{:?}",result.status),"NotEquivalent");
+    assert!(result.solver_invoked&&!result.rr_approximate);
+    let mut bad=opts;bad.rr_tolerance=f64::NAN;
+    assert!(check_equivalence_with_options(3,&left,&right,&bad).is_err());
+    println!("CPR_N5B_NATIVE_CONTRACT_PASS nonempty_difference=true hybrid_negative=true invalid_options_error=true");
+}

@@ -513,3 +513,60 @@ fn native_default_rr_baseline(){
     assert!(!r.solver_invoked);
     println!("CRR_DEFAULT_RR {{\"case\":\"{case}\",\"native\":\"{}\",\"approximate\":{},\"hidden\":{},\"incidence\":{},\"terms\":{},\"parse_s\":{parse_s},\"rr_s\":{rr_s},\"tolerance\":{},\"ir\":{}}}",r.equivalent(),r.rr_approximate,internal(p).len(),incidence(p),terms(p),opts.rr_tolerance,ir(p,None));
 }
+
+
+// One bounded, source-locked Grover candidate identified by the exact
+// Walsh-kernel receipt audit. No general search or production change.
+// Run the existing HH primitive, including its deterministic max pivot.
+#[test]
+fn native_walsh_hh_pilot(){
+    let (a,n)=parse_qasm_str(&std::fs::read_to_string(std::env::var("CRR_SOURCE").unwrap()).unwrap()).unwrap();
+    let (b,m)=parse_qasm_str(&std::fs::read_to_string(std::env::var("CRR_TARGET").unwrap()).unwrap()).unwrap();
+    assert_eq!((n,m),(4,4));
+    for (policy,tolerance,expected_inc) in [("strict",0.0,263usize),("default",1e-10,235usize)]{
+        let t=Instant::now();
+        let opts=VerificationOptions{method:VerificationMethod::ReductionRules,rr_tolerance:tolerance,timeout_secs:20,..VerificationOptions::default()};
+        let r=check_equivalence_with_options(n,&a,&b,&opts).unwrap();
+        let baseline_s=t.elapsed().as_secs_f64();let p=r.final_pathsum();
+        assert!(!r.solver_invoked&&!r.rr_approximate);
+        assert_eq!((r.equivalent(),internal(p).len(),incidence(p)),("unknown",29,expected_inc));
+        assert!(p.v.continuous_vars.is_empty()&&p.p.terms.values().all(|c|c.symbols.is_empty()));
+        let start=Instant::now();let mut q=p.clone();
+        // Exact trial even on the default-prefix residual. Restore neither
+        // near-grid snapping nor approximate matches during the added pass.
+        q.rr_tolerance=0.0;
+        let y=103u32;
+        assert!([91,93,103,111,62,110].iter().all(|v|p.get_reducible_vars().contains(v)));
+        for v in [91u32,93,111]{
+            let rhs:Anf=[vec![v],vec![y]].into_iter().collect();
+            q.p.substitute_var_with_poly(v,&rhs);
+            q.f.substitute_var_with_poly(v,&rhs);
+            assert!(terms(&q)<=TERM_CAP);
+        }
+        assert_eq!(q.v.path_vars,p.v.path_vars);
+        assert_eq!(q.f.functions,p.f.functions);
+        let reparam_s=start.elapsed().as_secs_f64();
+        let dep=q.p.extract_terms_with_var(y);
+        assert!(!dep.is_empty()&&dep.iter().all(|(_,c)|c.is_pure_half()));
+        let phi:Anf=dep.iter().map(|(m,_)|m.iter().copied().filter(|v|*v!=y).collect()).collect();
+        let v=phi.iter().filter(|m|m.len()==1&&phi.iter().all(|n|n==*m||!n.contains(&m[0]))).map(|m|m[0]).max().unwrap();
+        assert_eq!(v,110);
+        let rhs:Anf=phi.into_iter().filter(|m|m!=&vec![v]).collect();
+        assert!(rhs.len()<=8);
+        let affected=q.p.terms.keys().chain(q.f.functions.iter().flatten()).filter(|m|m.contains(&v)).count();
+        assert!(affected.saturating_mul(1usize<<rhs.len())<=TERM_CAP);
+        let transformed=q.clone();
+        let start=Instant::now();assert!(q.try_reduce_hh(&[y]));let hh_s=start.elapsed().as_secs_f64();
+        let mut live=p.v.path_vars.clone();live.remove(&y);live.remove(&v);
+        assert_eq!(q.v.path_vars,live);assert!(!q.rr_approximate);
+        assert!(terms(&q)<=TERM_CAP);
+        println!("CRR_WALSH_HH {{\"policy\":\"{policy}\",\"y\":{y},\"pivot\":{v},\"shift\":[91,93,111],\"rhs\":{:?},\"before\":{},\"transformed\":{},\"after\":{},\"scale_exponent_delta\":-2}}",sorted(&rhs),ir(p,None),ir(&transformed,None),ir(&q,None));
+        let hh_inc=incidence(&q);
+        let start=Instant::now();q.full_reduce();let post_s=start.elapsed().as_secs_f64();
+        assert!(!q.rr_approximate);
+        let h=internal(&q).len();let inc=incidence(&q);
+        let identity=h==0&&q.is_identity_up_to_phase();
+        let useful=identity||(h<29&&inc<expected_inc);
+        println!("CRR_WALSH_RESULT {{\"policy\":\"{policy}\",\"baseline_s\":{baseline_s},\"reparam_s\":{reparam_s},\"hh_s\":{hh_s},\"post_rr_s\":{post_s},\"before_hidden\":29,\"hh_hidden\":27,\"post_hidden\":{h},\"before_incidence\":{expected_inc},\"hh_incidence\":{hh_inc},\"post_incidence\":{inc},\"identity_shape\":{identity},\"structurally_useful\":{useful},\"production_admitted\":false,\"post\":{}}}",ir(&q,None));
+    }
+}

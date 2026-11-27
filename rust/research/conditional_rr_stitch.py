@@ -300,8 +300,73 @@ def default_rr_cohort():
         rows.append({k:v for k,v in rec[0].items() if k!="ir"})
     print("CRR_DEFAULT_SUMMARY",json.dumps(dict(cases=rows,source_semantics_certified=False,production_change=False)),flush=True)
 
+
+def verify_walsh_hh(row):
+    a,b,c=(row[k] for k in ("before","transformed","after"))
+    y,v=row["y"],row["pivot"]
+    assert (y,v)==(103,110) and row["shift"]==[91,93,111]
+    assert a["n"]==b["n"]==c["n"]==4
+    assert a["live"]==b["live"]
+    assert set(c["live"])==set(a["live"])-{y,v}
+    assert all(i>=a["n"] and i in a["live"] for i in [y,v,*row["shift"]])
+    p,fs,g=decode(a);q,gs,g2=decode(b);r,hs,g3=decode(c)
+    assert g is g2 is g3 is None
+    assert all(i not in m for f in fs for m in f for i in [y,v,*row["shift"]])
+    for i in row["shift"]:
+        rhs={(i,),(y,)}
+        p=substitute_phase(p,i,lift(rhs))
+        fs=[substitute_anf(f,i,rhs) for f in fs]
+    assert (p,fs)==(q,gs),"reparameterization"
+    dep={m:k for m,k in q.items() if y in m}
+    assert dep and all(k==(F(1,2),F(0)) for k in dep.values())
+    phi=anf(tuple(i for i in m if i!=y) for m in dep)
+    assert (v,) in phi and all(v not in m or m==(v,) for m in phi)
+    phi.remove((v,))
+    assert phi==anf(row["rhs"])
+    assert row["scale_exponent_delta"]==-2
+    q={m:k for m,k in q.items() if y not in m}
+    assert substitute_phase(q,v,lift(phi))==r,"HH phase"
+    assert [substitute_anf(f,v,phi) for f in gs]==hs,"HH outputs"
+    assert all(set(m)<=set(c["live"]) for m in r)
+    assert all(set(m)<=set(c["live"]) for f in hs for m in f)
+    return 1
+
+def walsh_hh_pilot():
+    manifest=json.loads((ROOT/"docs/development/paper-corpus-manifest.json").read_text())
+    case=next(c for c in manifest["cohorts"]["table2_mqt"]["cases"] if c["id"]=="grover-noancilla_4")
+    expected=["f64bc99e09b5ac3aebd569505c38bae27beee38c2de5f89b96ecc91e4af7c9d9",
+              "6bdbc083e4b92c4de9f2a007f8695af739bb7aabf9f11c5bb7cbcd530055d537"]
+    env=dict(os.environ)
+    for side,key,sha in zip(("source","transpiled"),("CRR_SOURCE","CRR_TARGET"),expected):
+        e=case[side];path=ROOT/e["path"];data=path.read_bytes()
+        assert hashlib.sha1(("blob %d"%len(data)).encode()+b"\x00"+data).hexdigest()==e["git_blob_sha1"]
+        assert hashlib.sha256(data).hexdigest()==sha
+        env[key]=str(path)
+        print("CRR_WALSH_SOURCE",side,sha,flush=True)
+    cmd=["timeout","--kill-after=3s","60s","cargo","test","--release","--locked","--manifest-path","rust/Cargo.toml","-p","quprs","--test","conditional_rr_experiment","conditional_stitch::native_walsh_hh_pilot","--","--exact","--nocapture"]
+    run=subprocess.run(cmd,cwd=ROOT,env=env,capture_output=True,text=True)
+    print(run.stdout,flush=True);assert run.returncode==0,(run.returncode,run.stderr[-4000:])
+    rec=lambda p:[json.loads(l.removeprefix(p)) for l in run.stdout.splitlines() if l.startswith(p)]
+    rows=rec("CRR_WALSH_HH ");results=rec("CRR_WALSH_RESULT ")
+    assert [r["policy"] for r in rows]==[r["policy"] for r in results]==["strict","default"]
+    import copy
+    checks=negative=0
+    for row in rows:
+        checks+=verify_walsh_hh(row)
+        for field in ("scale","phase","domain","transform"):
+            bad=copy.deepcopy(row)
+            if field=="scale":bad["scale_exponent_delta"]=0
+            elif field=="phase":bad["after"]["phase"].append([[],"1/8","0"])
+            elif field=="domain":bad["after"]["live"].append(row["pivot"])
+            else:bad["shift"]=bad["shift"][:-1]
+            try:verify_walsh_hh(bad)
+            except AssertionError:negative+=1
+            else:raise AssertionError("mutation accepted")
+    print("CRR_WALSH_SUMMARY",json.dumps(dict(exact_reparam_hh=checks,mutations_rejected=negative,results=[{k:v for k,v in r.items() if k!="post"} for r in results],source_semantics_certified=False,post_rr_independent_oracle=False,production=False)),flush=True)
+
 if __name__=="__main__":
-    if os.environ.get("CRR_DEFAULT_RR"):default_rr_cohort()
+    if os.environ.get("CRR_WALSH_HH"):walsh_hh_pilot()
+    elif os.environ.get("CRR_DEFAULT_RR"):default_rr_cohort()
     elif os.environ.get("CRR_KET_COHORT"):ket_cohort()
     elif os.environ.get("CRR_ORIGINAL_COHORT"):cohort()
     else:main()

@@ -961,7 +961,7 @@ fn hoare_autoq_c3_arm(){
     let start=std::time::Instant::now();
     let cap=std::time::Duration::from_millis(std::env::var("AQ_C3_BUDGET_MS").unwrap().parse().unwrap());
     let deadline=start+cap;
-    assert!(["rr","wmc","hybrid","structural"].contains(&mode.as_str()));
+    assert!(["rr","wmc","hybrid","hybrid-support","structural"].contains(&mode.as_str()));
     let mut queries=0usize;let mut pairs=0usize;let mut visited=0usize;
     let mut route="baseline";let mut rejected=false;
     let mut witness=None;
@@ -1017,13 +1017,37 @@ fn hoare_autoq_c3_arm(){
         }else{(aq_family(pre)?.1,aq_family(post)?.1)};
         if mode=="rr"&&s.h!=0{return None;}
         let cubes:Vec<_>=bb.iter().map(aq_support_cube).collect();
+        // Phase-blind exact support index: only two distinct fixed kets
+        // and one live path, at the original 1/sqrt2 scale.
+        let mut index=BTreeMap::<(u64,u64),Vec<usize>>::new();
+        let indexed=mode=="hybrid-support"&&s.h==1&&k==1&&bb.iter().enumerate().all(|(j,b)|{
+            if let [a,b]=b.terms.as_slice(){
+                if let (AqPattern::Fixed(u),AqPattern::Fixed(v))=(a.pattern,b.pattern){
+                    if u!=v{index.entry((u.min(v),u.max(v))).or_default().push(j);return true;}
+                }
+            }
+            false
+        });
+        if indexed{route="support-index";}
         for a in &aa{
             if std::time::Instant::now()>=deadline{return None;}
             let x=aq_fixed_input(a)?;
             visited+=1;
             let p=aq_output_cube(&s,x);
             let mut matched=false;let mut unknown=false;
-            for (b,q) in bb.iter().zip(&cubes){
+            let all;
+            let selected=if indexed{
+                let output=|y:u64|s.output.iter().enumerate().fold(0u64,|z,(i,p)|
+                    z|(u64::from(eval(p,x|(y<<n)))<<i));
+                let u=output(0);let v=output(1);
+                if u!=v{
+                    index.get(&(u.min(v),u.max(v))).map(Vec::as_slice).unwrap_or(&[])
+                }else{
+                    all=(0..bb.len()).collect::<Vec<_>>();&all
+                }
+            }else{all=(0..bb.len()).collect::<Vec<_>>();&all};
+            for &j in selected{
+                let b=&bb[j];let q=&cubes[j];
                 if std::time::Instant::now()>=deadline{return None;}
                 pairs+=1;
                 if (p.value^q.value)&p.mask&q.mask!=0{continue;}

@@ -3,7 +3,7 @@
 
 Uses existing exact packed GPMC CNF overlap, not a dense-oracle baseline.
 GNU time max RSS is a process-tree peak individual RSS, not summed RSS.
-AutoQ timing is intentionally not mixed into this native ablation.
+C3-R2 adds phase-blind support indexing and same-budget AutoQ.
 """
 import hashlib
 import json
@@ -19,12 +19,63 @@ from hoare_ganak_exact import (
 )
 
 CAP = 4.0
-MODES = ("rr", "wmc", "hybrid", "structural")
+MODES = ("rr", "wmc", "hybrid", "hybrid-support", "structural", "autoq")
 CASES = {
     "ghz3": "PROVED", "ghz5": "PROVED", "ghz8": "PROVED",
     "ghz3-plus": "REFUTED", "ghz3-broken": "REFUTED",
     "bv03": "PROVED", "grover03": "PROVED", "mogrover03": "PROVED",
 }
+
+from autoq_decision_pair import BLOBS, GHZ_BLOBS, SHAPES, PIN, blob, classify, replace_once
+
+def prepare_autoq(root, out):
+    fixtures=out/"source"
+    fixtures.mkdir()
+    assert subprocess.check_output(["git","-C",str(root),"rev-parse","HEAD"],text=True).strip()==PIN
+    specs={}
+    for case in CASES:
+        if case.startswith("ghz"):
+            n=int(case[3:].split("-")[0])
+            folder=root/"benchmarks"/"all"/"GHZall"/f"{n:03d}"
+            hashes=GHZ_BLOBS[n];shape=(n,n)
+        else:
+            family={"bv03":"BV","grover03":"Grover","mogrover03":"MOGrover"}[case]
+            folder=root/"benchmarks"/"all"/family/"03"
+            hashes=BLOBS[case];shape=SHAPES[case]
+        names=("pre.hsl","post.hsl","circuit.qasm")
+        data=[(folder/f).read_bytes() for f in names]
+        assert tuple(map(blob,data))==hashes,(case,folder)
+        if case.endswith("-plus"):
+            parts=data[1].split(" ∪\n".encode())
+            assert len(parts)==2
+            data[1]=replace_once(parts[0]+b"\n",b"cn := -1/sqrt2\n",b"")
+        if case.endswith("-broken"):
+            lines=data[2].rstrip().splitlines()
+            assert lines[-1].strip().startswith(b"cx ")
+            data[2]=b"\n".join(lines[:-1])+b"\n"
+            shape=(shape[0],shape[1]-1)
+        dest=fixtures/case
+        dest.mkdir()
+        for name,content in zip(names,data):
+            (dest/name).write_bytes(content)
+        specs[case]=dict(shape=shape,blobs=hashes,sha256=[hashlib.sha256(d).hexdigest() for d in data])
+    (fixtures/"manifest.json").write_text(json.dumps(specs,indent=2)+"\n")
+    return fixtures
+
+def autoq_arm(exe, fixtures, case, folder):
+    start=time.monotonic()
+    spec=json.loads((fixtures/"manifest.json").read_text())[case]
+    f=fixtures/case
+    p=subprocess.run([str(exe),"ver",str(f/"pre.hsl"),str(f/"circuit.qasm"),str(f/"post.hsl")],
+                     capture_output=True,text=True,errors="replace")
+    (folder/"autoq.stdout").write_text(p.stdout)
+    (folder/"autoq.stderr").write_text(p.stderr)
+    actual=classify(p.stdout,p.stderr,p.returncode,tuple(spec["shape"]))
+    verdict=actual if actual in ("PROVED","REFUTED") else "UNKNOWN"
+    assert verdict=="UNKNOWN" or verdict==CASES[case],(case,actual)
+    print(json.dumps(dict(case=case,mode="autoq",verdict=verdict,autoq_status=actual,
+                         returncode=p.returncode,queries=None,solver_failures=None,
+                         worker_wall_s=time.monotonic()-start)))
 
 def arm(binary, solver, case, mode, folder):
     start = time.monotonic()
@@ -89,6 +140,10 @@ def arm(binary, solver, case, mode, folder):
 def main():
     binary, solver, out = (pathlib.Path(x).resolve() for x in sys.argv[1:4])
     out.mkdir(parents=True,exist_ok=True)
+    autoq, source_root = (pathlib.Path(x).resolve() for x in sys.argv[4:6])
+    version=subprocess.check_output([str(autoq),"-v"],text=True,stderr=subprocess.STDOUT,timeout=10)
+    assert PIN in version
+    fixtures=prepare_autoq(source_root,out)
     rows=[]
     # Reversed order in the second period, including cases. No shared Rust
     # state, solver subprocess or CNF across arms. Build is excluded equally.
@@ -99,10 +154,11 @@ def main():
             for mode in modes:
                 folder=out/f"{period}-{case}-{mode}";folder.mkdir()
                 t=time.monotonic()
+                args=(["--autoq-arm",str(autoq),str(fixtures),case,str(folder)] if mode=="autoq"
+                      else ["--arm",str(binary),str(solver),case,mode,str(folder)])
                 p=subprocess.run(["/usr/bin/time","-f","%e %M","-o",str(folder/"resource.txt"),
                     "timeout","--kill-after=1s",str(CAP),
-                    sys.executable,str(pathlib.Path(__file__).resolve()),"--arm",
-                    str(binary),str(solver),case,mode,str(folder)],
+                    sys.executable,str(pathlib.Path(__file__).resolve()),*args],
                     text=True,capture_output=True)
                 elapsed=time.monotonic()-t
                 (folder/"worker.stdout").write_text(p.stdout)
@@ -129,14 +185,17 @@ def main():
     summary={m:dict(arms=sum(r["mode"]==m for r in rows),
                     definite=sum(r["mode"]==m and r["verdict"]!="UNKNOWN" for r in rows),
                     known_queries=sum(r["queries"] or 0 for r in rows if r["mode"]==m),
-                    censored=sum(r["mode"]==m and r["queries"] is None for r in rows)) for m in MODES}
+                    censored=sum(r["mode"]==m and r.get("reason") in ("PROCESS_TIMEOUT","OUTER_DEADLINE") for r in rows)) for m in MODES}
     (out/"summary.json").write_text(json.dumps(dict(rows=rows,summary=summary,
         binary_sha256=hashlib.sha256(binary.read_bytes()).hexdigest(),
-        gpmc_sha256=hashlib.sha256(solver.read_bytes()).hexdigest()),indent=2)+"\n")
+        gpmc_sha256=hashlib.sha256(solver.read_bytes()).hexdigest(),
+        autoq_sha256=hashlib.sha256(autoq.read_bytes()).hexdigest(),autoq_pin=PIN),indent=2)+"\n")
     print("AQ_C3_SUMMARY "+json.dumps(summary),flush=True)
 
 if __name__=="__main__":
     if sys.argv[1]=="--arm":
         arm(pathlib.Path(sys.argv[2]),pathlib.Path(sys.argv[3]),sys.argv[4],sys.argv[5],pathlib.Path(sys.argv[6]))
+    elif sys.argv[1]=="--autoq-arm":
+        autoq_arm(pathlib.Path(sys.argv[2]),pathlib.Path(sys.argv[3]),sys.argv[4],pathlib.Path(sys.argv[5]))
     else:
         main()

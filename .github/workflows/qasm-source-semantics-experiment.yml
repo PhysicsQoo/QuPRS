@@ -271,13 +271,8 @@ jobs:
           python3 scripts/install_gpmc_release.py --dest "$tmp/gpmc" | tee evidence/hoare-gpmc-release.json
           python3 rust/research/hoare_ganak_exact.py "$tmp/ganak" evidence/hoare-exact-fixtures "$(command -v minisat)" "$tmp/gpmc" \
             2>&1 | tee evidence/hoare-ganak-exact.log
-          # C3 isolated whole-family pilot, same GPMC binary and exact encoder.
-          cargo test --locked --manifest-path rust/Cargo.toml -p quprs \
-            --test property_hoare_experiment --no-run --message-format=json > "$tmp/aq-c3-build.jsonl"
-          aq_bin="$(python3 -c 'import json,sys; a=[json.loads(l) for l in open(sys.argv[1])]; b=[x["executable"] for x in a if x.get("reason")=="compiler-artifact" and x.get("target",{}).get("name")=="property_hoare_experiment" and x.get("executable")]; assert len(b)==1,b; print(b[0])' "$tmp/aq-c3-build.jsonl")"
-          timeout 330s python3 rust/research/autoq_c3_pilot.py "$aq_bin" "$tmp/gpmc" evidence/aq-c3 \
-            2>&1 | tee evidence/aq-c3.log
-          grep -F 'AQ_C3_SUMMARY ' evidence/aq-c3.log
+          # Preserve the qualified GPMC binary for the later interleaved C3 stage.
+          install -m 700 "$tmp/gpmc" "$RUNNER_TEMP/aq-c3-gpmc"
           HOARE_ONLINE_GPMC="$tmp/gpmc" \
           HOARE_ONLINE_HELPER="$GITHUB_WORKSPACE/rust/research/hoare_ganak_exact.py" \
           HOARE_ONLINE_DIR="$GITHUB_WORKSPACE/evidence/online-hybrid" \
@@ -808,8 +803,8 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
 
-      - name: AutoQ pinned executable decision compatibility (AQ-R7)
-        timeout-minutes: 18
+      - name: AutoQ pinned executable decision compatibility and C3-R2
+        timeout-minutes: 25
         run: |
           set -euo pipefail
           mkdir -p evidence/aq-autoq
@@ -836,6 +831,13 @@ jobs:
           python3 rust/research/autoq_decision_pair.py "$src/build/cli/autoq" \
             evidence/hoare-exact-fixtures evidence/hoare-ganak-exact.log evidence/aq-autoq "$src" evidence/property-hoare.log \
             2>&1 | tee evidence/aq-autoq/decision.log
+          # C3-R2 interleaved native/AutoQ, same qualified GPMC binary.
+          cargo test --locked --manifest-path rust/Cargo.toml -p quprs \
+            --test property_hoare_experiment --no-run --message-format=json > "$src/aq-c3-build.jsonl"
+          aq_bin="$(python3 -c 'import json,sys; a=[json.loads(l) for l in open(sys.argv[1])]; b=[x["executable"] for x in a if x.get("reason")=="compiler-artifact" and x.get("target",{}).get("name")=="property_hoare_experiment" and x.get("executable")]; assert len(b)==1,b; print(b[0])' "$src/aq-c3-build.jsonl")"
+          timeout 420s python3 rust/research/autoq_c3_pilot.py "$aq_bin" "$RUNNER_TEMP/aq-c3-gpmc" evidence/aq-c3 "$src/build/cli/autoq" "$src" \
+            2>&1 | tee evidence/aq-c3.log
+          grep -F 'AQ_C3_SUMMARY ' evidence/aq-c3.log
 
       - name: Preserve diagnostic logs
         if: always()

@@ -501,6 +501,9 @@ fn core_hsl_fresh(ps:&mut PathSum)->Option<u32>{
 // coordinate cube. Shared coordinates give exactly one support fibre.
 // Each signed numerator is a path multiplicity with phase 0 or pi.
 fn core_hsl_state(a:&AqState,n:usize,base:Vec<CoreBool>)->Option<CpsCore>{
+    core_hsl_state_flat(a,n,base.clone()).or_else(||core_hsl_state_factored(a,n,base))
+}
+fn core_hsl_state_flat(a:&AqState,n:usize,base:Vec<CoreBool>)->Option<CpsCore>{
     if base.len()!=a.n||n>5||a.k>32{return None;}
     let [first,rest @ ..]=a.terms.as_slice() else{return None;};
     let AqPattern::Fixed(fixed)=first.pattern else{return None;};
@@ -544,6 +547,77 @@ fn core_hsl_state(a:&AqState,n:usize,base:Vec<CoreBool>)->Option<CpsCore>{
         if h<a.k{guard=mul_anf(&guard,&Anf::from([0,core_bit(v)?]))?;}
     }
     CpsCore::canonical(ps,guard)
+}
+
+// m < bound iff for each zero bit i in bound-1, it is not the
+// case that m_i and all higher one bits of bound-1 are set.
+// These are monotone forbidden monomials (two-term ANF clauses),
+// not expanded lexicographic prefix polynomials.
+fn core_hsl_bound_factors(bits:&[u32],bound:u64)->Option<Vec<Anf>>{
+    if bits.len()>=63||bound==0||bound>1u64<<bits.len(){return None;}
+    let b=bound-1;
+    let mut higher=0u64;let mut factors=Vec::new();
+    for (i,&v) in bits.iter().enumerate().rev(){
+        let bit=core_bit(v)?;
+        if b>>i&1!=0{higher|=bit;}
+        else{factors.push(Anf::from([0,higher|bit]));}
+    }
+    Some(factors)
+}
+// Same canonical source contract, same count bits and signs. Only
+// retain already supported conjunctions when old flat ingress overflows.
+// For conditional clause g = 1 xor M, E => g is 1 xor E*M.
+fn core_hsl_state_factored(a:&AqState,n:usize,base:Vec<CoreBool>)->Option<CpsCore>{
+    if base.len()!=a.n||n>5||a.k>32{return None;}
+    let [first,rest @ ..]=a.terms.as_slice() else{return None;};
+    let AqPattern::Fixed(fixed)=first.pattern else{return None;};
+    let mut ps=PathSum::new(n);ps.set_auto_reduce(false);
+    ps.f=quprs::pathsum::BooleanState::new(a.n);ps.f.functions=base;
+    let mut equal=Anf::from([0]);
+    if let [second]=rest{
+        let AqPattern::Except{offset,width,excluded,outside}=second.pattern else{return None;};
+        if fixed!=(outside|(excluded<<offset)){return None;}
+        for i in offset..offset+width{
+            let v=core_hsl_fresh(&mut ps)?;
+            ps.f.functions[i].insert(vec![v]);
+            equal=mul_anf(&equal,&Anf::from([0,core_bit(v)?]))?;
+        }
+    }else if !rest.is_empty(){return None;}
+    let mag=a.terms.iter().map(|t|t.signed.unsigned_abs()).max()?;
+    if mag==0{return None;}
+    let r=(64-(mag-1).leading_zeros()) as usize;
+    let mut count=Vec::new();for _ in 0..r{count.push(core_hsl_fresh(&mut ps)?);}
+    let mut other=equal.clone();xor_insert(&mut other,0);
+    let mut factors=Vec::new();
+    // The stricter interval is conditional; the larger interval is
+    // unconditional. This is equivalent to the two disjoint branches
+    // and avoids redundant clauses and large conjunctions.
+    factors.extend(core_hsl_bound_factors(&count,mag)?);
+    for (i,t) in a.terms.iter().enumerate(){
+        let select=if i==0{&equal}else{&other};
+        if t.signed.unsigned_abs()!=mag{
+            for mut g in core_hsl_bound_factors(&count,t.signed.unsigned_abs())?{
+                xor_insert(&mut g,0);
+                let mut implication=mul_anf(select,&g)?;
+                xor_insert(&mut implication,0);
+                factors.push(implication);
+            }
+        }
+        if t.signed<0{
+            for &m in select{
+                let mono=(0..63u32).filter(|&v|m&(1u64<<v)!=0).collect();
+                ps.p.add_term(mono,quprs::PhaseCoeff::HALF);
+            }
+        }
+    }
+    let h=ps.v.path_vars.len().checked_sub(n)?;
+    for _ in 0..h.abs_diff(a.k){
+        let v=core_hsl_fresh(&mut ps)?;
+        if h<a.k{factors.push(Anf::from([0,core_bit(v)?]));}
+    }
+    // Same canonical padding as flat ingress, not a new scale parameter.
+    let k=i32::try_from(ps.v.path_vars.len().checked_sub(n)?).ok()?;
+    CpsCore::from_factors(ps,factors,k)
 }
 fn core_hsl_lower(src:&str)->Option<CpsCore>{
     let Some((prefix,domain))=src.trim_end().rsplit_once(" : ")else{
@@ -1040,4 +1114,83 @@ fn hoare_cps_core_encoding_ab(){
     assert_eq!(count,36);
     std::fs::write(dir.join("manifest.tsv"),manifest).unwrap();
     println!("CPS_ENCODING_EXPORT arms=36 pairs=18 nonreal_reject=PASS");
+}
+
+
+#[test]
+fn hoare_cps_core_heldout_predicates(){
+    // Exhaustive comparator semantics for all small bounds; larger
+    // actual source magnitudes are tested below across the full counter.
+    let mut comparisons=0;
+    for r in 0..=7{
+        let bits=(0..r as u32).collect::<Vec<_>>();
+        for bound in 1..=1u64<<r{
+            let factors=core_hsl_bound_factors(&bits,bound).unwrap();
+            for m in 0..1u64<<r{
+                assert_eq!(factors.iter().all(|g|eval(g,m)),m<bound);
+                comparisons+=1;
+            }
+        }
+    }
+    let root=std::path::PathBuf::from(std::env::var("CPS_CORE_SOURCE_DIR").unwrap());
+    let mut predicates=0;let mut checks=0;
+    // Tests only: enumerate counter values at one representative of
+    // each relative-coordinate class. Independently verify every actual
+    // coordinate/label output, support class and padding constraint.
+    for family in ["Grover","MOGrover"]{for width in [4usize,5]{
+        let path=root.join("benchmarks").join("all").join(family).join(format!("{width:02}")).join("post.hsl");
+        let src=std::fs::read_to_string(path).unwrap();
+        let hi=if width==4{251}else{23161};
+        let lo=if width==4{13}else{119};
+        for (variant,post) in [
+            ("source",src.clone()),
+            ("relative",src.replace(&format!("aH := {hi} /"),&format!("aH := -{hi} /"))),
+            ("global",src.replace(&format!("aH := {hi} /"),&format!("aH := -{hi} /")).replace(&format!("aL := -{lo} /"),&format!("aL := {lo} /"))),
+        ]{
+            let c=core_hsl_lower(&post).expect("held-out source lowering");
+            let n=if family=="MOGrover"{width}else{0};
+            let r=if width==4{8}else{15};
+            let k=if width==4{16}else{29};
+            assert_eq!(c.n(),n);assert_eq!(c.k,k as i32);
+            assert_eq!(c.guard.ids.len(),n+k);
+            assert!(!c.guard.conjuncts.is_empty());
+            let label=(1u64<<n)-1;
+            // Both coefficient classes; verify all counter values,
+            // including forbidden ones. Padding is zero here.
+            for u in [0u64,1]{
+                let want=if u==0{hi}else{lo};
+                let mut accepted=0;
+                for m in 0..1u64<<r{
+                    let a=label|(u<<n)|(m<<(n+width));
+                    let ok=c.guard.factors().all(|g|eval(g,a));
+                    assert_eq!(ok,m<want as u64);
+                    if ok{accepted+=1;}
+                    checks+=1;
+                }
+                assert_eq!(accepted,want);
+                // Any nonzero padding bit forbids the witness.
+                for p in n+width+r..n+k{
+                    assert!(!c.guard.factors().all(|g|eval(g,label|(u<<n)|(1u64<<p))));
+                }
+            }
+            // Exhaustive label and relative coordinate checks, not
+            // enumeration of prepared states in the verification path.
+            let target=if n==0{if width==4{10u64}else{10u64}}else{0};
+            for x in 0..1u64<<n{for u in 0..1u64<<width{
+                let a=x|(u<<n); // m=0 always accepted
+                assert!(c.guard.factors().all(|g|eval(g,a)));
+                let on=|m:&Vec<u32>|m.iter().all(|&v|a&(1u64<<v)!=0);
+                let z=c.ps.f.functions.iter().enumerate().fold(0u64,|v,(j,p)|v|(((p.iter().filter(|m|on(m)).count()%2) as u64)<<j));
+                let expected=if n==0{(target^u)|(1u64<<(c.q()-1))}else{x|((x^u)<<n)|(1u64<<(c.q()-1))};
+                assert_eq!(z,expected);
+                let phase=c.ps.p.terms.iter().filter(|(m,_)|on(m)).map(|(_,p)|core_phase8(p).unwrap() as usize).sum::<usize>()%8;
+                let negative=if u==0{variant!="source"}else{variant!="global"};
+                assert_eq!(phase,if negative{4}else{0});
+            }}
+            println!("CPS_HELDOUT_PREDICATE family={family} width={width} variant={variant} h={k} factors={} terms={} counter_checks={} materialized_columns=0",c.guard.factors().count(),c.guard.factors().map(|g|g.len()).sum::<usize>(),2*(1usize<<r));
+            predicates+=1;
+        }
+    }}
+    assert_eq!(predicates,12);
+    println!("CPS_HELDOUT_PREDICATE_SUMMARY predicates={predicates} comparisons={comparisons} source_counter_checks={checks}");
 }

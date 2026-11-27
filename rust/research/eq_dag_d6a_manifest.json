@@ -1,0 +1,201 @@
+{
+  "schema": "eq-dag-d6a-heldout-v1",
+  "baseline": "b398f07d6845efc23540549ccbfec717c27b1722",
+  "baseline_tree": "1dc21015f0f4f69f057c4685b886b686d82b882d",
+  "frozen_router": "9168826d9db2f0c7b56b07966806d71f8d798ef2",
+  "router_tree": "77a0aaff5b2946d94d0297d33bc1d0cade697a5d",
+  "router_source_blobs": {
+    "rust/quprs/src/wmc_parity_experiment.rs": "6c7ad400a3434618dbf144f28e206f6e672d1a1d",
+    "rust/quprs/src/lib.rs": "9f1c071156194d4d7a30ddb4a338f114970ed4a4"
+  },
+  "excluded_training_manifests": [
+    "rust/research/eq_dag_d1_manifest.json",
+    "rust/research/eq_dag_d1d_manifest.json"
+  ],
+  "mutation_manifest": {
+    "path": "benchmarks/MQTBench/qiskit-2.6.1-opt0/random-rotation-manifest.json",
+    "git_blob_sha1": "07206d74557ff05ef9286ebbcfacb5c5c1e43c41"
+  },
+  "selection": "All listed pairs preselected by source family/size and control role, not by observed router or solver outcome. No source blob overlap with D1 or D1d; not necessarily unseen in other QuPRS research. RR-only controls distinct from Hybrid.",
+  "timeout_s": 60,
+  "address_space_mib": 4096,
+  "repeat_rule": "One pair for every case. Only cases with both process-successful decisive Hybrid (or matching non-timeout RR) and each wall <=5s proceed to six extra alternating paired periods. All cases reported, no post hoc exclusion. Censored or incomplete never counted as finite speedup.",
+  "cases": [
+    {
+      "id": "wstate_4_eq",
+      "family": "wstate",
+      "mode": "hybrid",
+      "expected": "EQ",
+      "expectation": "source/transpiled projective EQ expectation, not independently certified",
+      "strategy": "proportional",
+      "left": {
+        "path": "benchmarks/MQTBench/wstate_nativegates_ibm_qiskit_opt0_4.qasm",
+        "git_blob_sha1": "b929dc5eca00dd0771c8f28e0fda42c2abcb68bf"
+      },
+      "right": {
+        "path": "benchmarks/MQTBench/h,ry,rz,cx/wstate_nativegates_ibm_qiskit_opt0_4.qasm",
+        "git_blob_sha1": "1744626787c08edc1070af0eb3c161c38c93d077"
+      }
+    },
+    {
+      "id": "qaoa_9_eq",
+      "family": "qaoa",
+      "mode": "hybrid",
+      "expected": "EQ",
+      "expectation": "source/transpiled projective EQ expectation, not independently certified",
+      "strategy": "proportional",
+      "left": {
+        "path": "benchmarks/MQTBench/qaoa_nativegates_ibm_qiskit_opt0_9.qasm",
+        "git_blob_sha1": "654a0e2e4956bd15ee6765fbf3d29a7181ecd623"
+      },
+      "right": {
+        "path": "benchmarks/MQTBench/h,ry,rz,cx/qaoa_nativegates_ibm_qiskit_opt0_9.qasm",
+        "git_blob_sha1": "b35b73076f33bbeea3501ca2e27d7124c4a77e02"
+      }
+    },
+    {
+      "id": "qft_20_eq",
+      "family": "qft",
+      "mode": "rr_only",
+      "expected": "EQ",
+      "expectation": "source/transpiled projective EQ expectation, not independently certified",
+      "strategy": "proportional",
+      "left": {
+        "path": "benchmarks/MQTBench/qft_nativegates_ibm_qiskit_opt0_20.qasm",
+        "git_blob_sha1": "828c42db83d043772e9feeabe2360d490ee20a98"
+      },
+      "right": {
+        "path": "benchmarks/MQTBench/h,ry,rz,cx/qft_nativegates_ibm_qiskit_opt0_20.qasm",
+        "git_blob_sha1": "7fbba5865a93f4c9b7cf6ad3027d2da2e3aa8d60"
+      }
+    },
+    {
+      "id": "graphstate_32_eq",
+      "family": "graphstate",
+      "mode": "rr_only",
+      "expected": "EQ",
+      "expectation": "source/transpiled projective EQ expectation, not independently certified",
+      "strategy": "proportional",
+      "left": {
+        "path": "benchmarks/MQTBench/graphstate_nativegates_ibm_qiskit_opt0_32.qasm",
+        "git_blob_sha1": "4c0f3a339f1624a33455595830cfbc27f7b31a72"
+      },
+      "right": {
+        "path": "benchmarks/MQTBench/h,ry,rz,cx/graphstate_nativegates_ibm_qiskit_opt0_32.qasm",
+        "git_blob_sha1": "fcb0e73f614f7e3951b3a720c27736d88076dcca"
+      }
+    },
+    {
+      "id": "qpeinexact_8_eq",
+      "family": "qpeinexact",
+      "mode": "hybrid",
+      "expected": "EQ",
+      "expectation": "source/transpiled projective EQ expectation, not independently certified",
+      "strategy": "proportional",
+      "left": {
+        "path": "benchmarks/MQTBench/qpeinexact_nativegates_ibm_qiskit_opt0_8.qasm",
+        "git_blob_sha1": "65f0bf861d13f398c0f6059867e6d8cec7b08f15"
+      },
+      "right": {
+        "path": "benchmarks/MQTBench/h,ry,rz,cx/qpeinexact_nativegates_ibm_qiskit_opt0_8.qasm",
+        "git_blob_sha1": "8667aa6d6c20d1622e1a3e044f887e5b0f481eea"
+      }
+    },
+    {
+      "id": "qnn_4_eq",
+      "family": "qnn",
+      "mode": "hybrid",
+      "expected": "EQ",
+      "expectation": "source/transpiled projective EQ expectation, not independently certified",
+      "strategy": "proportional",
+      "left": {
+        "path": "benchmarks/MQTBench/qnn_nativegates_ibm_qiskit_opt0_4.qasm",
+        "git_blob_sha1": "0a0997353a8cb5cbdac9e574e42a36015a8037db"
+      },
+      "right": {
+        "path": "benchmarks/MQTBench/h,ry,rz,cx/qnn_nativegates_ibm_qiskit_opt0_4.qasm",
+        "git_blob_sha1": "2a0b1bef7c396944fbb1687a10f040979fb7fa50"
+      }
+    },
+    {
+      "id": "wstate_16_neq",
+      "family": "wstate",
+      "mode": "hybrid",
+      "expected": "NEQ",
+      "expectation": "source-locked Random_Rotation manifest expectation, not certified",
+      "reference_distance": null,
+      "reference_diagnostic": "NOT_MEASURED_RESOURCE_BOUND",
+      "strategy": "proportional",
+      "left": {
+        "path": "benchmarks/MQTBench/qiskit-2.6.1-opt0/h,ry,rz,cx/wstate_nativegates_ibm_qiskit_opt0_16.qasm",
+        "git_blob_sha1": "3c3e44bb4b12e29f0d4aeb7bff0af7c8679efca3",
+        "sha256": "e02b98fb8288c63fad764799f933f67c41cfde0955b42928cab1016ad4464e16"
+      },
+      "right": {
+        "path": "benchmarks/MQTBench/qiskit-2.6.1-opt0/Random_Rotation/wstate_nativegates_ibm_qiskit_opt0_16.qasm",
+        "git_blob_sha1": "2e7b14f91a5ec29e4a14eaf77383d96a4a2d8993",
+        "sha256": "1875650d9142843c165394b1d05c5bca63f5ecd5eef65c882ecdd3cf2992761c"
+      }
+    },
+    {
+      "id": "vqe_16_neq",
+      "family": "vqe",
+      "mode": "hybrid",
+      "expected": "NEQ",
+      "expectation": "source-locked Random_Rotation manifest expectation, not certified",
+      "reference_distance": null,
+      "reference_diagnostic": "NOT_MEASURED_RESOURCE_BOUND",
+      "strategy": "proportional",
+      "left": {
+        "path": "benchmarks/MQTBench/qiskit-2.6.1-opt0/h,ry,rz,cx/vqe_nativegates_ibm_qiskit_opt0_16.qasm",
+        "git_blob_sha1": "06ae97e5d904d270fa692cb91ad964596bf15381",
+        "sha256": "01b74bbfa3d54c7aa39e24192957dcd20a1f798a65a2a52337050fc987ddb510"
+      },
+      "right": {
+        "path": "benchmarks/MQTBench/qiskit-2.6.1-opt0/Random_Rotation/vqe_nativegates_ibm_qiskit_opt0_16.qasm",
+        "git_blob_sha1": "658e5a7256d242c3a7ad25f72f042ebc49cee931",
+        "sha256": "f0e647e854c87a72294b8aade63121070330d4efe19fb9b076f25f6e6af81403"
+      }
+    },
+    {
+      "id": "qaoa_9_neq",
+      "family": "qaoa",
+      "mode": "hybrid",
+      "expected": "NEQ",
+      "expectation": "source-locked Random_Rotation manifest expectation, not certified",
+      "reference_distance": null,
+      "reference_diagnostic": "NOT_MEASURED_RESOURCE_BOUND",
+      "strategy": "proportional",
+      "left": {
+        "path": "benchmarks/MQTBench/qiskit-2.6.1-opt0/h,ry,rz,cx/qaoa_nativegates_ibm_qiskit_opt0_9.qasm",
+        "git_blob_sha1": "adfa643935b1d5c9e5a83949b3accaf9eaa7f758",
+        "sha256": "d4019dee0a0de8f660c5abe253b2356424e7a6a51bb1eea14a7f634f36e30914"
+      },
+      "right": {
+        "path": "benchmarks/MQTBench/qiskit-2.6.1-opt0/Random_Rotation/qaoa_nativegates_ibm_qiskit_opt0_9.qasm",
+        "git_blob_sha1": "a8fe1a3d954ea91866c367c2f29da428b4e2cdff",
+        "sha256": "d73a3dbd1c7113ec832a1b901fb061c355506f713a25504ee75d0b4494ba93b8"
+      }
+    },
+    {
+      "id": "qnn_4_neq",
+      "family": "qnn",
+      "mode": "hybrid",
+      "expected": "NEQ",
+      "expectation": "source-locked Random_Rotation manifest expectation, not certified",
+      "reference_distance": 0.9837093633164115,
+      "reference_diagnostic": "FLOAT64_FULL_OPERATOR_NEGATIVE_WITNESS",
+      "strategy": "proportional",
+      "left": {
+        "path": "benchmarks/MQTBench/qiskit-2.6.1-opt0/h,ry,rz,cx/qnn_nativegates_ibm_qiskit_opt0_4.qasm",
+        "git_blob_sha1": "dceeefbc2f608f16418b7268052bd5be4a753857",
+        "sha256": "386c6242be9cc398a461559db3f33401cbfcc0ec57379b8f92862292e4135752"
+      },
+      "right": {
+        "path": "benchmarks/MQTBench/qiskit-2.6.1-opt0/Random_Rotation/qnn_nativegates_ibm_qiskit_opt0_4.qasm",
+        "git_blob_sha1": "9b602d528dd0b71dcf89b80792346611e9b08a4d",
+        "sha256": "72df8dde80402b096d532864b1862fb116503af1a141a19ec843fe7bbf2c440d"
+      }
+    }
+  ]
+}

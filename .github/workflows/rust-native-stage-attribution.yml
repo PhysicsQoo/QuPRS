@@ -30,6 +30,7 @@ on:
           - d2b-factored
           - d4b
           - d5b
+          - d6a
           - e1c-matrix
           - l1
   push:
@@ -1539,5 +1540,61 @@ jobs:
         with:
           name: eq-dag-d5b-combined-router
           path: d5b-evidence/
+          retention-days: 30
+
+
+  eq-dag-d6a:
+    if: github.ref == 'refs/heads/experiment/eq-dag-encoder' && ((github.event_name == 'push' && contains(github.event.head_commit.message, 'frozen router heldout screen')) || (github.event_name == 'workflow_dispatch' && inputs.dag_stage == 'd6a'))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: 'rust -> target'
+      - name: Build pinned main and explicit research candidate
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y cmake pkg-config libgmp-dev libmpfr-dev zlib1g-dev m4 make gcc time
+          python3 scripts/install_gpmc_release.py --dest "$RUNNER_TEMP/gpmc"
+          git worktree add --detach "$RUNNER_TEMP/main-baseline" b398f07d6845efc23540549ccbfec717c27b1722
+          test "$(git -C "$RUNNER_TEMP/main-baseline" rev-parse HEAD)" = b398f07d6845efc23540549ccbfec717c27b1722
+          test "$(git -C "$RUNNER_TEMP/main-baseline" rev-parse 'HEAD^{tree}')" = 1dc21015f0f4f69f057c4685b886b686d82b882d
+          mkdir -p "$RUNNER_TEMP/main-baseline/rust/quprs/examples"
+          cp rust/quprs/examples/eq_dag_d1.rs "$RUNNER_TEMP/main-baseline/rust/quprs/examples/eq_dag_d1.rs"
+          export CARGO_TARGET_DIR="$GITHUB_WORKSPACE/rust/target"
+          QUPRS_SOLVER_PROVISION=external cargo build --locked --release --manifest-path "$RUNNER_TEMP/main-baseline/rust/Cargo.toml" -p quprs --example eq_dag_d1
+          cp "$CARGO_TARGET_DIR/release/examples/eq_dag_d1" "$RUNNER_TEMP/main-eq"
+          QUPRS_SOLVER_PROVISION=external cargo build --locked --release --manifest-path rust/Cargo.toml -p quprs --features research-parity-e2e --example eq_dag_d1
+          cp "$CARGO_TARGET_DIR/release/examples/eq_dag_d1" "$RUNNER_TEMP/parity-eq"
+      - name: Native EQ paired screen with preserved actual CNF
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse 9168826d9db2f0c7b56b07966806d71f8d798ef2^{tree})" = 77a0aaff5b2946d94d0297d33bc1d0cade697a5d
+          python3 -u rust/research/eq_dag_d6a_heldout.py "$RUNNER_TEMP/main-eq" "$RUNNER_TEMP/parity-eq" "$RUNNER_TEMP/gpmc" d6a-evidence | tee d6a.log
+      - name: Seal evidence
+        if: always()
+        run: |
+          mkdir -p d6a-evidence
+          test ! -f d6a.log || cp d6a.log d6a-evidence/
+          git rev-parse HEAD > d6a-evidence/head.txt
+          git rev-parse 'HEAD^{tree}' > d6a-evidence/tree.txt
+          lscpu > d6a-evidence/cpu.txt
+          cd d6a-evidence
+          find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 -r sha256sum > SHA256SUMS
+          sha256sum -c SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: eq-dag-d6a-heldout
+          path: d6a-evidence/
           retention-days: 30
 

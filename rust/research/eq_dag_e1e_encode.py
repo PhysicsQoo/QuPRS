@@ -69,12 +69,33 @@ def audit(e, domain, outputs, n):
     leftover=Counter(raw)-Counter(clauses)
     assert not (Counter(clauses)-Counter(raw))
     assert sum(leftover.values())==2*n
+    # The trace gates are allocated last. Reconstruct their roots from
+    # source output ANF, independently of the trace equality clauses.
+    trace_v=sum(1 if not f else sum(len(m)!=1 for m in f)+len(f)-1
+                for f in outputs.values())
+    cursor=e.n-trace_v+1
+    expected=Counter()
     for i in range(n):
+        f=sorted(outputs[i])
+        roots=[]
+        for m in f:
+            ops=tuple(e.ids[v] for v in m)
+            if len(ops)==1:
+                roots.append(ops[0])
+            else:
+                assert e.defs[cursor]==("and",ops)
+                roots.append(cursor);cursor+=1
+        if not roots:
+            assert e.defs[cursor]==("false",())
+            z=cursor;cursor+=1
+        else:
+            z=roots[0]
+            for y in roots[1:]:
+                assert e.defs[cursor]==("xor",tuple(sorted((z,y))))
+                z=cursor;cursor+=1
         a=e.ids[i]
-        # Reconstruct output gate value via independent symbolic evaluation
-        # below on small controls; here require the two opposite implications.
-        pairs=[c for c in leftover if len(c)==2 and -a in c and leftover[c]>0]
-        assert any(leftover[tuple(sorted(-x for x in c))]>0 for c in pairs)
+        expected.update([tuple(sorted((-a,z))),tuple(sorted((a,-z)))])
+    assert cursor==e.n+1 and leftover==expected
     weights = [l.split() for l in text.splitlines() if l.startswith("c p weight ")]
     assert len(weights)==2*len(e.w)
     ids = {int(w[3]):tuple(map(F,w[4:6])) for w in weights}

@@ -56,7 +56,10 @@ def blocks(weighted,clauses):
             if len(c)==2 and c[0]==-z and c[1]>0:
                 operands.append(c[1])
             else:
-                assert c==(z,*(-x for x in operands)),(z,c,operands)
+                # Native singleton z <-> x emits (-x,z), while the
+                # general AND block emits (z,-x,...). Accept both orders
+                # only for this exact singleton reverse implication.
+                assert c==(z,*(-x for x in operands)) or (len(operands)==1 and c==(-operands[0],z)),(z,c,operands)
                 break
         else:
             raise AssertionError("missing complete phase definition")
@@ -69,7 +72,8 @@ def render(nv,comments,definitions,tail):
     lines=[f"p cnf {nv} {nc}",*comments]
     for z,ops in definitions.items():
         lines.extend(f"{-z} {x} 0" for x in ops)
-        lines.append(" ".join(map(str,(z,*(-x for x in ops),0))))
+        reverse=(-ops[0],z,0) if len(ops)==1 else (z,*(-x for x in ops),0)
+        lines.append(" ".join(map(str,reverse)))
     lines.extend(" ".join(map(str,(*c,0))) for c in tail)
     return "\n".join(lines)+"\n"
 
@@ -134,6 +138,17 @@ def models(text):
 
 def tests():
     controls()
+    # Source-faithful native singleton and constant blocks, plus full AND.
+    single="p cnf 5 6\nc t wmc\nc p weight 3 0 1 0\nc p weight -3 1.0 0.0 0\nc p weight 4 -1 0 0\nc p weight -4 1.0 0.0 0\nc p weight 5 0.5 0.5 0\nc p weight -5 1.0 0.0 0\n-3 1 0\n-1 3 0\n4 0\n-5 1 0\n-5 2 0\n5 -1 -2 0\n"
+    candidate,receipt=rewrite(single)
+    assert candidate==single and models(single)==models(candidate)
+    for malformed in (single.replace("-1 3 0","-2 3 0"),single.replace("-1 3 0","1 3 0")):
+        try:
+            rewrite(malformed)
+        except AssertionError:
+            pass
+        else:
+            raise AssertionError("invalid singleton implication accepted")
     # Nonreal, negative, arbitrary-decimal weights remain exact text.
     flat=render(7,["c t wmc","c p weight 5 0 1 0","c p weight -5 1.0 0.0 0","c p weight 6 -1 0 0","c p weight -6 1.0 0.0 0","c p weight 7 0.123456789 -0.987654321 0","c p weight -7 1.0 0.0 0"],{5:(1,2),6:(1,2,3),7:(1,2,3,4)},[(1,-4)])
     dag,receipt=rewrite(flat)

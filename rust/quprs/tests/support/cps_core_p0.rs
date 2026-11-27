@@ -2068,6 +2068,57 @@ fn sparse_reducibility_probe(c:&CpsCore<SparseGuardFrame>,stage:&str){
     println!("CPS_CORE8_STRUCTURE stage={stage} live={} k={} guard_factors={} guard_terms={guard_terms} guard_support={} output_terms={output_terms} phase_terms={} native_candidates={} guard_blocked={blocked} native_elim={} native_omega={} native_hh={} blocked_elim={} blocked_omega={} blocked_hh={} unique_sections={} bounded_sections={bounded}",
         c.guard.ids.len(),c.k,c.guard.factors.len(),support.len(),c.ps.p.terms.len(),candidates.len(),counts[0],counts[1],counts[2],blocked_counts[0],blocked_counts[1],blocked_counts[2],sections.len());
 }
+// Audit actual native HH successes that are not blocked by the summation
+// variable's guard support. Reproduce the existing admission checks on
+// isolated clones, without changing rule selection or accepting a new step.
+fn sparse_hh_admission_probe(c:&CpsCore<SparseGuardFrame>){
+    let support:BTreeSet<u32>=c.guard.factors.iter().flat_map(|g|g.iter()).flat_map(|m|m.ids().iter().copied()).collect();
+    let mut candidates:Vec<_>=c.ps.get_reducible_vars().into_iter().filter(|&v|(v as usize)>=c.n()&&v<SparseGuardFrame::ID_LIMIT&&!support.contains(&v)).collect();
+    candidates.sort_unstable();
+    let mut native_hits=0usize;
+    let mut counts=BTreeMap::<&str,usize>::new();
+    let mut first_abort:Option<u32>=None;
+    let mut first_admitted:Option<u32>=None;
+    for y in candidates.iter().copied(){
+        let mut p=c.ps.clone();
+        if !p.try_reduce_hh(&[y]){continue;}
+        native_hits+=1;
+        let mut removed:Vec<_>=c.ps.v.path_vars.difference(&p.v.path_vars).copied().collect();removed.sort_unstable();
+        let phase_after=p.p.terms.len();
+        let mut target=None;let mut replacement_terms=None;let mut failed_factor=None;
+        let mut guard_terms=None;let mut max_factor=None;
+        let reason=(||->Option<&'static str>{
+            let Some((v,r))=core_sparse_hh(&c.ps,c.n(),y) else{return Some("hh-section-unavailable");};
+            target=Some(v);replacement_terms=Some(r.len());
+            let mut gs=Vec::new();
+            for (i,g) in c.guard.factors.iter().enumerate(){
+                let Some(next)=cps_guard_algebra::guard_substitute(g,v,&r) else{failed_factor=Some(i);return Some("guard-substitution-cap");};
+                gs.push(next);
+            }
+            guard_terms=Some(gs.iter().map(|g|g.len()).sum::<usize>());
+            max_factor=gs.iter().map(|g|g.len()).max();
+            if p.v.num_qubits!=c.n()||p.f.functions.len()!=c.q()||p.rr_approximate||p.rr_tolerance!=0.0||!p.v.continuous_vars.is_empty(){return Some("native-trial-invariant");}
+            let mut expected=vec![y,v];expected.sort_unstable();
+            if removed!=expected||!p.v.path_vars.is_subset(&c.ps.v.path_vars){return Some("removed-id-mismatch");}
+            let Some(guard)=SparseGuardFrame::from_parts(&p,gs) else{return Some("guard-frame-cap-or-invariant");};
+            if !core_rr_phase_admitted(c.ps.p.terms.len(),phase_after){return Some("rr-phase-growth");}
+            let Some(k)=c.k.checked_sub(2) else{return Some("scale-overflow");};
+            let next=CpsCore{ps:p.clone(),guard,k};
+            let Some(after)=next.rr_snapshot() else{return Some("residual-invariant");};
+            if after.ids.len()>=c.guard.ids.len()||after.n!=c.n()||after.q!=c.q(){return Some("residual-shape");}
+            None
+        })().unwrap_or("admissible");
+        *counts.entry(reason).or_default()+=1;
+        // These are fail-closed exits in the current shared transition or
+        // sparse wrapper, unlike section/substitution rejection (continue).
+        if first_abort.is_none()&&!matches!(reason,"hh-section-unavailable"|"guard-substitution-cap"|"admissible"){first_abort=Some(y);}
+        if reason=="admissible"&&first_admitted.is_none(){first_admitted=Some(y);}
+        println!("CPS_CORE8_HH_ARM y={y} target={target:?} replacement_terms={replacement_terms:?} removed={removed:?} phase_after={phase_after} guard_terms={guard_terms:?} max_factor={max_factor:?} failed_factor={failed_factor:?} reason={reason}");
+    }
+    assert_eq!(counts.values().sum::<usize>(),native_hits);
+    println!("CPS_CORE8_HH_ADMISSION candidates={} native_hits={native_hits} first_abort={first_abort:?} first_admitted={first_admitted:?} counts={counts:?}",candidates.len());
+}
+
 #[test]
 fn hoare_cps_sparse_guard_section(){
     // Nontrivial section y = x XOR z, with y used in phase/output and
@@ -2123,6 +2174,7 @@ fn hoare_cps_sparse_source_admission(){
             println!("CPS_SPARSE_SOURCE_RR case=MOGrover05 steps={} live_before={} live_after={} k_before={} k_after={} phase_before={} phase_after={} replay=PASS",receipts.len(),c.guard.ids.len(),residual.guard.ids.len(),c.k,residual.k,c.ps.p.terms.len(),residual.ps.p.terms.len());
             sparse_reducibility_probe(&c,"initial");
             sparse_reducibility_probe(&residual,"residual");
+            sparse_hh_admission_probe(&residual);
             // Explore at most eight unique sections, each followed by the
             // original guarded RR and checked replay. Diagnostic only.
             let mut pilot=residual.clone();let mut sections=0usize;let mut native_steps=0usize;

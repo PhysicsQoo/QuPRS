@@ -588,7 +588,7 @@ jobs:
           retention-days: 30
 
   eq-dag-e1b:
-    if: github.ref == 'refs/heads/experiment/eq-dag-encoder' && github.event_name == 'push'
+    if: github.ref == 'refs/heads/experiment/eq-dag-encoder' && github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
@@ -635,4 +635,73 @@ jobs:
         with:
           name: eq-dag-e1b-common-factor-cnfs
           path: eq-dag-e1b-evidence/
+          retention-days: 30
+
+  eq-dag-e1c:
+    if: github.ref == 'refs/heads/experiment/eq-dag-encoder' && github.event_name == 'push'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 115
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/download-artifact@v4
+        with:
+          name: eq-dag-d1d-heldout-mqt
+          run-id: 46004315659
+          github-token: ${{ github.token }}
+          path: d1d
+      - uses: actions/download-artifact@v4
+        with:
+          name: eq-dag-e1b-common-factor-cnfs
+          run-id: 46020482676
+          github-token: ${{ github.token }}
+          path: e1b
+      - uses: actions/checkout@v4
+        with:
+          repository: PhysicsQoo/RaWMoCS
+          ref: 7ff6b1fdb772f16367fd1e094761a368d54f2ea7
+          path: .rawmocs-dag
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            rust -> target
+            .rawmocs-dag/crates/rawmocs-cli -> target
+      - name: Install pinned solvers and count reader
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake pkg-config libgmp-dev libmpfr-dev zlib1g-dev m4 make gcc time
+          python3 scripts/install_gpmc_release.py --dest "$RUNNER_TEMP/gpmc"
+          QUPRS_SOLVER_PROVISION=external cargo build --locked --release --manifest-path rust/Cargo.toml -p quprs --example eq_dag_d3_count
+          test "$(git -C .rawmocs-dag rev-parse HEAD)" = 7ff6b1fdb772f16367fd1e094761a368d54f2ea7
+          cargo build --locked --release --manifest-path .rawmocs-dag/crates/rawmocs-cli/Cargo.toml
+      - name: Matched same-host three-encoding two-solver pilot
+        run: |
+          set -euo pipefail
+          for d in d1d e1b; do (cd "$d" && sha256sum -c SHA256SUMS); done
+          python3 -u rust/research/eq_dag_e1c_ab.py d1d e1b "$RUNNER_TEMP/gpmc" rust/target/release/examples/eq_dag_d3_count .rawmocs-dag .rawmocs-dag/crates/rawmocs-cli/target/release/rawmocs eq-dag-e1c-evidence | tee e1c.log
+      - name: Seal evidence
+        if: always()
+        run: |
+          mkdir -p eq-dag-e1c-evidence
+          test ! -f e1c.log || cp e1c.log eq-dag-e1c-evidence/
+          git rev-parse HEAD > eq-dag-e1c-evidence/head.txt
+          git rev-parse 'HEAD^{tree}' > eq-dag-e1c-evidence/tree.txt
+          lscpu > eq-dag-e1c-evidence/cpu.txt
+          cd eq-dag-e1c-evidence
+          find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 -r sha256sum > SHA256SUMS
+          sha256sum -c SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: eq-dag-e1c-matched-solver-pilot
+          path: eq-dag-e1c-evidence/
           retention-days: 30

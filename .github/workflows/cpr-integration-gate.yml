@@ -38,8 +38,10 @@ jobs:
           rustc --version | tee evidence/rustc.txt
           sha256sum rust/quprs/src/{lib,cpr,cpr_optin,circuit,strategy,wmc,reduction}.rs rust/Cargo.lock rust/quprs/Cargo.toml rust/quprs/examples/cpr_native_optin.rs > evidence/source-sha256.txt
           unset CRR_SOURCE CRR_TARGET QUPRS_GPMC_PATH QUPRS_GANAK_PATH
-          # The existing CLI supervisor injects failures only with debug_assertions.
-          # Match main's dev-fast profile for the entire ordinary test suite.
+          # CLI fault injection requires debug assertions; the frozen CPR heavy gate
+          # also requires optimized execution to meet its unchanged 15s deadline.
+          # Optimize only the CI test profile, explicitly retaining debug/overflow checks.
+          # All tests remain unfiltered; release gates below remain unchanged.
           # Continue independent gates on a failure, but aggregate every exit code.
           failed=0
           run_gate() {
@@ -49,7 +51,9 @@ jobs:
             printf '%s %s\n' "$label" "$rc" | tee -a evidence/gate-exits.txt
             if [ "$rc" -ne 0 ]; then failed=1; fi
           }
-          run_gate default-debug-full cargo test --locked --manifest-path rust/Cargo.toml -p quprs -p QuPRS_cli
+          run_gate default-checked-optimized-full env CARGO_PROFILE_TEST_OPT_LEVEL=3 CARGO_PROFILE_TEST_DEBUG_ASSERTIONS=true CARGO_PROFILE_TEST_OVERFLOW_CHECKS=true cargo test --locked --manifest-path rust/Cargo.toml -p quprs -p QuPRS_cli
+          run_gate checked-heavy-receipt grep -F 'cpr::tests::i1b_frozen_heavy_construction ... ok' evidence/default-checked-optimized-full.log
+          run_gate checked-cli-receipt grep -F 'supervisor_timeout_includes_qasm_read_and_both_cli_modes ... ok' evidence/default-checked-optimized-full.log
           run_gate default-release-core cargo test --locked --release --manifest-path rust/Cargo.toml -p quprs
           run_gate optin-full cargo test --locked --release --manifest-path rust/Cargo.toml -p quprs --features experimental-cpr
           run_gate entry-contract grep -F 'cpr_optin::tests::optin_request_and_rr_first_contract ... ok' evidence/optin-full.log

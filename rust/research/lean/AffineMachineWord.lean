@@ -36,6 +36,22 @@ theorem neg_concat_even {w : Nat} (x : BitVec w) :
     change 2^w * 2 - (x.toNat * 2 + 0) = (2^w - x.toNat) * 2 + 0
     omega
 
+/-- Avoid the library complement-to-Nat theorem's transitive trust
+    dependencies by deriving the identity from the concat recurrence. -/
+theorem complement_nat {w : Nat} (x : BitVec w) :
+    (~~~x).toNat = 2^w - 1 - x.toNat := by
+  refine BitVec.concat_induction (motive := fun n y =>
+    (~~~y).toNat = 2^n - 1 - y.toNat) ?_ ?_ x
+  · decide
+  · intro n y b ih
+    have hy := y.isLt
+    rw [BitVec.not_concat, BitVec.toNat_concat, BitVec.toNat_concat, ih, Nat.pow_succ]
+    cases b
+    · change (2^n - 1 - y.toNat) * 2 + 1 = 2^n * 2 - 1 - (y.toNat * 2 + 0)
+      omega
+    · change (2^n - 1 - y.toNat) * 2 + 0 = 2^n * 2 - 1 - (y.toNat * 2 + 1)
+      omega
+
 theorem neg_concat_odd {w : Nat} (x : BitVec w) :
     -(x.concat true) = (~~~x).concat true := by
   have hq : (0 : BitVec (w+1)) < x.concat true := by
@@ -46,22 +62,52 @@ theorem neg_concat_odd {w : Nat} (x : BitVec w) :
   have hx := x.isLt
   apply BitVec.toNat_eq.mpr
   simp only [BitVec.toNat_neg_of_pos hq, BitVec.toNat_concat,
-    BitVec.toNat_not, Nat.pow_succ]
+    complement_nat, Nat.pow_succ]
   change 2^w * 2 - (x.toNat * 2 + 1) = (2^w - 1 - x.toNat) * 2 + 1
   omega
 
+theorem not_neg_local {w : Nat} (x : BitVec w) :
+    ~~~(-x) = x - 1#w := by
+  cases w with
+  | zero =>
+      exact BitVec.toNat_eq.mpr (by rw [BitVec.toNat_zero_length, BitVec.toNat_zero_length])
+  | succ n =>
+      have hpow : 1 < 2^(n+1) := by
+        rw [Nat.pow_succ]
+        have hp : 0 < 2^n := Nat.two_pow_pos n
+        omega
+      have hone : (1#(n+1)).toNat = 1 := BitVec.toNat_one (by omega)
+      by_cases hz : x = 0#(n+1)
+      · subst x
+        apply BitVec.toNat_eq.mpr
+        rw [BitVec.neg_zero, complement_nat, BitVec.toNat_zero, BitVec.toNat_sub, hone, BitVec.toNat_zero]
+        rw [Nat.add_zero, Nat.mod_eq_of_lt (by omega)]
+        omega
+      · have hn : x.toNat ≠ 0 := fun h => hz (BitVec.toNat_eq.mpr h)
+        have hp : 0#(n+1) < x := by
+          change 0 < x.toNat
+          omega
+        have hle : 1#(n+1) ≤ x := by
+          change (1#(n+1)).toNat ≤ x.toNat
+          rw [hone]
+          omega
+        have hx := x.isLt
+        apply BitVec.toNat_eq.mpr
+        rw [complement_nat, BitVec.toNat_neg_of_pos hp, BitVec.toNat_sub_of_le hle, hone]
+        omega
+
 theorem sub_concat_even {w : Nat} (x : BitVec w) :
-    x.concat false - 1 = (x-1).concat true := by
+    x.concat false - 1#(w+1) = (x-1#w).concat true := by
   calc
-    _ = ~~~(-(x.concat false)) := (BitVec.not_neg _).symm
+    _ = ~~~(-(x.concat false)) := (not_neg_local _).symm
     _ = (~~~(-x)).concat true := by rw [neg_concat_even, BitVec.not_concat]; rfl
-    _ = _ := by rw [BitVec.not_neg]
+    _ = _ := by rw [not_neg_local]
 
 theorem sub_concat_odd {w : Nat} (x : BitVec w) :
-    x.concat true - 1 = x.concat false := by
+    x.concat true - 1#(w+1) = x.concat false := by
   calc
-    _ = ~~~(-(x.concat true)) := (BitVec.not_neg _).symm
-    _ = _ := by rw [neg_concat_odd, BitVec.not_concat]; simp
+    _ = ~~~(-(x.concat true)) := (not_neg_local _).symm
+    _ = _ := by rw [neg_concat_odd, BitVec.not_concat, BitVec.not_not]; rfl
 
 theorem low_concat_false {w : Nat} (x : BitVec w) :
     lowBit (x.concat false) = (lowBit x).concat false := by
@@ -70,9 +116,14 @@ theorem low_concat_false {w : Nat} (x : BitVec w) :
   rfl
 
 theorem low_concat_true {w : Nat} (x : BitVec w) :
-    lowBit (x.concat true) = (0 : BitVec w).concat true := by
+    lowBit (x.concat true) = (0#w).concat true := by
+  have hz : x &&& ~~~x = 0#w := by
+    apply BitVec.eq_of_getLsbD_eq_iff.mpr
+    intro i hi
+    simp only [BitVec.getLsbD_and, BitVec.getLsbD_not, decide_eq_true hi, Bool.true_and, BitVec.getLsbD_zero]
+    cases x.getLsbD i <;> rfl
   unfold lowBit
-  rw [neg_concat_odd, BitVec.concat_and_concat, BitVec.and_not_self]
+  rw [neg_concat_odd, BitVec.concat_and_concat, hz]
   rfl
 
 theorem low_zero : lowBit (0 : Word) = 0 := by
@@ -81,8 +132,8 @@ theorem low_zero : lowBit (0 : Word) = 0 := by
 theorem clear_zero : clear (0 : Word) = 0 := by
   decide
 
-theorem clear_identity {w : Nat} (m : BitVec w) : clear m = m &&& (m - 1) := by
-  rw [← BitVec.not_neg]
+theorem clear_identity {w : Nat} (m : BitVec w) : clear m = m &&& (m - 1#w) := by
+  rw [← not_neg_local]
   apply BitVec.eq_of_getLsbD_eq_iff.mpr
   intro i hi
   simp only [clear, lowBit, BitVec.getLsbD_xor, BitVec.getLsbD_and,
@@ -101,8 +152,8 @@ theorem clear_concat_true {w : Nat} (x : BitVec w) :
   rfl
 
 theorem count_zero_iff {w : Nat} (m : BitVec w) :
-    m.cpop.toNat = 0 ↔ m = 0 := by
-  refine BitVec.concat_induction (motive := fun n x => x.cpop.toNat = 0 ↔ x = (0 : BitVec n)) ?_ ?_ m
+    m.cpop.toNat = 0 ↔ m = 0#w := by
+  refine BitVec.concat_induction (motive := fun n x => x.cpop.toNat = 0 ↔ x = 0#n) ?_ ?_ m
   · decide
   · intro n x b ih
     constructor
@@ -127,7 +178,8 @@ theorem count_clear {w : Nat} (m : BitVec w) :
   · intro n x b ih
     cases b
     · rw [clear_concat_false, BitVec.toNat_cpop_concat, BitVec.toNat_cpop_concat, ih]
-      rfl
+      change 0 + (x.cpop.toNat - 1) = 0 + x.cpop.toNat - 1
+      omega
     · rw [clear_concat_true, BitVec.toNat_cpop_concat, BitVec.toNat_cpop_concat]
       change 0 + x.cpop.toNat = (1 + x.cpop.toNat) - 1
       omega
@@ -139,9 +191,9 @@ theorem low_nonzero {w : Nat} (m : BitVec w) (h : m ≠ 0) : lowBit m ≠ 0 := b
   rw [he] at hc
   exact h ((count_zero_iff m).mp (by omega))
 
-theorem low_onehot {w : Nat} (m : BitVec w) : lowBit m &&& (lowBit m - 1) = 0 := by
+theorem low_onehot {w : Nat} (m : BitVec w) : lowBit m &&& (lowBit m - 1#w) = 0#w := by
   refine BitVec.concat_induction (motive := fun n x =>
-    lowBit x &&& (lowBit x - 1) = (0 : BitVec n)) ?_ ?_ m
+    lowBit x &&& (lowBit x - 1#n) = 0#n) ?_ ?_ m
   · decide
   · intro n x b ih
     cases b
@@ -156,9 +208,9 @@ theorem low_subset {w : Nat} (m : BitVec w) : lowBit m &&& m = lowBit m := by
   simp only [lowBit, BitVec.getLsbD_and]
   cases m.getLsbD i <;> cases (-m).getLsbD i <;> rfl
 
-theorem low_minimal_aux {w : Nat} (m : BitVec w) : m &&& (lowBit m - 1) = 0 := by
+theorem low_minimal_aux {w : Nat} (m : BitVec w) : m &&& (lowBit m - 1#w) = 0#w := by
   refine BitVec.concat_induction (motive := fun n x =>
-    x &&& (lowBit x - 1) = (0 : BitVec n)) ?_ ?_ m
+    x &&& (lowBit x - 1#n) = 0#n) ?_ ?_ m
   · decide
   · intro n x b ih
     cases b
@@ -168,7 +220,7 @@ theorem low_minimal_aux {w : Nat} (m : BitVec w) : m &&& (lowBit m - 1) = 0 := b
       exact BitVec.zero_concat_false
 
 theorem low_minimal {w : Nat} (m : BitVec w) :
-    m &&& (lowBit m - 1) = 0 ∨ m = 0 :=
+    m &&& (lowBit m - 1#w) = 0#w ∨ m = 0 :=
   Or.inl (low_minimal_aux m)
 
 theorem clear_lt {w : Nat} (m : BitVec w) (h : m ≠ 0) : clear m < m := by
@@ -184,7 +236,7 @@ theorem clear_lt {w : Nat} (m : BitVec w) (h : m ≠ 0) : clear m < m := by
   exact Nat.lt_of_le_of_ne hle (fun e => hn (BitVec.toNat_eq.mpr e))
 
 theorem split_mask {w : Nat} (m : BitVec w) :
-    lowBit m ||| clear m = m ∧ lowBit m &&& clear m = 0 := by
+    lowBit m ||| clear m = m ∧ lowBit m &&& clear m = 0#w := by
   constructor
   · apply BitVec.eq_of_getLsbD_eq_iff.mpr
     intro i _
@@ -198,7 +250,7 @@ theorem split_mask {w : Nat} (m : BitVec w) :
 theorem merge_partition (b p r m : Word)
     (hu : b ||| (p ||| r) = m) (hb : b &&& (p ||| r) = 0)
     (hp : p &&& r = 0) :
-    (b ||| p) ||| r = m ∧ (b ||| p) &&& r = 0 := by
+    (b ||| p) ||| r = m ∧ (b ||| p) &&& r = 0#64 := by
   constructor
   · rw [BitVec.or_assoc, hu]
   · apply BitVec.eq_of_getLsbD_eq_iff.mpr
@@ -206,16 +258,19 @@ theorem merge_partition (b p r m : Word)
     have h1 := congrArg (fun z : Word => z.getLsbD i) hb
     have h2 := congrArg (fun z : Word => z.getLsbD i) hp
     simp only [BitVec.getLsbD_and, BitVec.getLsbD_or, BitVec.getLsbD_zero] at h1 h2 ⊢
-    cases b.getLsbD i <;> cases p.getLsbD i <;> cases r.getLsbD i <;> simp_all
+    generalize b.getLsbD i = bb at h1 ⊢
+    generalize p.getLsbD i = pp at h1 h2 ⊢
+    generalize r.getLsbD i = rr at h1 h2 ⊢
+    cases bb <;> cases pp <;> cases rr <;> simp_all
 
 theorem select_distributes (a b p : Word) :
     (a &&& b) ||| (a &&& p) = a &&& (b ||| p) :=
-  (BitVec.and_or_distrib_left a b p).symm
+  (BitVec.and_or_distrib_left (x := a) (y := b) (z := p)).symm
 
 theorem low_projection {w : Nat} (m : BitVec w) :
-    ∀ a : BitVec w, a &&& lowBit m = 0 ∨ a &&& lowBit m = lowBit m := by
+    ∀ a : BitVec w, a &&& lowBit m = 0#w ∨ a &&& lowBit m = lowBit m := by
   refine BitVec.concat_induction (motive := fun n x =>
-    ∀ a : BitVec n, a &&& lowBit x = 0 ∨ a &&& lowBit x = lowBit x) ?_ ?_ m
+    ∀ a : BitVec n, a &&& lowBit x = 0#n ∨ a &&& lowBit x = lowBit x) ?_ ?_ m
   · intro a
     exact Or.inl BitVec.of_length_zero
   · intro n x b ih a
@@ -235,15 +290,15 @@ theorem low_projection {w : Nat} (m : BitVec w) :
       · exact Or.inl BitVec.zero_concat_false
       · exact Or.inr rfl
 
-theorem selected_digit (a b : Word) (h : b &&& (b - 1) = 0) :
-    (if a &&& b = 0 then 0 else b) = a &&& b := by
-  have hc : clear b = 0 := (clear_identity b).trans h
+theorem selected_digit (a b : Word) (h : b &&& (b - 1#64) = 0#64) :
+    (if a &&& b = 0#64 then 0#64 else b) = a &&& b := by
+  have hc : clear b = 0#64 := (clear_identity b).trans h
   have he : b = lowBit b := BitVec.xor_eq_zero_iff.mp hc
   have hp := low_projection b a
   rw [← he] at hp
   rcases hp with hz | hs
   · rw [ite_eq_left hz, hz]
-  · by_cases hz : a &&& b = 0
+  · by_cases hz : a &&& b = 0#64
     · rw [ite_eq_left hz, hz]
     · rw [ite_eq_right hz, hs]
 
@@ -357,6 +412,8 @@ theorem reconstruct_at_count (m a : Word) :
     reconstruct m.cpop.toNat m a = a &&& m :=
   reconstruct_complete _ m a (exact_count_finish m)
 
+#print axioms complement_nat
+#print axioms not_neg_local
 #print axioms low_zero
 #print axioms clear_zero
 #print axioms low_nonzero

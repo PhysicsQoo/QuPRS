@@ -1198,7 +1198,7 @@ jobs:
 
           machine_word_status=0
           lean AffineMachineWordTrustAudit.lean 2>&1 | tee /tmp/qasm-lean-affine-machine-word-trust-audit.log || machine_word_status=$?
-          lean AffineMachineWord.lean 2>&1 | tee /tmp/qasm-lean-affine-machine-word.log || machine_word_status=$?
+          lean -o AffineMachineWord.olean AffineMachineWord.lean 2>&1 | tee /tmp/qasm-lean-affine-machine-word.log || machine_word_status=$?
           if grep -E 'sorryAx|Lean[.]trustCompiler|Lean[.]ofReduceBool|Classical[.]choice|[.]_native[.]|_native[.]' /tmp/qasm-lean-affine-machine-word.log; then
             machine_word_status=1
           fi
@@ -1210,6 +1210,25 @@ jobs:
             echo 'LEAN4_AFFINE_MACHINE_WORD_PASS theorem_axiom_reports=41 lowbit=true mask_partition_induction=true numeric_termination_bound=true reverse_prefix=true popcount_bound=true usize_refinement=false rust_refinement=false'
           else
             echo 'LEAN4_AFFINE_MACHINE_WORD_FAIL' >&2
+          fi
+
+          sparse_positions_status=0
+          if test "$machine_word_status" -eq 0; then
+            LEAN_PATH=. lean AffineSparsePositions.lean 2>&1 | tee /tmp/qasm-lean-affine-sparse-positions.log || sparse_positions_status=$?
+            if grep -E 'sorryAx|Lean[.]trustCompiler|Lean[.]ofReduceBool|Classical[.]choice|[.]_native[.]|_native[.]' /tmp/qasm-lean-affine-sparse-positions.log; then
+              sparse_positions_status=1
+            fi
+            test "$(grep -Ec 'does not depend on any axioms|depends on axioms' /tmp/qasm-lean-affine-sparse-positions.log)" -eq 11 || sparse_positions_status=1
+            for theorem in positions_zero scope_zero scope_concat scope_count scope_clear map_take_one scope_low scope_member scope_increasing scope_nodup scope_remaining; do
+              test "$(grep -Ec "^'QuPRS[.]AffineSparsePositions[.]$theorem' (does not depend on any axioms|depends on axioms)" /tmp/qasm-lean-affine-sparse-positions.log)" -eq 1 || sparse_positions_status=1
+            done
+          else
+            sparse_positions_status=1
+          fi
+          if test "$sparse_positions_status" -eq 0; then
+            echo 'LEAN4_AFFINE_SPARSE_POSITIONS_PASS theorem_axiom_reports=11 exact_membership=true ordered_positions=true popcount_length=true clear_tail=true lowbit_head=true remaining_suffix=true usize_refinement=false rust_refinement=false'
+          else
+            echo 'LEAN4_AFFINE_SPARSE_POSITIONS_FAIL' >&2
           fi
 
           incidence_status=0
@@ -1227,7 +1246,7 @@ jobs:
           else
             echo 'LEAN4_AFFINE_NATIVE_INCIDENCE_FAIL' >&2
           fi
-          test "$normalization_status" -eq 0 && test "$lift_status" -eq 0 && test "$incidence_status" -eq 0 && test "$negacyclic_status" -eq 0 && test "$checked_status" -eq 0 && test "$schedule_status" -eq 0 && test "$factor_scope_status" -eq 0 && test "$elimination_status" -eq 0 && test "$algebra_status" -eq 0 && test "$checked_factor_status" -eq 0 && test "$canonical_scope_status" -eq 0 && test "$checked_order_status" -eq 0 && test "$hidden_order_status" -eq 0 && test "$full_assignment_status" -eq 0 && test "$packed_index_status" -eq 0 && test "$machine_word_status" -eq 0
+          test "$normalization_status" -eq 0 && test "$lift_status" -eq 0 && test "$incidence_status" -eq 0 && test "$negacyclic_status" -eq 0 && test "$checked_status" -eq 0 && test "$schedule_status" -eq 0 && test "$factor_scope_status" -eq 0 && test "$elimination_status" -eq 0 && test "$algebra_status" -eq 0 && test "$checked_factor_status" -eq 0 && test "$canonical_scope_status" -eq 0 && test "$checked_order_status" -eq 0 && test "$hidden_order_status" -eq 0 && test "$full_assignment_status" -eq 0 && test "$packed_index_status" -eq 0 && test "$machine_word_status" -eq 0 && test "$sparse_positions_status" -eq 0
 
       - name: Build and test std-only independent verifier
         run: |

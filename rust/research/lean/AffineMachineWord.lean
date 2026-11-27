@@ -445,8 +445,15 @@ theorem remaining_count (fuel : Nat) (m : Word) :
 
 theorem remaining_iff_count (fuel : Nat) (m : Word) :
     remaining fuel m = 0#64 ↔ m.cpop.toNat ≤ fuel := by
-  rw [← count_zero_iff (remaining fuel m), remaining_count]
-  omega
+  constructor
+  · intro hz
+    have hc := (count_zero_iff (remaining fuel m)).mpr hz
+    rw [remaining_count] at hc
+    omega
+  · intro hle
+    apply (count_zero_iff (remaining fuel m)).mp
+    rw [remaining_count]
+    omega
 
 theorem exact_count_finish (m : Word) :
     remaining m.cpop.toNat m = 0#64 :=

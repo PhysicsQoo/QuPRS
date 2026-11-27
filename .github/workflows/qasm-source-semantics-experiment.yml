@@ -14,6 +14,7 @@ on:
       - rust/quprs/tests/support/conditional_stitch.rs
       - rust/research/conditional_rr_stitch.py
       - rust/research/cpr_cnf_structure.py
+      - rust/research/cpr_router_acceptance.py
       - rust/research/conditional_rr_incidence.py
       - rust/research/conditional_rr_walltime.py
       - rust/research/conditional_rr_reference.py
@@ -1328,10 +1329,10 @@ jobs:
           git rev-parse HEAD
           echo 'CRR_CORE_BRANCH_PREFLIGHT=PASS native_tests=NOT_RUN'
 
-  cpr-cnf-structure:
+  cpr-router-acceptance:
     if: github.ref == 'refs/heads/experiment/cost-aware-pathsum'
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 40
     env:
       QUPRS_SOLVER_PROVISION: external
       CARGO_TERM_COLOR: never
@@ -1343,20 +1344,41 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: 'rust -> target'
-          key: cpr-cnf-structure
+          key: cpr-router-acceptance
       - name: Install native prerequisites
         run: sudo apt-get update && sudo apt-get install -y cmake pkg-config libgmp-dev libmpfr-dev zlib1g-dev
-      - name: Compare raw and extracted encodings of the same residual
+      - name: Native bounded router and held-out source parity
         run: |
           set -euo pipefail
           mkdir -p evidence
           git rev-parse HEAD | tee evidence/source-head.txt
-          sha256sum rust/quprs/src/wmc.rs rust/quprs/tests/support/conditional_stitch.rs rust/quprs/tests/support/conditional_trace.rs rust/research/cpr_cnf_structure.py rust/research/conditional_rr_stitch.py docs/development/paper-corpus-manifest.json > evidence/source-sha256.txt
+          sha256sum rust/quprs/src/wmc.rs rust/quprs/tests/support/conditional_stitch.rs rust/quprs/tests/support/conditional_trace.rs rust/research/cpr_router_acceptance.py rust/research/conditional_rr_source_ball.py rust/research/conditional_rr_tensor_source.py docs/development/paper-corpus-manifest.json > evidence/source-sha256.txt
+          tmp="$(mktemp -d)"
+          trap 'rm -rf "$tmp"' EXIT
+          python3 scripts/install_gpmc_release.py --dest "$tmp/gpmc" | tee evidence/gpmc-release.json
+          sha256sum "$tmp/gpmc" | tee evidence/gpmc-sha256.txt
           cargo test --release --locked --manifest-path rust/Cargo.toml -p quprs --test conditional_rr_experiment --no-run
-          timeout --kill-after=5s 240s python3 rust/research/cpr_cnf_structure.py evidence 2>&1 | tee evidence/cpr-structure.log
+          cargo test --release --locked --manifest-path rust/Cargo.toml -p quprs --test conditional_rr_experiment conditional_trace::cpr_router_controls -- --exact --nocapture | tee evidence/controls.log
+          grep -Fx 'CPR_ROUTER_CONTROLS_PASS' evidence/controls.log
+          set +e
+          QUPRS_GPMC_PATH="$tmp/gpmc" timeout --kill-after=5s 1800s python3 rust/research/cpr_router_acceptance.py 2>&1 | tee evidence/router.log
+          cohort_status=${PIPESTATUS[0]}
+          set -e
+          python3 -m venv "$tmp/reference-venv"
+          "$tmp/reference-venv/bin/pip" install --disable-pip-version-check python-flint==0.9.0
+          CRR_GENERIC_LOG=evidence/router.log CRR_BALL_BITS=2048 timeout --kill-after=5s 180s "$tmp/reference-venv/bin/python" rust/research/conditional_rr_source_ball.py 2>&1 | tee evidence/source-parity.log
+          python3 - <<'PY'
+          from pathlib import Path
+          import json
+          rows = [json.loads(l.split(" ",1)[1]) for l in Path("evidence/source-parity.log").read_text().splitlines() if l.startswith("CRR_GENERIC_SOURCE_PARITY ")]
+          complete = [l for l in Path("evidence/router.log").read_text().splitlines() if l.startswith("CRR_GENERIC_CALL ") and "status=complete" in l]
+          assert len(rows)==len(complete)>0 and all(r["matched"] for r in rows)
+          print("CPR_SOURCE_GATE=PASS count="+str(len(rows)))
+          PY
+          test "$cohort_status" = 0
           find evidence -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > evidence/SHA256SUMS
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: cpr-cnf-structure
+          name: cpr-router-acceptance
           path: evidence/

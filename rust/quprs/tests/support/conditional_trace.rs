@@ -3258,6 +3258,99 @@ fn lift_trace_handoff_controls(){
 
 // One solver call per independently reconstructed arm. No selected
 // source verdict, no fallback pretending a censored run completed.
+// CPR C2: structural proxy, not an exact treewidth or runtime estimate.
+// Match C1's full primal graph, min-degree ordering with variable-ID ties.
+// Fixed work caps; incomplete analysis always selects the unmodified raw arm.
+#[derive(Debug,PartialEq,Eq)]
+struct CprGraph { width:usize, weighted:usize, weighted_degree:usize }
+
+fn cpr_graph(cnf:&str, deadline:std::time::Instant)->Option<CprGraph>{
+    use std::collections::BTreeSet;
+    let mut lines=cnf.lines();
+    let header:Vec<_>=lines.next()?.split_whitespace().collect();
+    if header.len()!=4||header[0]!="p"||header[1]!="cnf"{return None;}
+    let n:usize=header[2].parse().ok()?;
+    let clauses:usize=header[3].parse().ok()?;
+    if n>4096||clauses>65536{return None;}
+    let mut adj=vec![BTreeSet::<usize>::new();n+1];
+    let mut weights=BTreeSet::new();
+    let mut edges=0usize;let mut seen=0usize;
+    const CAP:usize=250_000;
+    for line in lines{
+        if std::time::Instant::now()>=deadline{return None;}
+        let t:Vec<_>=line.split_whitespace().collect();
+        if t.is_empty(){continue;}
+        if t[0]=="c"{
+            if t.starts_with(&["c","p","weight"]){
+                if t.len()!=7||t[6]!="0"{return None;}
+                let v=t[3].parse::<i32>().ok()?.unsigned_abs() as usize;
+                if v==0||v>n{return None;}
+                weights.insert(v);
+            }
+            continue;
+        }
+        if t.last()!=Some(&"0"){return None;}
+        seen+=1;
+        let mut vs=BTreeSet::new();
+        for lit in &t[..t.len()-1]{
+            let v=lit.parse::<i32>().ok()?.unsigned_abs() as usize;
+            if v==0||v>n{return None;}vs.insert(v);
+        }
+        let vs:Vec<_>=vs.into_iter().collect();
+        if edges.saturating_add(vs.len().saturating_mul(vs.len().saturating_sub(1))/2)>CAP{return None;}
+        for (i,&v) in vs.iter().enumerate(){
+            for &u in &vs[i+1..]{
+                if adj[v].insert(u){adj[u].insert(v);edges+=1;}
+            }
+        }
+    }
+    if seen!=clauses{return None;}
+    let weighted=weights.len();
+    let weighted_degree=weights.iter().map(|&v|adj[v].len()).sum();
+    let mut queue:BTreeSet<_>=(1..=n).map(|v|(adj[v].len(),v)).collect();
+    let mut width=0;
+    while let Some((d,v))=queue.pop_first(){
+        if std::time::Instant::now()>=deadline||edges.saturating_add(d.saturating_mul(d.saturating_sub(1))/2)>CAP{return None;}
+        width=width.max(d);
+        let ns:Vec<_>=adj[v].iter().copied().collect();
+        for &u in &ns{
+            if !queue.remove(&(adj[u].len(),u)){return None;}
+            adj[u].remove(&v);
+        }
+        adj[v].clear();edges-=d;
+        for (i,&u) in ns.iter().enumerate(){
+            for &z in &ns[i+1..]{
+                if adj[u].insert(z){adj[z].insert(u);edges+=1;}
+            }
+        }
+        for &u in &ns{queue.insert((adj[u].len(),u));}
+    }
+    Some(CprGraph{width,weighted,weighted_degree})
+}
+fn cpr_extract_choice(raw:Option<&CprGraph>, ext:Option<&CprGraph>)->bool{
+    match (raw,ext){
+        (Some(r),Some(e))=>e.width<=r.width&&e.weighted<r.weighted&&e.weighted_degree<r.weighted_degree,
+        _=>false
+    }
+}
+#[test]
+fn cpr_router_controls(){
+    use std::time::{Instant,Duration};
+    let d=Instant::now()+Duration::from_secs(2);
+    let g=cpr_graph("p cnf 4 3\nc t wmc\nc p weight 1 1.0 0.0 0\n1 0\n-1 2 0\n3 4 0\n",d).unwrap();
+    assert_eq!(g,CprGraph{width:1,weighted:1,weighted_degree:1});
+    assert!(cpr_graph("p cnf 3 1\n1 2 3 0\n",d).unwrap().width==2);
+    assert!(cpr_graph("p cnf 3 1\n4 0\n",d).is_none());
+    assert!(cpr_graph("p cnf 4097 0\n",d).is_none());
+    let r=CprGraph{width:15,weighted:100,weighted_degree:300};
+    let e=CprGraph{width:15,weighted:99,weighted_degree:290};
+    assert!(cpr_extract_choice(Some(&r),Some(&e)));
+    assert!(!cpr_extract_choice(Some(&r),Some(&CprGraph{width:16,..e})));
+    assert!(!cpr_extract_choice(Some(&r),None));
+    assert!(!cpr_extract_choice(Some(&r),Some(&r)));
+    println!("CPR_ROUTER_CONTROLS_PASS");
+}
+
 pub(super) fn generic_trace_handoff(ps:&PathSum,pairs:&[(u32,u32)],case:&str,variant:&str,arm:&str,construct_s:f64){
     use std::time::{Instant,Duration};
     if Trace::from_native(ps).is_none()||ps.p.terms.len()+ps.f.functions.iter().map(|p|p.len()).sum::<usize>()>TERM_CAP{
@@ -3283,19 +3376,42 @@ pub(super) fn generic_trace_handoff(ps:&PathSum,pairs:&[(u32,u32)],case:&str,var
         return;
     }
     let start=Instant::now();
-    let (view,rows)=if arm=="conditional_raw"{(ps.clone(),Vec::new())}else{extract_lift_integrators(ps,pairs)};
-    let mut mgr=quprs::wmc::WmcManager::new(&view);
-    mgr.enable_precise_gpmc_weights(256);
-    mgr.encode_trace_with_zero_constraints(&view,&rows).expect("trace");
-    let dimacs=mgr.try_to_dimacs_string("gpmc").expect("serialize");
+    let encode=|view:&PathSum,rows:&Vec<Vec<Monomial>>|{
+        let mut mgr=quprs::wmc::WmcManager::new(view);
+        mgr.enable_precise_gpmc_weights(256);
+        mgr.encode_trace_with_zero_constraints(view,rows).expect("trace");
+        let dimacs=mgr.try_to_dimacs_string("gpmc").expect("serialize");
+        (mgr,dimacs)
+    };
+    let (mgr,dimacs,extracted)=if arm=="conditional_router"{
+        let (raw,raw_cnf)=encode(ps,&Vec::new());
+        let (view,rows)=extract_lift_integrators(ps,pairs);
+        if rows.is_empty(){
+            println!("CPR_ROUTE case={case} variant={variant} selected=raw reason=no_legal_extraction");
+            (raw,raw_cnf,0)
+        }else{
+            let (ext,ext_cnf)=encode(&view,&rows);
+            let deadline=start+Duration::from_millis(250);
+            let raw_graph=cpr_graph(&raw_cnf,deadline);
+            let ext_graph=cpr_graph(&ext_cnf,deadline);
+            let select=cpr_extract_choice(raw_graph.as_ref(),ext_graph.as_ref());
+            let selected=if select{"extracted"}else{"raw"};
+            println!("CPR_ROUTE case={case} variant={variant} selected={selected} raw={raw_graph:?} extracted={ext_graph:?} policy_s={}",start.elapsed().as_secs_f64());
+            if select{(ext,ext_cnf,rows.len())}else{(raw,raw_cnf,0)}
+        }
+    }else{
+        let (view,rows)=if arm=="conditional_raw"{(ps.clone(),Vec::new())}else{extract_lift_integrators(ps,pairs)};
+        let (mgr,dimacs)=encode(&view,&rows);
+        (mgr,dimacs,rows.len())
+    };
     let h:Vec<_>=dimacs.lines().find(|l|l.starts_with("p cnf ")).unwrap().split_whitespace().collect();
     let (v,c)=(h[2],h[3]);let prep=start.elapsed().as_secs_f64();
     let begin=Instant::now();
     match mgr.solve_with_deadline_distance_printed_precision("gpmc",Some(begin+Duration::from_secs(12)),90){
         Ok(raw)=>{
-            let (count,verdict)=restore_count(raw,rows.len(),0,twice);
-            println!("CRR_GENERIC_CALL case={case} variant={variant} arm={arm} status=complete verdict={verdict:?} vars={v} clauses={c} pairs={} extracted={} twice={twice} construct_s={construct_s} prepare_s={prep} solve_s={} total_s={} real={} imag={}",pairs.len(),rows.len(),begin.elapsed().as_secs_f64(),construct_s+prep+begin.elapsed().as_secs_f64(),count.real,count.imag);
+            let (count,verdict)=restore_count(raw,extracted,0,twice);
+            println!("CRR_GENERIC_CALL case={case} variant={variant} arm={arm} status=complete verdict={verdict:?} vars={v} clauses={c} pairs={} extracted={} twice={twice} construct_s={construct_s} prepare_s={prep} solve_s={} total_s={} real={} imag={}",pairs.len(),extracted,begin.elapsed().as_secs_f64(),construct_s+prep+begin.elapsed().as_secs_f64(),count.real,count.imag);
         }
-        Err(e)=>println!("CRR_GENERIC_CALL case={case} variant={variant} arm={arm} status=incomplete vars={v} clauses={c} pairs={} extracted={} twice={twice} construct_s={construct_s} prepare_s={prep} solve_s={} error={e:#}",pairs.len(),rows.len(),begin.elapsed().as_secs_f64())
+        Err(e)=>println!("CRR_GENERIC_CALL case={case} variant={variant} arm={arm} status=incomplete vars={v} clauses={c} pairs={} extracted={} twice={twice} construct_s={construct_s} prepare_s={prep} solve_s={} error={e:#}",pairs.len(),extracted,begin.elapsed().as_secs_f64())
     }
 }

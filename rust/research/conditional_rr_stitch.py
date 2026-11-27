@@ -188,4 +188,60 @@ def main():
             rr_total_median={arm:statistics.median(x["rewrite_s"]+x["post_rr_s"] for x in timing if x["arm"]==arm) for arm in ("stitch","direct")},
             matched_pairs=sum(x["status"]=="matched" for x in parity),
             completed_solver_calls=sum(x["status"]=="complete" for x in wmc))),flush=True)
-if __name__=="__main__":main()
+
+def check_remainder(row):
+    p,fs,g=decode(row["before"])
+    q,gs,g2=decode(row["after"])
+    y=row["y"]
+    assert g is None and g2 is None
+    assert row["before"]["live"]==row["after"]["live"]
+    dep={m:c for m,c in p.items() if y in m}
+    assert dep and dep=={m:c for m,c in q.items() if y in m}
+    assert all(c==(F(1,2),F(0)) for c in dep.values())
+    assert all(y not in m for f in fs+gs for m in f)
+    phi=anf(tuple(v for v in m if v!=y) for m in dep)
+    scope=sorted(set(v for m in phi for v in m))
+    assert 2<=len(scope)<=6
+    import itertools
+    tested=0
+    for bits in itertools.product((0,1),repeat=len(scope)):
+        a=dict(zip(scope,bits))
+        if sum(all(a[v] for v in m) for m in phi)%2:continue
+        # Independently restrict entire phase and all output ANFs,
+        # leaving nonlocal variables symbolic.
+        pp,qq=p.copy(),q.copy();ff,gg=fs.copy(),gs.copy()
+        for v,b in a.items():
+            r={()} if b else set()
+            pp=substitute_phase(pp,v,lift(r));qq=substitute_phase(qq,v,lift(r))
+            ff=[substitute_anf(f,v,r) for f in ff];gg=[substitute_anf(f,v,r) for f in gg]
+        assert (pp,ff)==(qq,gg),(row["case"],y,bits)
+        tested+=1
+    assert tested
+    return tested
+
+def cohort():
+    manifest=json.loads((ROOT/"docs/development/paper-corpus-manifest.json").read_text())
+    cases={c["id"]:c for c in manifest["cohorts"]["table2_mqt"]["cases"]}
+    ids=("grover-noancilla_4","qwalk-noancilla_3","qwalk-noancilla_4","qpeexact_8","wstate_4","qnn_4","vqe_4","ghz_32")
+    totals=[];direct_checks=rem_checks=0
+    for name in ids:
+        env=dict(os.environ,CRR_CASE=name)
+        for side,key in (("source","CRR_SOURCE"),("transpiled","CRR_TARGET")):
+            entry=cases[name][side];path=ROOT/entry["path"];data=path.read_bytes()
+            assert hashlib.sha1(("blob %d"%len(data)).encode()+b"\x00"+data).hexdigest()==entry["git_blob_sha1"]
+            env[key]=str(path)
+            print("CRR_COHORT_SOURCE",name,side,hashlib.sha256(data).hexdigest(),flush=True)
+        cmd=["timeout","--kill-after=3s","40s","cargo","test","--release","--locked","--manifest-path","rust/Cargo.toml","-p","quprs","--test","conditional_rr_experiment","conditional_stitch::native_original_rr_cohort","--","--exact","--nocapture"]
+        r=subprocess.run(cmd,cwd=ROOT,env=env,capture_output=True,text=True)
+        print(r.stdout,flush=True)
+        assert r.returncode==0,(name,r.returncode,r.stderr[-4000:])
+        rec=lambda prefix:[json.loads(l.removeprefix(prefix)) for l in r.stdout.splitlines() if l.startswith(prefix)]
+        summary=rec("CRR_COHORT ");assert len(summary)==1
+        for row in rec("CRR_DIRECT "):direct_checks+=verify(row)
+        for row in rec("CRR_REMAINDER "):rem_checks+=check_remainder(row)
+        totals.extend(summary)
+    assert len(totals)==8
+    print("CRR_COHORT_SUMMARY",json.dumps(dict(cases=totals,direct_exact_branches=direct_checks,remainder_exact_fibers=rem_checks,source_semantics_certified=False,production=False)),flush=True)
+
+if __name__=="__main__":
+    cohort() if os.environ.get("CRR_ORIGINAL_COHORT") else main()

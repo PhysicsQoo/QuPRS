@@ -353,3 +353,89 @@ fn native_direct_mixed_pilot(){
         }else{println!("CRR_DIRECT_PARITY {{\"repeat\":{rep},\"status\":\"incomplete\"}}");}
     }
 }
+
+
+// Known SOP remainder principle: summing an output-independent half-phase
+// integrator annihilates Phi=1.  Keep its exact phase and domain intact.
+// Simplify the other arithmetic and Boolean monomials on Phi=0 only.
+// A bounded local support signature avoids Groebner basis/guard search.
+fn remainder_trial(ps:&PathSum,y:u32)->Option<PathSum>{
+    let ys=ps.p.extract_terms_with_var(y);
+    if ys.is_empty()||ys.len()>8||ys.iter().any(|(_,c)|!c.is_pure_half()){return None;}
+    let phi:Anf=ys.iter().map(|(m,_)|m.iter().copied().filter(|&v|v!=y).collect()).collect();
+    let mut scope:Vec<u32>=phi.iter().flatten().copied().collect();scope.sort_unstable();scope.dedup();
+    if scope.len()<2||scope.len()>6{return None;}
+    let size=1usize<<scope.len();
+    let mask=|m:&[u32]|->usize{m.iter().filter_map(|v|scope.binary_search(v).ok()).fold(0,|a,i|a|(1<<i))};
+    let masks:Vec<_>=phi.iter().map(|m|mask(m)).collect();
+    let allowed:Vec<_>=(0..size).filter(|k|masks.iter().filter(|m|k&**m==**m).count()%2==0).collect();
+    if allowed.is_empty(){return None;}
+    let sig=|m:usize|->u64{allowed.iter().enumerate().fold(0,|a,(j,k)|if k&m==m{a|(1u64<<j)}else{a})};
+    let mut reps=std::collections::BTreeMap::<u64,usize>::new();
+    let mut order:Vec<_>=(0..size).collect();order.sort_by_key(|m|(m.count_ones(),*m));
+    for m in order{reps.entry(sig(m)).or_insert(m);}
+    let rep=|m:&[u32]|->Option<Monomial>{
+        let s=sig(mask(m));if s==0{return None;}
+        let k=reps[&s];
+        let mut result:Monomial=m.iter().copied().filter(|v|scope.binary_search(v).is_err()).collect();
+        result.extend(scope.iter().enumerate().filter(|(i,_)|k&(1<<i)!=0).map(|(_,v)|*v));
+        result.sort_unstable();Some(result)
+    };
+    let mut out=ps.clone();out.p=PhasePolynomial::new();
+    for(m,c)in &ps.p.terms{
+        if m.contains(&y){out.p.add_term(m.clone(),c.clone());}
+        else if let Some(n)=rep(m){out.p.add_term(n,c.clone());}
+    }
+    for(dst,src)in out.f.functions.iter_mut().zip(&ps.f.functions){
+        dst.clear();for m in src{if let Some(n)=rep(m){toggle(dst,n);}}
+    }
+    if incidence(&out)<incidence(ps)&&terms(&out)<=TERM_CAP{Some(out)}else{None}
+}
+#[test]
+fn native_original_rr_cohort(){
+    let case=std::env::var("CRR_CASE").expect("case");
+    let source=std::env::var("CRR_SOURCE").expect("source");
+    let target=std::env::var("CRR_TARGET").expect("target");
+    let t=Instant::now();
+    let(a,n)=parse_qasm_str(&std::fs::read_to_string(source).unwrap()).unwrap();
+    let(b,m)=parse_qasm_str(&std::fs::read_to_string(target).unwrap()).unwrap();
+    assert_eq!(n,m);
+    let parse=t.elapsed().as_secs_f64();let t=Instant::now();
+    let opts=VerificationOptions{method:VerificationMethod::ReductionRules,rr_tolerance:0.0,timeout_secs:20,..VerificationOptions::default()};
+    let r=check_equivalence_with_options(n,&a,&b,&opts).unwrap();
+    let rr=t.elapsed().as_secs_f64();
+    let p=r.final_pathsum();
+    assert!(!r.solver_invoked);
+    let status=r.equivalent();
+    if r.rr_approximate||!p.v.continuous_vars.is_empty()||p.p.terms.values().any(|c|!c.symbols.is_empty())||terms(p)>TERM_CAP||matches!(status,"timeout"|"memory_out"){
+        println!("CRR_COHORT {{\"case\":\"{}\",\"status\":\"not_admitted\"}}",case);
+        return;
+    }
+    let t=Instant::now();
+    let ids=p.get_reducible_vars();
+    let mut direct=0;let mut rem=0;let mut useful=0;let mut tested=0;
+    let mut best:Option<(u32,PathSum)>=None;
+    // Existing source-locked cohort, target-local support only. Limit
+    // scans to 96 targets; no guard assignments, no solver, no extra IR.
+    for &y in ids.iter().take(96){
+        tested+=1;
+        if let Ok(d)=direct_mixed(p,y){
+            direct+=1;
+            direct_record(&case,p,y,&d);
+            let mut q=d.ps.clone();q.full_reduce();
+            if incidence(&q)<incidence(p)||internal(&q).len()+1<internal(p).len(){useful+=1;}
+            println!("CRR_COHORT_DIRECT {{\"case\":\"{case}\",\"target\":{y},\"post_hidden\":{},\"post_incidence\":{},\"identity_shape\":{}}}",internal(&q).len(),incidence(&q),q.is_identity_up_to_phase());
+        }
+        if let Some(q)=remainder_trial(p,y){
+            rem+=1;
+            if best.as_ref().is_none_or(|(_,old)|incidence(&q)<incidence(old)){best=Some((y,q));}
+        }
+    }
+    let mut h=internal(p).len();let mut cost=incidence(p);let mut identity=false;
+    if let Some((y,mut q))=best{
+        println!("CRR_REMAINDER {{\"case\":\"{case}\",\"y\":{y},\"before\":{},\"after\":{}}}",ir(p,None),ir(&q,None));
+        q.full_reduce();h=internal(&q).len();cost=incidence(&q);identity=q.is_identity_up_to_phase()&&h==0;
+    }
+    println!("CRR_COHORT {{\"case\":\"{case}\",\"status\":\"complete\",\"native\":\"{status}\",\"eligible\":{},\"tested\":{tested},\"direct\":{direct},\"direct_useful\":{useful},\"remainder\":{rem},\"hidden_before\":{},\"hidden_after_rem\":{h},\"incidence_before\":{},\"incidence_after_rem\":{cost},\"identity_after_rem\":{identity},\"parse_s\":{parse},\"rr_s\":{rr},\"scan_s\":{}}}",
+        ids.len(),internal(p).len(),incidence(p),t.elapsed().as_secs_f64());
+}

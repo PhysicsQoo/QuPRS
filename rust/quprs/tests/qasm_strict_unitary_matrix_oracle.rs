@@ -798,3 +798,93 @@ fn observed_pinned_source_multigate_independent_matrix_and_order(){
          exact_q8=true source_trust=SCOPED"
     );
 }
+
+
+// Use the *existing* public verifier with the already accepted source-pinned
+// frontend. This is an endpoint contract test, not a new solver or an exact
+// certificate for arbitrary native verdicts. The independent Q8 matrices
+// are the source oracle; UNKNOWN remains inconclusive.
+#[test]
+fn observed_source_pinned_native_equivalence_endpoint() {
+    use quprs::{EquivalenceStatus, QuantumCircuit, VerificationMethod, VerificationOptions};
+    use quprs::qasm::parse_qasm_str_source_pinned;
+    use quprs::verification::check_equivalence;
+
+    fn admitted_circuit(raw: &str) -> Result<QuantumCircuit, String> {
+        let (ops, n) = parse_qasm_str_source_pinned(raw)?;
+        QuantumCircuit::from_ops(n, ops).map_err(|e| e.to_string())
+    }
+
+    let opts = VerificationOptions {
+        method: VerificationMethod::ReductionRules,
+        rr_tolerance: 0.0,
+        timeout_secs: 10,
+        ..VerificationOptions::default()
+    };
+    let mut definite = 0usize;
+    let mut unknown = 0usize;
+    let mut count = 0usize;
+    // Independently specified exact source matrices. Only QASM3: QASM2
+    // library phase conventions need a separately pinned contract.
+    for version in ["3.0", "3.1"] {
+        let header = format!("OPENQASM {version};\ninclude \"stdgates.inc\";\nqubit[1] q;\n");
+        let identity_src = format!("{header}gphase(0);");
+        let builtin = format!("{header}U(2*pi,0,0) q[0];");
+        let compat = format!("{header}u3(2*pi,0,0) q[0];");
+        let repaired = format!("{header}u3(2*pi,0,0) q[0];\ngphase(pi);");
+        let h_src = format!("{header}h q[0];");
+        let hh_src = format!("{header}h q[0];\nh q[0];");
+        let cases = [
+            ("identity", &identity_src, &identity_src, EquivalenceStatus::Equivalent),
+            ("builtin", &builtin, &identity_src, EquivalenceStatus::Equivalent),
+            ("compat_phase", &compat, &identity_src, EquivalenceStatus::EquivalentUpToGlobalPhase),
+            ("repaired", &repaired, &identity_src, EquivalenceStatus::Equivalent),
+            ("phase_distinct_pair", &builtin, &compat, EquivalenceStatus::EquivalentUpToGlobalPhase),
+            ("non_scalar", &h_src, &identity_src, EquivalenceStatus::NotEquivalent),
+            ("hh_control", &hh_src, &identity_src, EquivalenceStatus::Equivalent),
+        ];
+        // Pin the expected source actions independently before checking the
+        // existing public endpoint; do not derive expected verdict from RR.
+        assert_eq!(pinned_source_matrix(&identity_src, false), identity());
+        assert_eq!(pinned_source_matrix(&builtin, false), identity());
+        assert_eq!(pinned_source_matrix(&compat, false), negative_identity());
+        assert_eq!(pinned_source_matrix(&repaired, false), identity());
+        assert_eq!(pinned_source_matrix(&hh_src, false), identity());
+        let h = pinned_source_matrix(&h_src, false);
+        assert_ne!(h, identity());
+        assert_ne!(h[0][1], Q8::zero());
+        for (label, lhs, rhs, expected) in cases {
+            let left = admitted_circuit(lhs).unwrap();
+            let right = admitted_circuit(rhs).unwrap();
+            let result = check_equivalence(&left, &right, &opts).unwrap();
+            assert!(!result.wmc_solver_invoked(), "{label}: unexpected solver");
+            assert!(!result.rr_approximate, "{label}: approximate RR not admitted");
+            let status = result.status.clone();
+            match status {
+                EquivalenceStatus::Unknown | EquivalenceStatus::Timeout | EquivalenceStatus::MemoryOut => {
+                    assert!(label != "identity" && label != "hh_control",
+                        "basic existing RR control must terminate: {label}");
+                    unknown += 1;
+                }
+                _ => {
+                    assert_eq!(status, expected,
+                        "{version} {label}: definite endpoint verdict differs from exact source oracle");
+                    definite += 1;
+                }
+            }
+            println!("SOURCE_PINNED_EQ_ENDPOINT version={version} case={label} expected={} actual={}",
+                expected.as_str(), status.as_str());
+            count += 1;
+        }
+        for bad in [
+            format!("OPENQASM {version};\nqubit[1] q;\nh q[0];"),
+            format!("{header}H q[0];"),
+            format!("{header}ctrl @ U(2*pi,0,0) q[0];"),
+        ] {
+            assert!(admitted_circuit(&bad).is_err(), "invalid source reached verification");
+        }
+    }
+    assert_eq!(count, 14);
+    assert_eq!(definite + unknown, count);
+    println!("SOURCE_PINNED_EQ_ENDPOINT_SUMMARY cases={count} definite={definite} unknown={unknown} rejected=6 rr_only=true exact_oracle=true certificate=false");
+}

@@ -70,6 +70,28 @@ impl WmcManager {
     }
 
     pub(crate) fn research_parity_manager(ps:&PathSum,epsilon:f64,cap:usize)->Result<(Self,usize,usize)> {
+        Self::research_parity_impl(ps,epsilon,cap,false)?.ok_or_else(||anyhow!("forced parity unexpectedly rejected"))
+    }
+
+    #[cfg(feature="research-parity-e2e")]
+    pub(crate) fn research_auto_parity_manager(ps:&PathSum,epsilon:f64)->Result<Option<(Self,usize,usize)>> {
+        // Cheap eligibility before cloning any rational coefficients.
+        // Conservative exploratory policy, not a proof of solver speed.
+        if ps.p.terms.len()>100_000 || ps.p.terms.len()<128 ||
+            ps.p.terms.values().filter(|c|c.radians.as_ref().is_some_and(|r|!r.is_zero())).take(128).count()<128 ||
+            !ps.v.continuous_vars.is_empty() || ps.p.terms.values().any(|c|!c.symbols.is_empty()) {
+            return Ok(None)
+        }
+        Self::research_parity_impl(ps,epsilon,200_000,true)
+    }
+
+    #[cfg(feature="research-parity-e2e")]
+    #[doc(hidden)]
+    pub fn research_auto_parity_cnf(ps:&PathSum,epsilon:f64)->Result<Option<String>> {
+        Self::research_auto_parity_manager(ps,epsilon)?.map(|(w,_,_)|w.try_to_dimacs_string("gpmc")).transpose()
+    }
+
+    fn research_parity_impl(ps:&PathSum,epsilon:f64,cap:usize,auto:bool)->Result<Option<(Self,usize,usize)>> {
         #[cfg(feature="browser-transport")]
         ensure!(!crate::browser_transport::active(),"native experiment only");
         ensure!(ps.v.continuous_vars.is_empty(),"continuous variables unsupported");
@@ -86,7 +108,39 @@ impl WmcManager {
             if let Some(r)=&c.radians {if !r.is_zero(){rad.insert(m.clone(),r.clone());}}
         }
         for f in &ps.f.functions {ensure!(f.iter().all(valid),"invalid output support");}
-        let (parity,work)=inverse(&rad,cap.min(3_000_000))?;
+        let (parity,work)=match inverse(&rad,cap.min(3_000_000)) {
+            Ok(v)=>v,
+            Err(_) if auto=>return Ok(None),
+            Err(e)=>return Err(e),
+        };
+        if auto {
+            // Require at least 2x exact radian-factor compression and 20%
+            // savings in BOTH complete CNF dimensions, before MPFR calls or
+            // allocating any candidate clause. Same trace cost for both.
+            if parity.len().saturating_mul(2)>rad.len(){return Ok(None)}
+            let mut tv=0usize;let mut tc=0usize;
+            for f in &ps.f.functions {
+                if f.is_empty(){tv+=1;tc+=1;}
+                else {
+                    tv+=f.iter().filter(|m|m.len()!=1).count()+f.len()-1;
+                    tc+=f.iter().filter(|m|m.len()!=1).map(|m|m.len()+1).sum::<usize>()+4*(f.len()-1);
+                }
+                tc+=2;
+            }
+            let fv=domain.len()+tv+ps.p.terms.len();
+            let fc=tc+ps.p.terms.keys().map(|m|m.len()+1).sum::<usize>();
+            let mut mono:std::collections::BTreeSet<&Monomial>=turns.keys().collect();
+            mono.extend(parity.keys().filter(|m|m.len()<=1));
+            let mut prefix=std::collections::BTreeSet::new();
+            let mut multi=0usize;
+            for m in parity.keys().filter(|m|m.len()>1) {
+                multi+=1;
+                for k in 2..=m.len(){prefix.insert(&m[..k]);}
+            }
+            let pv=domain.len()+tv+mono.len()+multi+prefix.len();
+            let pc=tc+mono.iter().map(|m|m.len()+1).sum::<usize>()+2*multi+4*prefix.len();
+            if (pv as u128)*5>(fv as u128)*4 || (pc as u128)*5>(fc as u128)*4 {return Ok(None)}
+        }
         // Explicit E1e encoding, including structurally regressive controls.
         // Scope resource guard: maximum IDs bounded by primary + source
         // terms + subset work + output gate bound, before allocating clauses.
@@ -125,7 +179,7 @@ impl WmcManager {
             };
             let a=w.var_map[&(i as u32)];w.clauses.extend([vec![-a,z],vec![a,-z]]);
         }
-        Ok((w,work,bits))
+        Ok(Some((w,work,bits)))
     }
 }
 #[cfg(test)]

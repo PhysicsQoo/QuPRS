@@ -744,22 +744,32 @@ fn check_equivalence_with_distance_mode(
         let _wmc_scope = diagnostics::span("wmc_total");
         let wmc_start = Instant::now();
         let mut wmc_mgr = WmcManager::new(&ps_miter);
-        // Explicit research binary only. No selection in default builds.
+        // Opt-in experiment only. Auto rejection reaches unchanged Flat.
         #[cfg(feature="research-parity-e2e")]
-        let research_parity = tool_name == "gpmc"
-            && !ps_miter.p.terms.is_empty()
-            && std::env::var("QUPRS_RESEARCH_PARITY_E2E").as_deref() == Ok("1");
+        let mut research_parity=false;
         #[cfg(not(feature="research-parity-e2e"))]
-        let research_parity = false;
-        if research_parity {
-            #[cfg(feature="research-parity-e2e")]
-            {
-                let _encode_scope = diagnostics::span("cnf_encode");
-                let (manager,work,bits)=WmcManager::research_parity_manager(&ps_miter,eps,3_000_000)?;
-                wmc_mgr=manager;
-                eprintln!("D4_PARITY_SELECTED work={work} bits={bits}");
+        let research_parity=false;
+        #[cfg(feature="research-parity-e2e")]
+        if tool_name=="gpmc" && !ps_miter.p.terms.is_empty() {
+            let setting=std::env::var("QUPRS_RESEARCH_PARITY_E2E");
+            if matches!(setting.as_deref(),Ok("1"|"auto")) {
+                let _encode_scope=diagnostics::span("cnf_encode");
+                let started=Instant::now();
+                let result=if setting.as_deref()==Ok("1") {
+                    Some(WmcManager::research_parity_manager(&ps_miter,eps,3_000_000)?)
+                } else {
+                    WmcManager::research_auto_parity_manager(&ps_miter,eps)?
+                };
+                if let Some((manager,work,bits))=result {
+                    wmc_mgr=manager;research_parity=true;
+                    eprintln!("D4_PARITY_SELECTED work={work} bits={bits}");
+                }
+                if setting.as_deref()==Ok("auto"){
+                    eprintln!("D5_ROUTE parity={research_parity} elapsed_s={:.9}",started.elapsed().as_secs_f64());
+                }
             }
-        } else {
+        }
+        if !research_parity {
             // High-precision source weights are selected only for GPMC's
             // projective-distance mode. All other modes retain their fast path.
             #[cfg(feature="high-precision-gpmc")]

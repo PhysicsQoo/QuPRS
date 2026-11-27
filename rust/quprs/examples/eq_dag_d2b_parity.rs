@@ -37,6 +37,18 @@ fn load(path:&Path)->Result<PathSum> {
 fn main()->Result<()>{
     let args:Vec<_>=std::env::args().collect();ensure!(args.len()==4,"residual.tsv expected.cnf output.cnf");
     let ps=load(Path::new(&args[1]))?;
+    #[cfg(feature="research-parity-e2e")]
+    if std::env::var("QUPRS_RESEARCH_PARITY_E2E").as_deref()==Ok("auto"){
+        let t=Instant::now();
+        let result=WmcManager::research_auto_parity_cnf(&ps,1e-8)?;
+        let elapsed=t.elapsed().as_secs_f64();
+        if let Some(text)=result {
+            ensure!(text.as_bytes()==fs::read(&args[2])?.as_slice(),"auto byte parity mismatch");
+            fs::write(&args[3],text)?;
+            println!("D5_AUTO parity=true elapsed_s={elapsed:.9}");
+        }else{println!("D5_AUTO parity=false elapsed_s={elapsed:.9}");}
+        return Ok(())
+    }
     let start=Instant::now();
     let (text,work,bits)=WmcManager::research_parity_cnf(&ps,1e-8,3_000_000)?;
     let elapsed=start.elapsed().as_secs_f64();

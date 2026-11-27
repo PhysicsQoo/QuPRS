@@ -5456,6 +5456,118 @@ theorem ledger_sub_raw_controls :
     ledgerSubAnfRaw 2 [[0]] [[2],[0]] = [[0],[0]] := by
   exact ⟨rfl,rfl,rfl,rfl,rfl⟩
 
+
+-- Insertion into an increasing monomial. Equal variables are
+-- idempotent, not additive cancellations.
+def ledgerMonoInsert (x : Nat) : List Nat → List Nat
+  | [] => [x]
+  | z :: zs =>
+    if x == z then z :: zs
+    else if natLE x z then x :: z :: zs
+    else z :: ledgerMonoInsert x zs
+
+theorem ledger_mono_insert_sound (v : Nat → Bool) (x : Nat) (m : List Nat) :
+    andValue ((ledgerMonoInsert x m).map v) = (v x && andValue (m.map v)) := by
+  induction m with
+  | nil => rfl
+  | cons z zs ih =>
+    change andValue ((if x == z then z :: zs else
+      if natLE x z then x :: z :: zs else z :: ledgerMonoInsert x zs).map v) =
+      (v x && (v z && andValue (zs.map v)))
+    cases he : (x == z) with
+    | true =>
+      change (v z && andValue (zs.map v)) = (v x && (v z && andValue (zs.map v)))
+      have hx := ledger_kind_eq x z he
+      rw [hx]
+      cases v z <;> cases andValue (zs.map v) <;> rfl
+    | false =>
+      cases hl : natLE x z with
+      | true => rfl
+      | false =>
+        change (v z && andValue ((ledgerMonoInsert x zs).map v)) =
+          (v x && (v z && andValue (zs.map v)))
+        rw [ih]
+        cases v x <;> cases v z <;> cases andValue (zs.map v) <;> rfl
+
+def ledgerMonoNormalize : List Nat → List Nat
+  | [] => []
+  | x :: xs => ledgerMonoInsert x (ledgerMonoNormalize xs)
+
+theorem ledger_mono_normalize_sound (v : Nat → Bool) (m : List Nat) :
+    andValue ((ledgerMonoNormalize m).map v) = andValue (m.map v) := by
+  induction m with
+  | nil => rfl
+  | cons x xs ih =>
+    change andValue ((ledgerMonoInsert x (ledgerMonoNormalize xs)).map v) =
+      (v x && andValue (xs.map v))
+    rw [ledger_mono_insert_sound, ih]
+
+-- Toggle one occurrence of an equal normalized monomial.
+-- This is addition over F2, not integer phase addition.
+def ledgerAnfToggle (m : List Nat) : List (List Nat) → List (List Nat)
+  | [] => [m]
+  | q :: qs => if natListEq m q then qs else q :: ledgerAnfToggle m qs
+
+theorem ledger_anf_toggle_sound (v : Nat → Bool) (m : List Nat) (a : List (List Nat)) :
+    anfValue v (ledgerAnfToggle m a) = (anfValue v a).xor (andValue (m.map v)) := by
+  induction a with
+  | nil => rfl
+  | cons q qs ih =>
+    change anfValue v (if natListEq m q then qs else q :: ledgerAnfToggle m qs) =
+      ((anfValue v qs).xor (andValue (q.map v))).xor (andValue (m.map v))
+    cases he : natListEq m q with
+    | true =>
+      change anfValue v qs =
+        ((anfValue v qs).xor (andValue (q.map v))).xor (andValue (m.map v))
+      rw [(nat_list_eq_iff m q).mp he]
+      cases anfValue v qs <;> cases andValue (q.map v) <;> rfl
+    | false =>
+      change (anfValue v (ledgerAnfToggle m qs)).xor (andValue (q.map v)) =
+        ((anfValue v qs).xor (andValue (q.map v))).xor (andValue (m.map v))
+      rw [ih]
+      cases anfValue v qs <;> cases andValue (m.map v) <;>
+        cases andValue (q.map v) <;> rfl
+
+def ledgerAnfNormalize : List (List Nat) → List (List Nat)
+  | [] => []
+  | m :: ms => ledgerAnfToggle (ledgerMonoNormalize m) (ledgerAnfNormalize ms)
+
+theorem ledger_anf_normalize_sound (v : Nat → Bool) (a : List (List Nat)) :
+    anfValue v (ledgerAnfNormalize a) = anfValue v a := by
+  induction a with
+  | nil => rfl
+  | cons m ms ih =>
+    change anfValue v (ledgerAnfToggle (ledgerMonoNormalize m) (ledgerAnfNormalize ms)) =
+      (anfValue v ms).xor (andValue (m.map v))
+    rw [ledger_anf_toggle_sound, ih, ledger_mono_normalize_sound]
+
+def ledgerSubAnfNormalized (y : Nat) (rhs row : List (List Nat)) : List (List Nat) :=
+  ledgerAnfNormalize (ledgerSubAnfRaw y rhs row)
+
+theorem ledger_sub_anf_normalized_sound (y : Nat) (rhs row : List (List Nat))
+    (v : Nat → Bool) :
+    anfValue v (ledgerSubAnfNormalized y rhs row) =
+      anfValue (setVal v y (anfValue v rhs)) row := by
+  unfold ledgerSubAnfNormalized
+  rw [ledger_anf_normalize_sound, ledger_sub_anf_raw_sound]
+
+theorem ledger_sub_pivot_normalized_zero (y : Nat) (row rhs : List (List Nat))
+    (h : ledgerIsolatedPivot y row = some rhs) (v : Nat → Bool) :
+    anfValue v (ledgerSubAnfNormalized y rhs row) = false := by
+  unfold ledgerSubAnfNormalized
+  rw [ledger_anf_normalize_sound]
+  exact ledger_sub_pivot_raw_zero y row rhs h v
+
+theorem ledger_anf_normalization_controls :
+    ledgerMonoNormalize [3,0,3,1,0] = [0,1,3] ∧
+    ledgerAnfNormalize [[1,0],[0,1]] = [] ∧
+    ledgerAnfNormalize [[],[],[]] = [[]] ∧
+    ledgerSubAnfNormalized 2 [[0]] [[0,2]] = [[0]] ∧
+    ledgerSubAnfNormalized 2 [[0]] [[2],[0]] = [] ∧
+    ledgerSubAnfNormalized 2 [] [[2]] = [] ∧
+    ledgerSubAnfNormalized 2 [[]] [[2]] = [[]] := by
+  exact ⟨rfl,rfl,rfl,rfl,rfl,rfl,rfl⟩
+
 -- Localize any unexpected dependency to a definition vs theorem.
 #print axioms splitBytes
 #print axioms digits
@@ -5854,6 +5966,18 @@ theorem ledger_sub_raw_controls :
 #print axioms ledger_sub_anf_raw_sound
 #print axioms ledger_sub_pivot_raw_zero
 #print axioms ledger_sub_raw_controls
+#print axioms ledgerMonoInsert
+#print axioms ledger_mono_insert_sound
+#print axioms ledgerMonoNormalize
+#print axioms ledger_mono_normalize_sound
+#print axioms ledgerAnfToggle
+#print axioms ledger_anf_toggle_sound
+#print axioms ledgerAnfNormalize
+#print axioms ledger_anf_normalize_sound
+#print axioms ledgerSubAnfNormalized
+#print axioms ledger_sub_anf_normalized_sound
+#print axioms ledger_sub_pivot_normalized_zero
+#print axioms ledger_anf_normalization_controls
 end QuPRS.CnfReplay
 
 def main (args : List String) : IO Unit := do

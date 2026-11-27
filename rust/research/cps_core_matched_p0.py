@@ -63,6 +63,14 @@ def worker(binary,solver,folder,mode):
     if prefix:
         assert len(prefix)==1 and not mode.startswith("wmc"),prefix
         row.update(prefix_rr=prefix[0],prefix_receipt_sha256=sha(folder/"prefix-rr.txt"))
+    sparse=[l.removeprefix("CPS_SPARSE_MATCHED ") for l in p.stdout.splitlines() if l.startswith("CPS_SPARSE_MATCHED ")]
+    if sparse:
+        assert len(sparse)==1,sparse
+        row["storage"]="sparse"
+        row["sparse_detail"]=sparse[0]
+        if (folder/"sparse-rr.txt").is_file():
+            assert not mode.startswith("wmc"),mode
+            row["sparse_rr_sha256"]=sha(folder/"sparse-rr.txt")
     if status=="READY":
         base=(folder/"base.cnf").read_text()
         packed,radix,bound=single_fibre_pack(base,list(map(int,phase.split(","))),primary)

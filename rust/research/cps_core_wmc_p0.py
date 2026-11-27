@@ -14,6 +14,7 @@ directory, solver = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])
 rows = list(csv.DictReader((directory / "manifest.tsv").open(), delimiter="\t"))
 assert len(rows) == 28
 records = {}
+sparse_flat=sparse_dag=0
 for row in rows:
     case, route = row["case"], row["route"]
     key = (case, route)
@@ -39,6 +40,23 @@ for row in rows:
                bins=bins, coeff=coeff, norm=list(map(str,norm)), solver_s=elapsed,
                cnf_sha256=hashlib.sha256(base.encode()).hexdigest(),
                packed_sha256=hashlib.sha256(packed.encode()).hexdigest())
+    for tag in ("sparse-flat","sparse-dag"):
+        stem=directory/f"{case}-{route}.{tag}"
+        base_path=pathlib.Path(str(stem)+".cnf")
+        if not base_path.is_file():
+            assert tag=="sparse-dag",key
+            continue
+        sparse=base_path.read_text()
+        phase=list(map(int,pathlib.Path(str(stem)+".phase").read_text().split(",")))
+        packed_w,radix_w,bound_w=single_fibre_pack(sparse,phase,primary)
+        q=pathlib.Path(str(stem)+".packed.cnf");q.write_text(packed_w)
+        run_w=subprocess.run([str(solver),"-mode=1","-natw",str(q)],capture_output=True,text=True,timeout=10,check=True)
+        pathlib.Path(str(stem)+".stdout").write_text(run_w.stdout)
+        pathlib.Path(str(stem)+".stderr").write_text(run_w.stderr)
+        wb=single_fibre_decode(parse_gpmc_integer(run_w.stdout,"wmc",bound_w*radix_w**7),radix_w,bound_w,8)
+        assert wb==bins,(key,tag,wb,bins)
+        if tag=="sparse-flat":sparse_flat+=1
+        else:sparse_dag+=1
     records[key] = rec
     print("CPS_CORE_WMC_ARM", json.dumps(rec), flush=True)
 pairs = sorted({r["case"] for r in records.values()})
@@ -54,3 +72,6 @@ assert records["radical","raw"]["coeff"][1] != 0
 assert records["cancellation","raw"]["coeff"] == (0,0) and sum(records["cancellation","raw"]["bins"]) > 0
 assert sum(records["zero-guard","raw"]["bins"]) == 0
 print("CPS_CORE_WMC_SUMMARY", json.dumps(dict(arms=len(records), pairs=len(pairs), changed=changed, negative_scale=True, radical=True, cancellation=True, zero_guard=True)))
+
+assert sparse_flat==28 and sparse_dag>0
+print("CPS_SPARSE_WMC_PARITY",json.dumps(dict(flat=sparse_flat,dag=sparse_dag,full_bins="PASS")),flush=True)

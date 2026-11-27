@@ -1097,6 +1097,18 @@ fn hoare_cps_core_wmc_export(){
         let replay=start.replay_rr(&receipts).unwrap();assert_eq!(replay.k,residual.k);
         for (route,c,steps) in [("raw",start,0),("residual",&residual,receipts.len())]{
             let (cnf,phase,primary,k)=c.wmc_norm_plan().unwrap();
+            let sparse=c.to_sparse().unwrap();
+            for dag in [false,true]{
+                let plan=sparse.sparse_norm_plan(dag);
+                if dag&&c.ps.p.terms.values().any(|v|core_phase8(v)!=Some(4)){assert!(plan.is_none());continue;}
+                let (wide,d,p,sk)=plan.expect("sparse norm parity");
+                assert_eq!((p,sk),(primary,k));
+                let tag=if dag{"sparse-dag"}else{"sparse-flat"};
+                let mut data=format!("p cnf {} {}\n",wide.vars,wide.clauses.len());
+                for row in &wide.clauses{for lit in row{data.push_str(&format!("{lit} "));}data.push_str("0\n");}
+                std::fs::write(dir.join(format!("{name}-{route}.{tag}.cnf")),data).unwrap();
+                std::fs::write(dir.join(format!("{name}-{route}.{tag}.phase")),d.iter().map(ToString::to_string).collect::<Vec<_>>().join(",")).unwrap();
+            }
             let h=c.guard.ids.len()-c.n();
             let (a,b)=core_norm_numerator(c);
             let file=dir.join(format!("{name}-{route}.cnf"));
@@ -1649,42 +1661,19 @@ fn hoare_cps_core_matched_worker(){
                         v
                     },
                     Err(e)=>{
-                        // Pure WMC must not silently acquire an RR pass.
-                        if policy=="wmc"||!e.contains("affine-live-cap"){
-                            println!("CPS_COMPOSITION_DETAIL {detail}; affine {e}");return None;
-                        }
-                        match ua.precompose_affine_rr(&b){
-                            Ok((v,rank,pins,rs,live))=>{
-                                println!("CPS_PRECOMPOSE_RR steps={} lhs_before={} lhs_after={live} scale_before={} scale_after={} replay=PASS",rs.len(),ua.guard.ids.len(),ua.k,rs.last().unwrap().after_k);
-                                println!("CPS_AFFINE_INTERFACE rank={rank} pins={pins} lhs_live={live} rhs_live={} result_live={} k={}",b.guard.ids.len(),v.guard.ids.len(),v.k);
-                                v
-                            },
-                            Err(pre)=>{
-                                // Last bounded RR reuse experiment: earlier
-                                // H boundaries. No change to Pure WMC arms.
-                                let Some(required)=e.split_whitespace().find_map(|x|x.strip_prefix("required=").and_then(|v|v.parse::<usize>().ok())) else{
-                                    println!("CPS_COMPOSITION_DETAIL {detail}; affine {e}; {pre}");return None;
-                                };
-                                let target=required.saturating_sub(63);
-                                match a.prefix_rr(&ops,target){
-                                    Ok((prefix,rs,boundaries))=>{
-                                        if !core_label_support(&prefix,&b){
-                                            println!("CPS_COMPOSITION_DETAIL {detail}; affine {e}; {pre}; prefix-label");return None;
-                                        }
-                                        match prefix.then_adjoint_affine(&b){
-                                            Ok((v,rank,pins))=>{
-                                                std::fs::write(dir.join("prefix-rr.txt"),format!("{rs:?}")).ok()?;
-                                                println!("CPS_PREFIX_INTERFACE steps={} boundaries={boundaries} lhs_before={} lhs_after={} scale_before={} scale_after={} replay=PASS",rs.len(),ua.guard.ids.len(),prefix.guard.ids.len(),ua.k,prefix.k);
-                                                println!("CPS_AFFINE_INTERFACE rank={rank} pins={pins} lhs_live={} rhs_live={} result_live={} k={}",prefix.guard.ids.len(),b.guard.ids.len(),v.guard.ids.len(),v.k);
-                                                v
-                                            },
-                                            Err(f)=>{println!("CPS_COMPOSITION_DETAIL {detail}; affine {e}; {pre}; prefix-affine {f}");return None;}
-                                        }
-                                    },
-                                    Err(f)=>{println!("CPS_COMPOSITION_DETAIL {detail}; affine {e}; {pre}; {f}");return None;}
-                                }
+                        // The same overflow-only sparse affine CPS is used
+                        // for every policy. Pure WMC performs no RR.
+                        if e.contains("affine-live-cap"){
+                            match ua.to_sparse()?.shared_then_adjoint_affine(&b.to_sparse()?){
+                                Ok((v,rank,pins))=>{
+                                    println!("CPS_AFFINE_INTERFACE rank={rank} pins={pins} lhs_live={} rhs_live={} result_live={} k={}",ua.guard.ids.len(),b.guard.ids.len(),v.guard.ids.len(),v.k);
+                                    println!("CPS_SPARSE_MATCHED initial_live={} phase_terms={}",v.guard.ids.len(),v.ps.p.terms.len());
+                                    return sparse_matched_finish(v,&dir,policy,dag,t.elapsed().as_nanos(),&mut stage);
+                                },
+                                Err(f)=>{println!("CPS_COMPOSITION_DETAIL {detail}; affine {e}; sparse {f}");return None;}
                             }
                         }
+                        println!("CPS_COMPOSITION_DETAIL {detail}; affine {e}");return None;
                     }
                 }
             }
@@ -2117,4 +2106,138 @@ fn hoare_cps_sparse_rr(){
     assert_eq!(sparse_core_matrix(&a),sparse_core_matrix(&b).into_iter().map(|row|row.into_iter().map(|v|scale_guarded_entry(v,2)).collect::<Vec<_>>()).collect::<Vec<_>>());
     assert_eq!(a.replay_sparse_rr(&[r]).unwrap().rr_snapshot(),b.rr_snapshot());
     println!("CPS_SPARSE_RR elim=PASS hh=PASS omega=PASS high_id=PASS replay=PASS mutant=REJECTED");
+}
+
+// Same exact two-copy norm obligation, indexed by stable native IDs.
+// Use existing Cnf gates and FactorPilot gate interning. Sparse factoring
+// uses the same Shannon identity p=p0 XOR (x AND p1).
+fn sparse_factor_anf(f:&mut FactorPilot,p:&SparseAnf,map:&BTreeMap<u32,Lit>,
+                     cache:&mut BTreeMap<(Vec<Lit>,SparseAnf),Lit>,key_bits:&[Lit])->Option<Lit>{
+    f.work=f.work.checked_add(p.len().max(1))?;
+    if f.work>2_000_000{return None;}
+    let key=(key_bits.to_vec(),p.clone());
+    if let Some(&v)=cache.get(&key){return Some(v);}
+    let out=if p.len()<=1{
+        let mut acc=ZERO;
+        for m in p{
+            let mut t=ONE;
+            for id in m.ids(){t=f.gate(false,t,*map.get(id)?)?;}
+            acc=f.gate(true,acc,t)?;
+        }
+        acc
+    }else{
+        let id=*p.iter().flat_map(|m|m.ids()).min()?;
+        let mut a=SparseAnf::new();let mut b=SparseAnf::new();
+        for m in p{
+            if m.contains_id(id){b.insert(m.without_id(id));}
+            else{a.insert(m.clone());}
+        }
+        let x=sparse_factor_anf(f,&a,map,cache,key_bits)?;
+        let y=sparse_factor_anf(f,&b,map,cache,key_bits)?;
+        let t=f.gate(false,*map.get(&id)?,y)?;
+        f.gate(true,x,t)?
+    };
+    cache.insert(key,out);Some(out)
+}
+impl CpsCore<SparseGuardFrame>{
+    fn sparse_norm_plan(&self,dag:bool)->Option<(Cnf,[Lit;3],usize,i32)>{
+        if !self.shared_valid()||self.n()!=self.q(){return None;}
+        let n=self.n();let h=self.guard.ids.len().checked_sub(n)?;
+        let primary=n.checked_add(h.checked_mul(2)?)?;
+        // Scoped encoder budget, not a count precision limit.
+        if primary>1024{return None;}
+        let l:Vec<Lit>=(0..n+h).map(|i|i as Lit+2).collect();
+        let r:Vec<Lit>=(0..n).map(|i|i as Lit+2).chain((n+h..primary).map(|i|i as Lit+2)).collect();
+        let maps:Vec<BTreeMap<u32,Lit>>=[&l,&r].iter().map(|bits|self.guard.ids.iter().copied().zip(bits.iter().copied()).collect()).collect();
+        let output=self.ps.f.functions.iter().map(core_storage_anf::<SparseGuardFrame>).collect::<Option<Vec<_>>>()?;
+        let phase:BTreeMap<Vec<u32>,u8>=self.ps.p.terms.iter().map(|(m,c)|Some((m.clone(),core_phase8(c)?))).collect::<Option<_>>()?;
+        if dag{
+            if phase.values().any(|&k|k!=4){return None;}
+            let mut f=FactorPilot{c:Cnf::new(primary),gates:BTreeMap::new(),polys:BTreeMap::new(),work:0};
+            let mut cache=BTreeMap::new();
+            for g in &self.guard.factors{
+                for (map,bits) in maps.iter().zip([&l,&r]){
+                    let v=sparse_factor_anf(&mut f,g,map,&mut cache,bits)?;f.c.enforce(v);
+                }
+            }
+            for o in &output{
+                let a=sparse_factor_anf(&mut f,o,&maps[0],&mut cache,&l)?;
+                let b=sparse_factor_anf(&mut f,o,&maps[1],&mut cache,&r)?;
+                let d=f.gate(true,a,b)?;f.c.enforce(-d);
+            }
+            let sign:SparseAnf=phase.keys().cloned().map(SparseMono::new).collect::<Option<_>>()?;
+            let a=sparse_factor_anf(&mut f,&sign,&maps[0],&mut cache,&l)?;
+            let b=sparse_factor_anf(&mut f,&sign,&maps[1],&mut cache,&r)?;
+            let d=f.gate(true,a,b)?;
+            if !f.bounded(){return None;}
+            Some((f.c,[ZERO,ZERO,d],primary,self.k))
+        }else{
+            let mut c=Cnf::new(primary);
+            for g in &self.guard.factors{
+                for map in &maps{
+                    let v=cps_guard_algebra::sparse_guard_lit(&mut c,g,map)?;c.enforce(v);
+                }
+            }
+            for o in &output{
+                let a=cps_guard_algebra::sparse_guard_lit(&mut c,o,&maps[0])?;
+                let b=cps_guard_algebra::sparse_guard_lit(&mut c,o,&maps[1])?;
+                let d=c.xor(a,b);c.enforce(-d);
+            }
+            let mut accs=Vec::new();
+            for (j,map) in maps.iter().enumerate(){
+                let mut acc=[ZERO;3];
+                for (m,&k) in &phase{
+                    let v=cps_guard_algebra::sparse_guard_lit(&mut c,&SparseAnf::from([SparseMono::new(m.clone())?]),map)?;
+                    let k=if j==0{k}else{(8-k)%8};
+                    let term=std::array::from_fn(|i|if k>>i&1!=0{v}else{ZERO});
+                    acc=c.add3(acc,term);
+                }
+                accs.push(acc);
+            }
+            let d=c.add3(accs[0],accs[1]);
+            if c.vars>10_000||c.clauses.len()>40_000{return None;}
+            Some((c,d,primary,self.k))
+        }
+    }
+    fn sparse_terminal(&self)->Option<&'static str>{
+        if self.guard.factors.iter().any(|g|g.is_empty()){return Some("REFUTED");}
+        if self.guard.ids.len()!=self.n(){return None;}
+        if self.k>0{return Some("REFUTED");}
+        if self.k!=0{return None;}
+        Some(if self.guard.factors.iter().all(|g|g==&SparseAnf::from([SparseMono::new(vec![]).unwrap()])){"PROVED"}else{"REFUTED"})
+    }
+}
+fn sparse_matched_finish(mut c:CpsCore<SparseGuardFrame>,dir:&std::path::Path,policy:&str,dag:bool,
+                         build_ns:u128,stage:&mut &str)->Option<()>{
+    *stage="initial-snapshot";
+    let snap=c.rr_snapshot()?;
+    std::fs::write(dir.join("initial.txt"),format!("k={}\n{snap:?}\n",c.k)).ok()?;
+    let initial_h=c.guard.ids.len()-c.n();let t=std::time::Instant::now();
+    let mut receipts=Vec::new();
+    if policy!="wmc"{
+        let start=c.clone();
+        for _ in 0..32{
+            let Some((next,r))=c.sparse_rr_step() else{break;};
+            receipts.push(r);c=next;
+        }
+        if start.replay_sparse_rr(&receipts)?.rr_snapshot()!=c.rr_snapshot(){return None;}
+        std::fs::write(dir.join("sparse-rr.txt"),format!("{receipts:?}")).ok()?;
+    }
+    let rr_ns=t.elapsed().as_nanos();let steps=receipts.len();
+    let status=if policy=="wmc"{"READY"}else if let Some(v)=c.sparse_terminal(){v}else if policy=="rr"{"UNKNOWN"}else{"READY"};
+    let mut primary=0;let mut vars=0;let mut clauses=0;let mut phase="-".to_owned();let mut encode_ns=0;
+    if status=="READY"{
+        let t=std::time::Instant::now();
+        *stage=if dag{"dag-encoder"}else{"flat-encoder"};
+        let (cnf,d,p,k)=c.sparse_norm_plan(dag)?;
+        if k!=c.k{return None;}
+        primary=p;vars=cnf.vars;clauses=cnf.clauses.len();
+        phase=d.iter().map(ToString::to_string).collect::<Vec<_>>().join(",");
+        let mut data=format!("p cnf {vars} {clauses}\n");
+        for row in &cnf.clauses{for l in row{data.push_str(&format!("{l} "));}data.push_str("0\n");}
+        std::fs::write(dir.join("base.cnf"),data).ok()?;
+        encode_ns=t.elapsed().as_nanos();
+    }
+    println!("CPS_MATCHED_NATIVE {status} {} {} {} {initial_h} {steps} {primary} {vars} {clauses} {phase} {build_ns} {rr_ns} {encode_ns}",c.n(),c.k,c.guard.ids.len()-c.n());
+    Some(())
 }

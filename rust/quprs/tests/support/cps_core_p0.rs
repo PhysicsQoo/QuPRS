@@ -75,6 +75,7 @@ use cps_guard_algebra::{GuardMonomial,SparseMono,SparseAnf};
 trait CoreGuardStorage:Clone {
     type M:GuardMonomial;
     const ID_LIMIT:u32;
+    const PHASE_LIMIT:usize;
     fn ids(&self)->&[u32];
     fn factors_ref(&self)->Vec<&BTreeSet<Self::M>>;
     fn frame_valid(&self,ps:&PathSum)->bool;
@@ -85,6 +86,7 @@ trait CoreGuardStorage:Clone {
 impl CoreGuardStorage for NativeGuardFrame {
     type M=u64;
     const ID_LIMIT:u32=63;
+    const PHASE_LIMIT:usize=CORE_PHASE_TERMS;
     fn ids(&self)->&[u32]{&self.ids}
     fn factors_ref(&self)->Vec<&Anf>{self.factors().collect()}
     fn frame_valid(&self,ps:&PathSum)->bool{self.compact_factors(ps).is_some()}
@@ -101,6 +103,8 @@ impl CoreGuardStorage for SparseGuardFrame {
     type M=SparseMono;
     // Explicit resource admission, not a machine-word representation limit.
     const ID_LIMIT:u32=512;
+    // Scoped admission probe: actual MO05 final phase has 1252 terms.
+    const PHASE_LIMIT:usize=1536;
     fn ids(&self)->&[u32]{&self.ids}
     fn factors_ref(&self)->Vec<&SparseAnf>{self.factors.iter().collect()}
     fn frame_valid(&self,ps:&PathSum)->bool{
@@ -169,10 +173,114 @@ fn core_merge_affine_sign<F:CoreGuardStorage>(
         peak=peak.max(p.terms.len());
     }
     let final_terms=p.terms.len();
-    let detail=format!("initial={initial} emitted={} delta={distinct} delta_cancelled={cancelled_in_delta} delta_peak={} native_removed={removed} native_added={added} native_changed={changed} merge_peak={peak} final_terms={final_terms} limit={CORE_PHASE_TERMS}",sign.emitted,sign.peak);
-    if final_terms>CORE_PHASE_TERMS{return Err(format!("phase-term-cap {detail}"));}
+    let limit=F::PHASE_LIMIT;
+    let detail=format!("initial={initial} emitted={} delta={distinct} delta_cancelled={cancelled_in_delta} delta_peak={} native_removed={removed} native_added={added} native_changed={changed} merge_peak={peak} final_terms={final_terms} limit={limit}",sign.emitted,sign.peak);
+    if final_terms>limit{return Err(format!("phase-term-cap {detail}"));}
     Ok(detail)
 }
+
+ // Share candidate order, original native RR calls, guard substitution
+ // and removed-ID/scale contracts; snapshot storage remains separate.
+struct CoreStorageStep<F:CoreGuardStorage>{
+    ps:PathSum,guard:F,rule:GuardedRule,removed:Vec<u32>,scale2:u32,
+    section:Vec<(u32,BTreeSet<F::M>)>,
+}
+fn core_guarded_transition<F:CoreGuardStorage>(
+    ps:&PathSum,n:usize,g:&F,
+    hh:impl Fn(u32)->Option<(u32,BTreeSet<F::M>)>,
+    valid_trial:impl Fn(&PathSum)->bool,
+)->Option<CoreStorageStep<F>>{
+    let factors=g.factors_ref();
+    let mut candidates:Vec<_>=ps.get_reducible_vars().into_iter().filter(|&y|
+        (y as usize)>=n&&y<F::ID_LIMIT&&factors.iter().all(|f|f.iter().all(|m|!m.contains_id(y)))).collect();
+    candidates.sort_unstable();
+    for rule in [GuardedRule::Elim,GuardedRule::Omega,GuardedRule::Hh]{
+        for &y in &candidates{
+            let (extra,mut expected,scale2,section)=match rule{
+                GuardedRule::Elim=>(factors.iter().map(|f|(*f).clone()).collect::<Vec<_>>(),vec![y],2,vec![(y,BTreeSet::new())]),
+                GuardedRule::Omega=>(factors.iter().map(|f|(*f).clone()).collect::<Vec<_>>(),vec![y],1,vec![(y,BTreeSet::new())]),
+                GuardedRule::Hh=>{
+                    let Some((target,repl))=hh(y) else{continue;};
+                    let Some(extra)=factors.iter().map(|f|cps_guard_algebra::guard_substitute(f,target,&repl)).collect::<Option<Vec<_>>>() else{continue;};
+                    (extra,vec![y,target],2,vec![(y,BTreeSet::new()),(target,repl)])
+                }
+            };
+            let mut trial=ps.clone();
+            let ok=match rule{
+                GuardedRule::Elim=>trial.try_reduce_elim(&[y]),
+                GuardedRule::Omega=>trial.try_reduce_omega(&[y]),
+                GuardedRule::Hh=>trial.try_reduce_hh(&[y]),
+            };
+            if !ok{continue;}
+            if !valid_trial(&trial){return None;}
+            let mut removed:Vec<_>=ps.v.path_vars.difference(&trial.v.path_vars).copied().collect();
+            removed.sort_unstable();expected.sort_unstable();
+            if removed!=expected||!trial.v.path_vars.is_subset(&ps.v.path_vars){return None;}
+            let guard=F::from_parts(&trial,extra)?;
+            return Some(CoreStorageStep{ps:trial,guard,rule,removed,scale2,section});
+        }
+    }
+    None
+}
+fn core_sparse_hh(ps:&PathSum,n:usize,y:u32)->Option<(u32,SparseAnf)>{
+    let mut phi=SparseAnf::new();
+    for (m,c) in &ps.p.terms{
+        if !m.contains(&y){continue;}
+        if core_phase8(c)!=Some(4){return None;}
+        let term=SparseMono::new(m.iter().copied().filter(|&id|id!=y).collect())?;
+        core_toggle(&mut phi,term);
+    }
+    let target=phi.iter().filter(|m|m.ids().len()==1)
+        .map(|m|m.ids()[0]).filter(|&id|phi.iter().all(|m|m.ids()==[id]||!m.contains_id(id))).max()?;
+    if (target as usize)<n{return None;}
+    phi.remove(&SparseMono::new(vec![target])?);
+    Some((target,phi))
+}
+#[derive(Clone,Debug,PartialEq,Eq)]
+struct SparseRrSnapshot{
+    n:usize,q:usize,k:i32,next_id:u32,ids:Vec<u32>,
+    phase:BTreeMap<Vec<u32>,u8>,output:Vec<BTreeSet<Vec<u32>>>,factors:Vec<SparseAnf>,
+}
+#[derive(Clone,Debug,PartialEq,Eq)]
+struct SparseRrReceipt{
+    before:SparseRrSnapshot,after:SparseRrSnapshot,
+    rule:GuardedRule,removed:Vec<u32>,scale2:u32,section:Vec<(u32,SparseAnf)>,
+}
+impl CpsCore<SparseGuardFrame>{
+    fn rr_snapshot(&self)->Option<SparseRrSnapshot>{
+        if !self.shared_valid(){return None;}
+        Some(SparseRrSnapshot{
+            n:self.n(),q:self.q(),k:self.k,next_id:self.ps.v.next_id,ids:self.guard.ids.clone(),
+            phase:self.ps.p.terms.iter().map(|(m,c)|Some((m.clone(),core_phase8(c)?))).collect::<Option<_>>()?,
+            output:self.ps.f.functions.iter().map(|f|f.iter().cloned().collect()).collect(),
+            factors:self.guard.factors.clone(),
+        })
+    }
+    fn sparse_rr_step(&self)->Option<(Self,SparseRrReceipt)>{
+        let before=self.rr_snapshot()?;
+        let step=core_guarded_transition(&self.ps,self.n(),&self.guard,
+            |y|core_sparse_hh(&self.ps,self.n(),y),
+            |p|p.v.num_qubits==self.n()&&p.f.functions.len()==self.q()&&!p.rr_approximate&&p.rr_tolerance==0.0&&p.v.continuous_vars.is_empty())?;
+        if !core_rr_phase_admitted(self.ps.p.terms.len(),step.ps.p.terms.len()){return None;}
+        let k=self.k.checked_sub(i32::try_from(step.scale2).ok()?)?;
+        let next=Self{ps:step.ps,guard:step.guard,k};
+        let after=next.rr_snapshot()?;
+        if after.ids.len()>=before.ids.len()||after.n!=before.n||after.q!=before.q{return None;}
+        let receipt=SparseRrReceipt{before,after,rule:step.rule,removed:step.removed,scale2:step.scale2,section:step.section};
+        Some((next,receipt))
+    }
+    fn replay_sparse_rr(&self,rs:&[SparseRrReceipt])->Option<Self>{
+        self.rr_snapshot()?;if rs.len()>32{return None;}
+        let mut c=self.clone();
+        for r in rs{
+            let (next,actual)=c.sparse_rr_step()?;
+            if &actual!=r{return None;}
+            c=next;
+        }
+        Some(c)
+    }
+}
+
 fn core_storage_anf<F:CoreGuardStorage>(p:&CoreBool)->Option<BTreeSet<F::M>>{
     p.iter().map(|m|F::mono(m)).collect()
 }
@@ -198,7 +306,7 @@ impl<F:CoreGuardStorage> CpsCore<F>{
     fn shared_valid(&self)->bool{
         let ps=&self.ps;let n=self.n();let q=self.q();let live=&ps.v.path_vars;
         if n>16||q>16||ps.rr_approximate||ps.rr_tolerance!=0.0||
-            !ps.v.continuous_vars.is_empty()||!core_terms_ok(ps)||
+            !ps.v.continuous_vars.is_empty()||ps.p.terms.len()>F::PHASE_LIMIT||ps.f.functions.iter().any(|p|p.len()>CORE_TERMS)||
             (0..n).any(|i|!live.contains(&(i as u32)))||
             ps.v.next_id>F::ID_LIMIT||live.iter().any(|&v|v>=F::ID_LIMIT||v>=ps.v.next_id)||
             ps.f.registers.iter().map(|r|r.size).sum::<usize>()!=q||
@@ -231,7 +339,7 @@ impl<F:CoreGuardStorage> CpsCore<F>{
             let repl=core_storage_anf::<F>(repl)?;
             gs=gs.iter().map(|g|cps_guard_algebra::guard_substitute(g,v,&repl)).collect::<Option<Vec<_>>>()?;
             ps.v.path_vars.remove(&v);
-            if p.terms.len()>CORE_PHASE_TERMS||f.functions.iter().any(|q|q.len()>CORE_TERMS){return None;}
+            if p.terms.len()>F::PHASE_LIMIT||f.functions.iter().any(|q|q.len()>CORE_TERMS){return None;}
         }
         for (m,c) in p.terms{ps.p.add_term(m,c);}
         ps.f=f;
@@ -1936,6 +2044,13 @@ fn hoare_cps_sparse_source_admission(){
         Ok((c,rank,pins))=>{
             assert_eq!((rank,pins,c.guard.ids.len(),c.n(),c.q(),c.k),(19,9,67,ua.n(),b.n(),ua.k+b.k));
             println!("CPS_SPARSE_AFFINE_ADMISSION case=MOGrover05 status=READY rank={rank} pins={pins} live={} next_id={} k={} factors={} phase_terms={}",c.guard.ids.len(),c.ps.v.next_id,c.k,c.guard.factors.len(),c.ps.p.terms.len());
+            let mut residual=c.clone();let mut receipts=Vec::new();
+            for _ in 0..32{
+                let Some((next,r))=residual.sparse_rr_step() else{break;};
+                receipts.push(r);residual=next;
+            }
+            assert_eq!(c.replay_sparse_rr(&receipts).unwrap().rr_snapshot(),residual.rr_snapshot());
+            println!("CPS_SPARSE_SOURCE_RR case=MOGrover05 steps={} live_before={} live_after={} k_before={} k_after={} phase_before={} phase_after={} replay=PASS",receipts.len(),c.guard.ids.len(),residual.guard.ids.len(),c.k,residual.k,c.ps.p.terms.len(),residual.ps.p.terms.len());
         },
         Err(e)=>println!("CPS_SPARSE_AFFINE_ADMISSION case=MOGrover05 status=BLOCKED detail={e}")
     }
@@ -1975,4 +2090,31 @@ fn hoare_cps_affine_phase_cancellation(){
     let mut sign=CoreAffineSign::<u64>::new();
     assert!(sign.push((0..=AFFINE_SIGN_SCRATCH as u64).collect()).is_none());
     println!("CPS_AFFINE_PHASE_CANCELLATION transient=PASS final_cap=PASS mixed_z8=PASS scratch_reject=PASS");
+}
+
+#[test]
+fn hoare_cps_sparse_rr(){
+    let h=CpsCore::circuit(1,&[G::H(0),G::H(0)]).unwrap();
+    let omega=CpsCore::circuit(1,&[G::H(0),G::S(0),G::H(0)]).unwrap();
+    let mut ps=PathSum::new(1);ps.set_auto_reduce(false);ps.v.get_fresh_var();
+    let elim=CpsCore::canonical(ps,Anf::from([0])).unwrap();
+    for (a,rule) in [(h,GuardedRule::Hh),(omega,GuardedRule::Omega),(elim,GuardedRule::Elim)]{
+        let (b,r)=a.rr_step().unwrap();assert_eq!(r.native.rule,rule);
+        let sa=a.to_sparse().unwrap();let (sb,sr)=sa.sparse_rr_step().unwrap();
+        assert_eq!((sr.rule,&sr.removed,sr.scale2,sb.k),(rule,&r.native.removed,r.native.scale2,b.k));
+        assert_eq!(sparse_core_matrix(&sb),core_matrix(&b));
+        assert_eq!(sa.replay_sparse_rr(&[sr.clone()]).unwrap().rr_snapshot(),sb.rr_snapshot());
+        let mut bad=sr;bad.after.k+=1;assert!(sa.replay_sparse_rr(&[bad]).is_none());
+    }
+    let mut ps=PathSum::new(1);ps.set_auto_reduce(false);ps.v.next_id=128;
+    let y=ps.v.get_fresh_var();let v=ps.v.get_fresh_var();
+    ps.f.functions[0]=CoreBool::from_iter([vec![v]]);
+    ps.p.add_term(vec![0,y],quprs::PhaseCoeff::HALF);
+    ps.p.add_term(vec![y,v],quprs::PhaseCoeff::HALF);
+    let a=CpsCore::<SparseGuardFrame>::shared_from_parts(ps,vec![SparseAnf::from([SparseMono::new(vec![]).unwrap()])],2).unwrap();
+    let (b,r)=a.sparse_rr_step().unwrap();
+    assert_eq!((r.rule,r.removed.as_slice(),b.k),(GuardedRule::Hh,[128u32,129].as_slice(),0));
+    assert_eq!(sparse_core_matrix(&a),sparse_core_matrix(&b).into_iter().map(|row|row.into_iter().map(|v|scale_guarded_entry(v,2)).collect::<Vec<_>>()).collect::<Vec<_>>());
+    assert_eq!(a.replay_sparse_rr(&[r]).unwrap().rr_snapshot(),b.rr_snapshot());
+    println!("CPS_SPARSE_RR elim=PASS hh=PASS omega=PASS high_id=PASS replay=PASS mutant=REJECTED");
 }

@@ -104,6 +104,8 @@ jobs:
           grep -F 'CPS_SHARED_AFFINE matrix=PASS zero_row=PASS high_id=PASS reject=PASS' evidence/cps-core-closure.log
           timeout 30s "$(cat evidence/property_hoare_experiment.path)" --exact exact_property_cnf::hoare_cps_affine_phase_cancellation --nocapture | tee evidence/cps-affine-phase-cancellation.log
           grep -F 'CPS_AFFINE_PHASE_CANCELLATION transient=PASS final_cap=PASS mixed_z8=PASS scratch_reject=PASS' evidence/cps-affine-phase-cancellation.log
+          timeout 30s "$(cat evidence/property_hoare_experiment.path)" --exact exact_property_cnf::hoare_cps_sparse_rr --nocapture | tee evidence/cps-sparse-rr.log
+          grep -F 'CPS_SPARSE_RR elim=PASS hh=PASS omega=PASS high_id=PASS replay=PASS mutant=REJECTED' evidence/cps-sparse-rr.log
           grep -F 'rejection_controls=9' evidence/cps-core-closure.log
           grep -F 'CPS_CORE_CANONICAL padding=384' evidence/cps-core-closure.log
           timeout 60s "$(cat evidence/property_hoare_experiment.path)" --exact exact_property_cnf::hoare_cps_core_guarded_rr --nocapture | tee evidence/cps-core-rr.log

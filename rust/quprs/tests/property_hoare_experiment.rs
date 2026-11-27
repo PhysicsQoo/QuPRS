@@ -1284,36 +1284,9 @@ mod exact_property_cnf {
         let s=compact_shape(ps,n,q)?;
         g.compact_factors(ps)?;
         let ids=native_ids(ps)?;
-        let mut candidates:Vec<_>=ps.get_reducible_vars().into_iter().filter(|&y|
-            (y as usize)>=n&&y<63&&g.factors().all(|f|f.iter().all(|m|m&(1u64<<y)==0))).collect();
-        candidates.sort_unstable();
-        for rule in [GuardedRule::Elim,GuardedRule::Omega,GuardedRule::Hh]{
-            for &y in &candidates{
-                let (extra,mut expected,scale2,section)=match rule{
-                    GuardedRule::Elim=>(g.factors().cloned().collect::<Vec<_>>(),vec![y],2,vec![(y,Anf::new())]),
-                    GuardedRule::Omega=>(g.factors().cloned().collect::<Vec<_>>(),vec![y],1,vec![(y,Anf::new())]),
-                    GuardedRule::Hh=>{
-                        let Some((target,repl))=guarded_hh_replacement(&s,&ids,y) else{continue;};
-                        let Some(extra)=g.factors().map(|f|substitute_guard(f,target,&repl)).collect::<Option<Vec<_>>>() else{continue;};
-                        (extra,vec![y,target],2,vec![(y,Anf::new()),(target,repl)])
-                    }
-                };
-                let mut trial=ps.clone();
-                let ok=match rule{
-                    GuardedRule::Elim=>trial.try_reduce_elim(&[y]),
-                    GuardedRule::Omega=>trial.try_reduce_omega(&[y]),
-                    GuardedRule::Hh=>trial.try_reduce_hh(&[y]),
-                };
-                if !ok{continue;}
-                compact_shape(&trial,n,q)?;
-                let mut removed:Vec<_>=ps.v.path_vars.difference(&trial.v.path_vars).copied().collect();
-                removed.sort_unstable();expected.sort_unstable();
-                if removed!=expected||!trial.v.path_vars.is_subset(&ps.v.path_vars){return None;}
-                let guard=NativeGuardFrame::from_factors(&trial,extra)?;
-                return Some(GuardedStep{ps:trial,guard,rule,removed,scale2,section});
-            }
-        }
-        None
+        let step=core_guarded_transition(ps,n,g,|y|guarded_hh_replacement(&s,&ids,y),
+            |trial|compact_shape(trial,n,q).is_some())?;
+        Some(GuardedStep{ps:step.ps,guard:step.guard,rule:step.rule,removed:step.removed,scale2:step.scale2,section:step.section})
     }
     // Independent finite path oracle: compare each complex amplitude
     // exactly using the existing Z8 test oracle, not just total leakage.

@@ -903,6 +903,7 @@ jobs:
           sha256sum rust/quprs/tests/support/conditional_stitch.rs rust/research/conditional_rr_stitch.py docs/development/paper-corpus-manifest.json > evidence/walsh-hh-sha256.txt
           cargo test --release --locked --manifest-path rust/Cargo.toml -p quprs --test conditional_rr_experiment --no-run
           CRR_WALSH_HH=1 timeout --kill-after=5s 120s python3 rust/research/conditional_rr_stitch.py 2>&1 | tee evidence/walsh-hh.jsonl
+          CRR_ROTATION=1 timeout --kill-after=5s 420s python3 rust/research/conditional_rr_stitch.py 2>&1 | tee evidence/early-rotation.jsonl
       - name: Compare existing default RR baseline
         if: env.CRR_PERF_STAGE == 'default_rr'
         run: |

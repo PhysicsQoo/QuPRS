@@ -531,6 +531,8 @@ fn native_walsh_hh_pilot(){
         assert!(!r.solver_invoked&&!r.rr_approximate);
         assert_eq!((r.equivalent(),internal(p).len(),incidence(p)),("unknown",29,expected_inc));
         assert!(p.v.continuous_vars.is_empty()&&p.p.terms.values().all(|c|c.symbols.is_empty()));
+        let inherited=p.rr_approximate;
+        if policy=="strict"{assert!(!inherited);}
         let start=Instant::now();let mut q=p.clone();
         // Exact trial even on the default-prefix residual. Restore neither
         // near-grid snapping nor approximate matches during the added pass.
@@ -558,15 +560,66 @@ fn native_walsh_hh_pilot(){
         let transformed=q.clone();
         let start=Instant::now();assert!(q.try_reduce_hh(&[y]));let hh_s=start.elapsed().as_secs_f64();
         let mut live=p.v.path_vars.clone();live.remove(&y);live.remove(&v);
-        assert_eq!(q.v.path_vars,live);assert!(!q.rr_approximate);
+        assert_eq!(q.v.path_vars,live);assert_eq!(q.rr_approximate,inherited);
         assert!(terms(&q)<=TERM_CAP);
-        println!("CRR_WALSH_HH {{\"policy\":\"{policy}\",\"y\":{y},\"pivot\":{v},\"shift\":[91,93,111],\"rhs\":{:?},\"before\":{},\"transformed\":{},\"after\":{},\"scale_exponent_delta\":-2}}",sorted(&rhs),ir(p,None),ir(&transformed,None),ir(&q,None));
+        println!("CRR_WALSH_HH {{\"policy\":\"{policy}\",\"y\":{y},\"pivot\":{v},\"shift\":[91,93,111],\"rhs\":{:?},\"before\":{},\"transformed\":{},\"after\":{},\"scale_exponent_delta\":-2,\"inherited_rr_approximate\":{inherited},\"after_rr_approximate\":{}}}",sorted(&rhs),ir(p,None),ir(&transformed,None),ir(&q,None),q.rr_approximate);
         let hh_inc=incidence(&q);
         let start=Instant::now();q.full_reduce();let post_s=start.elapsed().as_secs_f64();
-        assert!(!q.rr_approximate);
+        assert_eq!(q.rr_approximate,inherited);
         let h=internal(&q).len();let inc=incidence(&q);
         let identity=h==0&&q.is_identity_up_to_phase();
         let useful=identity||(h<29&&inc<expected_inc);
-        println!("CRR_WALSH_RESULT {{\"policy\":\"{policy}\",\"baseline_s\":{baseline_s},\"reparam_s\":{reparam_s},\"hh_s\":{hh_s},\"post_rr_s\":{post_s},\"before_hidden\":29,\"hh_hidden\":27,\"post_hidden\":{h},\"before_incidence\":{expected_inc},\"hh_incidence\":{hh_inc},\"post_incidence\":{inc},\"identity_shape\":{identity},\"structurally_useful\":{useful},\"production_admitted\":false,\"post\":{}}}",ir(&q,None));
+        println!("CRR_WALSH_RESULT {{\"policy\":\"{policy}\",\"baseline_s\":{baseline_s},\"reparam_s\":{reparam_s},\"hh_s\":{hh_s},\"post_rr_s\":{post_s},\"before_hidden\":29,\"hh_hidden\":27,\"post_hidden\":{h},\"before_incidence\":{expected_inc},\"hh_incidence\":{hh_inc},\"post_incidence\":{inc},\"identity_shape\":{identity},\"structurally_useful\":{useful},\"production_admitted\":false,\"inherited_rr_approximate\":{inherited},\"post_rr_approximate\":{},\"post\":{}}}",q.rr_approximate,ir(&q,None));
+    }
+}
+
+
+// Known exact single-wire rotation algebra, not a new conditional RR.
+// Measure this separately to isolate any subsequent algorithmic contribution.
+fn early_rotation_lower(ops:&[quprs::ir::QuantumOp])->(Vec<quprs::ir::QuantumOp>,usize){
+    use quprs::{ir::QuantumOp::*,rational::Angle};
+    let half=Angle::from_qasm_str("pi/2").unwrap();
+    let three=Angle::from_qasm_str("3*pi").unwrap();
+    let pi=Angle::from_qasm_str("pi").unwrap();
+    let mut result=Vec::with_capacity(ops.len());let mut i=0;let mut hits=0;
+    while i<ops.len(){
+        if let Some([RZ(q,z),RX(a,x),RZ(b,theta),RX(c,y),RZ(d,end)])=ops.get(i..i+5){
+            if q==a&&q==b&&q==c&&q==d&&z==&Angle::ZERO&&x==&half&&y==&half&&end==&three&&theta.symbols.is_empty(){
+                result.push(RY(*q,theta.clone()-pi.clone()));hits+=1;i+=5;continue;
+            }
+        }
+        result.push(ops[i].clone());i+=1;
+    }
+    (result,hits)
+}
+#[test]
+fn native_early_rotation_pilot(){
+    let case=std::env::var("CRR_CASE").unwrap();
+    let variant=std::env::var("CRR_VARIANT").unwrap();
+    let source=std::fs::read_to_string(std::env::var("CRR_SOURCE").unwrap()).unwrap();
+    let target=std::fs::read_to_string(std::env::var("CRR_TARGET").unwrap()).unwrap();
+    let expected=match case.as_str(){"qnn_4"=>8,"vqe_4"=>12,_=>panic!("scope")};
+    // Six order-balanced pairs per policy, same parsed input and native RR.
+    // Time includes parse, candidate scan and verification; excludes file IO.
+    for (policy,tolerance) in [("strict",0.0),("default",1e-10)]{
+        for rep in 0..6{
+            for k in 0..2{
+                let lower=(rep+k)%2==1;
+                let start=Instant::now();
+                let(a,n)=parse_qasm_str(&source).unwrap();let(b,m)=parse_qasm_str(&target).unwrap();
+                assert_eq!((n,m),(4,4));let before=a.len();
+                let parse_s=start.elapsed().as_secs_f64();
+                let tick=Instant::now();
+                let (a,hits)=if lower{early_rotation_lower(&a)}else{(a,0)};
+                if lower{assert_eq!(hits,expected);assert_eq!(a.len(),before-4*expected);}
+                let lower_s=tick.elapsed().as_secs_f64();
+                let tick=Instant::now();
+                let opts=VerificationOptions{method:VerificationMethod::ReductionRules,rr_tolerance:tolerance,timeout_secs:20,..VerificationOptions::default()};
+                let r=check_equivalence_with_options(n,&a,&b,&opts).unwrap();
+                let verify_s=tick.elapsed().as_secs_f64();let p=r.final_pathsum();
+                assert!(!r.solver_invoked);
+                println!("CRR_ROTATION {{\"case\":\"{case}\",\"variant\":\"{variant}\",\"policy\":\"{policy}\",\"repeat\":{rep},\"lower\":{lower},\"hits\":{hits},\"gates_before\":{before},\"gates_after\":{},\"native\":\"{}\",\"public_rr_approximate\":{},\"residual_rr_approximate\":{},\"hidden\":{},\"incidence\":{},\"terms\":{},\"parse_s\":{parse_s},\"lower_s\":{lower_s},\"verify_s\":{verify_s},\"total_s\":{}}}",a.len(),r.equivalent(),r.rr_approximate,p.rr_approximate,internal(p).len(),incidence(p),terms(p),start.elapsed().as_secs_f64());
+            }
+        }
     }
 }

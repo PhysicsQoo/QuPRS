@@ -324,6 +324,8 @@ def verify_walsh_hh(row):
     phi.remove((v,))
     assert phi==anf(row["rhs"])
     assert row["scale_exponent_delta"]==-2
+    assert row["inherited_rr_approximate"]==row["after_rr_approximate"]
+    if row["policy"]=="strict":assert not row["inherited_rr_approximate"]
     q={m:k for m,k in q.items() if y not in m}
     assert substitute_phase(q,v,lift(phi))==r,"HH phase"
     assert [substitute_anf(f,v,phi) for f in gs]==hs,"HH outputs"
@@ -364,8 +366,37 @@ def walsh_hh_pilot():
             else:raise AssertionError("mutation accepted")
     print("CRR_WALSH_SUMMARY",json.dumps(dict(exact_reparam_hh=checks,mutations_rejected=negative,results=[{k:v for k,v in r.items() if k!="post"} for r in results],source_semantics_certified=False,post_rr_independent_oracle=False,production=False)),flush=True)
 
+
+def rotation_pilot():
+    import statistics
+    manifest=json.loads((ROOT/"docs/development/paper-corpus-manifest.json").read_text())
+    cases={c["id"]:c for c in manifest["cohorts"]["table2_mqt"]["cases"]}
+    negatives={"qnn_4":"fed46a5b63719525b28be193aa0a43ab9d10c6d7","vqe_4":"21776de4a2b0168f208d7dfba62ee198301a8357"}
+    summary=[]
+    for name in negatives:
+        c=cases[name]
+        for variant in ("positive","random_rotation"):
+            env=dict(os.environ,CRR_CASE=name,CRR_VARIANT=variant)
+            target=c["transpiled"] if variant=="positive" else dict(path="benchmarks/MQTBench/Random_Rotation/"+Path(c["source"]["path"]).name,git_blob_sha1=negatives[name])
+            for entry,key in ((c["source"],"CRR_SOURCE"),(target,"CRR_TARGET")):
+                path=ROOT/entry["path"];data=path.read_bytes()
+                assert hashlib.sha1(("blob %d"%len(data)).encode()+b"\x00"+data).hexdigest()==entry["git_blob_sha1"]
+                env[key]=str(path);print("CRR_ROTATION_SOURCE",name,variant,key,hashlib.sha256(data).hexdigest(),flush=True)
+            cmd=["timeout","--kill-after=3s","90s","cargo","test","--release","--locked","--manifest-path","rust/Cargo.toml","-p","quprs","--test","conditional_rr_experiment","conditional_stitch::native_early_rotation_pilot","--","--exact","--nocapture"]
+            r=subprocess.run(cmd,cwd=ROOT,env=env,capture_output=True,text=True)
+            print(r.stdout,flush=True);assert r.returncode==0,(r.returncode,r.stderr[-4000:])
+            rows=[json.loads(l.removeprefix("CRR_ROTATION ")) for l in r.stdout.splitlines() if l.startswith("CRR_ROTATION ")]
+            assert len(rows)==24
+            for policy in ("strict","default"):
+                for arm in (False,True):
+                    z=[x for x in rows if x["policy"]==policy and x["lower"]==arm]
+                    assert len(z)==6 and len({(x["native"],x["hidden"],x["incidence"],x["residual_rr_approximate"]) for x in z})==1
+                    summary.append(dict(case=name,variant=variant,policy=policy,lower=arm,native=z[0]["native"],hidden=z[0]["hidden"],incidence=z[0]["incidence"],residual_rr_approximate=z[0]["residual_rr_approximate"],median_total_s=statistics.median(x["total_s"] for x in z),median_verify_s=statistics.median(x["verify_s"] for x in z)))
+    print("CRR_ROTATION_SUMMARY",json.dumps(dict(arms=summary,source_truth_certified=False,production=False)),flush=True)
+
 if __name__=="__main__":
-    if os.environ.get("CRR_WALSH_HH"):walsh_hh_pilot()
+    if os.environ.get("CRR_ROTATION"):rotation_pilot()
+    elif os.environ.get("CRR_WALSH_HH"):walsh_hh_pilot()
     elif os.environ.get("CRR_DEFAULT_RR"):default_rr_cohort()
     elif os.environ.get("CRR_KET_COHORT"):ket_cohort()
     elif os.environ.get("CRR_ORIGINAL_COHORT"):cohort()

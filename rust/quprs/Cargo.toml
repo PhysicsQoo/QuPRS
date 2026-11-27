@@ -50,3 +50,9 @@ proptest = "1.0"
 default = ["high-precision-gpmc"]
 high-precision-gpmc = []
 browser-transport = []
+# Experimental native capability; never selected by the ordinary API.
+experimental-cpr = ["high-precision-gpmc"]
+
+[[example]]
+name = "cpr_native_optin"
+required-features = ["experimental-cpr"]

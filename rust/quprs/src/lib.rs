@@ -295,6 +295,19 @@ pub fn check_equivalence_with_options(
     gates2: &[QuantumOp],
     options: &VerificationOptions,
 ) -> Result<EquivalenceCheckResult> {
+    let effective_phase = validate_verification_options(options)?;
+    check_equivalence_with_distance_mode(
+        num_qubits, gates1, gates2, options.method, options.strategy,
+        &options.tool_name, options.timeout_secs,
+        effective_phase,
+        options.rr_tolerance,
+        options.approximate_distance_tolerance,
+        options.gpmc_precision_digits,
+    )
+}
+
+#[inline]
+fn validate_verification_options(options: &VerificationOptions) -> Result<f64> {
     if options.gpmc_precision_digits != 30 && options.gpmc_precision_digits != 90 {
         return Err(anyhow::anyhow!("gpmc_precision_digits must be 30 or 90"));
     }
@@ -317,14 +330,7 @@ pub fn check_equivalence_with_options(
     } else {
         options.wmc_phase_tolerance
     };
-    check_equivalence_with_distance_mode(
-        num_qubits, gates1, gates2, options.method, options.strategy,
-        &options.tool_name, options.timeout_secs,
-        effective_phase,
-        options.rr_tolerance,
-        options.approximate_distance_tolerance,
-        options.gpmc_precision_digits,
-    )
+    Ok(effective_phase)
 }
 
 /// Conservatively bound a reduced diagonal residual's non-global phase,
@@ -797,7 +803,8 @@ fn finish_native_verification(
         let mut removed=0usize;
         let wmc_mgr=if let Some(pairs)=cpr_pairs.filter(|p|!p.is_empty()){
             let route_start=Instant::now();
-            if let Some((view,rows))=cpr::extract_terminal(&ps_miter,pairs)?{
+            if let Some((view,rows))=cpr::extract_terminal(&ps_miter,pairs)
+                .map_err(|e| e.context(cpr::NormalizationError))?{
                 if cpr_route{
                     let raw=encode(&ps_miter,&[])?;
                     let ext=encode(&view,&rows)?;
@@ -831,8 +838,8 @@ fn finish_native_verification(
         // C_raw = 2^m C_ext. Keep printed count and half-units intact.
         // The denominator exponent is 2n+h-2m, NOT 2n+h-m.
         let count_twice_log2=expected_twice_log2.checked_sub(
-            removed.checked_mul(2).ok_or_else(||anyhow::anyhow!("CPR extraction overflow"))?
-        ).ok_or_else(||anyhow::anyhow!("CPR normalization underflow"))?;
+            removed.checked_mul(2).ok_or_else(||anyhow::anyhow!("CPR extraction overflow").context(cpr::NormalizationError))?
+        ).ok_or_else(||anyhow::anyhow!("CPR normalization underflow").context(cpr::NormalizationError))?;
         // Extracted encodings do not take the analytic identity shortcut.
         let analytic_identity = removed==0 &&
             wmc_mgr.has_exact_unweighted_tautology(count_twice_log2);
@@ -1540,3 +1547,10 @@ mod cpr_native_router_tests {
         println!("CPR_I2B_RESULT status={:?} total_s={} pathsum_s={} solve_s={:?} precision_reason={:?}",result.status,result.verification_time,result.pathsum_time,result.tool_time,result.wmc_precision_reason);
     }
 }
+
+// Explicit experimental interface. No arbitrary residual or default selection.
+#[cfg(all(feature="experimental-cpr", not(target_arch="wasm32")))]
+mod cpr_optin;
+#[cfg(all(feature="experimental-cpr", not(target_arch="wasm32")))]
+#[doc(hidden)]
+pub use cpr_optin::{check_equivalence_cpr_experimental, CprErrorKind};

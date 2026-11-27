@@ -1,4 +1,4 @@
-//! Private strict numeric CPR construction. No public opt-in yet.
+//! Private strict numeric CPR construction; explicit experimental opt-in only.
 //! Frozen N5c policy, no separate gate schedule or solver.
 //! Untracked Elim is fail-closed.
 use crate::{PathSum, PhaseCoeff, Rational};
@@ -7,8 +7,18 @@ use crate::pathsum::{Monomial,Register};
 use rustc_hash::FxHashSet;
 use crate::clock::Instant;
 type Anf = FxHashSet<Monomial>;
-const TERM_CAP:usize=4096;
+pub(super) const TERM_CAP:usize=4096;
 const LIFT_CAP:usize=32;
+// Internal typed boundary for exact extraction/normalization failures.
+#[derive(Debug)]
+pub(super) struct NormalizationError;
+impl std::fmt::Display for NormalizationError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("CPR extraction or normalization failed")
+    }
+}
+impl std::error::Error for NormalizationError {}
+
 #[derive(Debug,PartialEq,Eq)]
 pub(crate) enum BuildStop { Deadline, TermCap, LiftCap, UntrackedElim, Approximate, InvalidResidual }
 pub(crate) struct Built {

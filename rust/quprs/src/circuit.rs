@@ -124,7 +124,7 @@ impl QuantumCircuit {
         Ok(())
     }
 
-    fn validate(&self, op: &QuantumOp) -> Result<()> {
+    pub(crate) fn validate(&self, op: &QuantumOp) -> Result<()> {
         use QuantumOp::*;
         match op {
             H(q) | X(q) | Y(q) | Z(q) | S(q) | SDG(q) | T(q) | TDG(q)

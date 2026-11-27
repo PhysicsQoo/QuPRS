@@ -7,17 +7,18 @@ on:
       - 'rust/quprs/src/**'
       - 'rust/quprs/Cargo.toml'
       - 'rust/quprs/tests/**'
-      - 'rust/research/**'
+      - 'rust/quprs/examples/**'
       - '.github/workflows/cpr-integration-gate.yml'
 permissions:
   contents: read
 jobs:
-  native-router:
+  engineering-correctness:
     runs-on: ubuntu-24.04
-    timeout-minutes: 35
+    timeout-minutes: 40
     env:
-      QUPRS_SOLVER_PROVISION: external
+      QUPRS_SOLVER_PROVISION: source
       CARGO_TERM_COLOR: never
+      RUST_TEST_THREADS: '1'
     steps:
       - uses: actions/checkout@v4
         with:
@@ -27,36 +28,25 @@ jobs:
         with:
           workspaces: 'rust -> target'
       - name: Install native prerequisites
-        run: sudo apt-get update && sudo apt-get install -y cmake pkg-config libgmp-dev libmpfr-dev zlib1g-dev python3-venv
-      - name: Native routed count and independent literal-QASM oracle
+        run: sudo apt-get update && sudo apt-get install -y cmake pkg-config libgmp-dev libmpfr-dev zlib1g-dev
+      - name: Full unfiltered native correctness and explicit opt-in contracts
         run: |
           set -euo pipefail
           mkdir -p evidence
           git rev-parse HEAD | tee evidence/head.txt
           git rev-parse 'HEAD^{tree}' | tee evidence/tree.txt
           rustc --version | tee evidence/rustc.txt
-          sha256sum rust/quprs/src/{lib,cpr,strategy,wmc,reduction}.rs rust/Cargo.lock rust/research/{cpr_native_i2b,conditional_rr_source_ball,conditional_rr_tensor_source}.py > evidence/source-sha256.txt
-          tmp="$(mktemp -d)"
-          python3 scripts/install_gpmc_release.py --dest "$tmp/gpmc" | tee evidence/gpmc-release.json
-          sha256sum "$tmp/gpmc" | tee evidence/gpmc-sha256.txt
-          export QUPRS_GPMC_PATH="$tmp/gpmc"
-          python3 -m py_compile rust/research/{cpr_native_i2b,conditional_rr_source_ball,conditional_rr_tensor_source}.py
-          cargo test --locked --release --manifest-path rust/Cargo.toml -p quprs --lib --no-run --message-format=json > evidence/build.jsonl
-          export CPR_I2B_BIN="$(python3 -c 'import json; p=[r["executable"] for l in open("evidence/build.jsonl") if (r:=json.loads(l)).get("reason")=="compiler-artifact" and r.get("target",{}).get("name")=="quprs" and r.get("profile",{}).get("test") and r.get("executable")]; assert len(p)==1,p; print(p[0])')"
-          env -u CRR_SOURCE -u CRR_TARGET "$CPR_I2B_BIN" cpr_native_router_tests::i2b_locked_source_worker --exact --nocapture 2>&1 | tee evidence/worker-isolation.log
-          grep -F '1 ignored' evidence/worker-isolation.log
-          set +e
-          timeout --kill-after=5s 240s python3 rust/research/cpr_native_i2b.py 2>&1 | tee evidence/native.log
-          native_status=${PIPESTATUS[0]}
-          set -e
-          python3 -m venv "$tmp/reference-venv"
-          "$tmp/reference-venv/bin/pip" install --disable-pip-version-check python-flint==0.9.0
-          set +e
-          CRR_GENERIC_LOG=evidence/native.log CRR_BALL_BITS=2048 timeout --kill-after=5s 480s "$tmp/reference-venv/bin/python" rust/research/cpr_native_i2b.py 2>&1 | tee evidence/source.log
-          source_status=${PIPESTATUS[0]}
-          set -e
-          test "$native_status" = 0
-          test "$source_status" = 0
+          sha256sum rust/quprs/src/{lib,cpr,cpr_optin,circuit,strategy,wmc,reduction}.rs rust/Cargo.lock rust/quprs/Cargo.toml rust/quprs/examples/cpr_native_optin.rs > evidence/source-sha256.txt
+          unset CRR_SOURCE CRR_TARGET QUPRS_GPMC_PATH QUPRS_GANAK_PATH
+          cargo test --locked --release --manifest-path rust/Cargo.toml -p quprs -p QuPRS_cli 2>&1 | tee evidence/default-full.log
+          cargo test --locked --release --manifest-path rust/Cargo.toml -p quprs --features experimental-cpr 2>&1 | tee evidence/optin-full.log
+          grep -F 'cpr_optin::tests::optin_request_and_rr_first_contract ... ok' evidence/optin-full.log
+          grep -F 'cpr_optin::tests::stop_and_native_failure_classification ... ok' evidence/optin-full.log
+          grep -F 'cpr_native_router_tests::i2b_locked_source_worker ... ignored' evidence/optin-full.log
+          cargo test --locked --release --manifest-path rust/Cargo.toml -p quprs --features experimental-cpr,browser-transport --lib cpr_optin::tests::browser_capture_is_not_native_optin -- --exact 2>&1 | tee evidence/browser-contract.log
+          grep -F 'cpr_optin::tests::browser_capture_is_not_native_optin ... ok' evidence/browser-contract.log
+          cargo check --locked --manifest-path rust/Cargo.toml -p quprs --no-default-features --features browser-transport 2>&1 | tee evidence/browser-check.log
+          cargo build --locked --release --manifest-path rust/Cargo.toml -p quprs --features experimental-cpr --example cpr_native_optin 2>&1 | tee evidence/example-build.log
       - name: Seal evidence
         if: always()
         run: |
@@ -65,5 +55,5 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: cpr-integration-native-router
+          name: cpr-integration-engineering
           path: evidence/

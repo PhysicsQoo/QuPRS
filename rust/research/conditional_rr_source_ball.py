@@ -342,13 +342,30 @@ def main():
                 threshold=arb(d)*(1-EPS*EPS).sqrt()
                 upper=arb(d-kdone)+abs(total).upper()+error
                 if upper<threshold:
-                    out["status"]="CERTIFIED_DISTANCE_NEQ";break
+                    out["status"]="CERTIFIED_DISTANCE_NEQ"
+                    if not (n<=5 and os.environ.get("CRR_BALL_FULL_TRACE")):break
             if kdone==d and out["status"]!="CERTIFIED_DISTANCE_NEQ":
                 lower=abs(total).lower()-error
                 if lower>arb(d)*(1-EPS*EPS).sqrt():out["status"]="CERTIFIED_DISTANCE_EQ"
             upper=arb(d-kdone)+abs(total).upper()+error
             out.update(examined=kdone,peak_block=peak,subset_trace=str(total),error_upper=str(error),trace_abs_upper=str(upper),
                        threshold_trace=str(arb(d)*(1-EPS*EPS).sqrt()),reason=reason,elapsed_s=time.monotonic()-start)
+            # Compare the entire complex normalized source trace against
+            # completed research-path GPMC counts; no verdict-only shortcut.
+            log=os.environ.get("CRR_HANDOFF_LOG")
+            if log and n<=5 and kdone==d:
+                for line in Path(log).read_text().splitlines():
+                    if not line.startswith("CRR_HANDOFF_CALL case="+variant+" ") or "status=complete" not in line:continue
+                    fields=dict(re.findall(r"(\\w+)=([^ ]+)",line))
+                    def exact(s):
+                        q=Fraction(s);return arb(fmpq(q.numerator,q.denominator))
+                    k=int(fields["twice"])
+                    scale=(arb(2)**(k//2))*(arb(2).sqrt() if k%2 else 1)
+                    observed=acb(exact(fields["real"]),exact(fields["imag"]))/scale
+                    delta=abs(observed-total/d).upper()
+                    ok=delta<arb("1e-50")
+                    print("CRR_SOURCE_COUNT_PARITY "+json.dumps(dict(variant=variant,arm=fields["arm"],matched=bool(ok),delta=str(delta))),flush=True)
+                    assert ok,"source complex trace mismatch"
             print("CRR_SOURCE_BALL "+json.dumps(out),flush=True)
             if n<=5:
                 assert out["status"]==("CERTIFIED_DISTANCE_EQ" if variant=="positive" else "CERTIFIED_DISTANCE_NEQ")

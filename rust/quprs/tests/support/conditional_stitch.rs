@@ -995,10 +995,20 @@ fn lift_saturate(ps:&mut PathSum,audit:&mut LiftAudit){
         let old_hidden=internal(ps).len();
         if ps.try_reduce_elim(&ids){audit.elim_removed+=old_hidden-internal(ps).len();continue;}
         let mut changed=false;let mut local_trials=0;
+        // Index only current phase support. Rebuild after every accepted
+        // rewrite. Native rule order, candidate caps and acceptance unchanged.
+        let indexed=std::env::var_os("CRR_LIFT_INDEXED").is_some();
+        let mut index=rustc_hash::FxHashMap::<u32,Vec<(&Monomial,&PhaseCoeff)>>::default();
+        if indexed{
+            for (m,c) in &ps.p.terms{
+                for &v in m{index.entry(v).or_default().push((m,c));}
+            }
+        }
+        let mut accepted=None;
         for rule in [1,2]{
             for &y in &ids{
                 if local_trials>=8{break;}
-                let ys:Vec<_>=ps.p.terms.iter().filter(|(m,_)|m.contains(&y)).collect();
+                let ys:Vec<_>=if indexed{index.get(&y).cloned().unwrap_or_default()}else{ps.p.terms.iter().filter(|(m,_)|m.contains(&y)).collect()};
                 if ys.is_empty(){continue;}
                 if rule==1{
                     // Upper bound quadratic expansion of omega; cap
@@ -1020,12 +1030,14 @@ fn lift_saturate(ps:&mut PathSum,audit:&mut LiftAudit){
                 assert!(!trial.rr_approximate);
                 assert_eq!(internal(&trial).len()+if rule==1{1}else{2},internal(ps).len());
                 if terms(&trial)<=TERM_CAP&&incidence(&trial)<=incidence(ps){
-                    *ps=trial;audit.accepts+=1;if rule==1{audit.omega+=1;}else{audit.hh+=1;}changed=true;break;
+                    accepted=Some(trial);audit.accepts+=1;if rule==1{audit.omega+=1;}else{audit.hh+=1;}changed=true;break;
                 }
                 audit.rejects+=1;
             }
             if changed||local_trials>=8{break;}
         }
+        drop(index);
+        if let Some(trial)=accepted{*ps=trial;}
         if !changed{return;}
     }
 }
@@ -1094,7 +1106,25 @@ fn policy_continue(ps:&mut PathSum,a:&[quprs::ir::QuantumOp],b:&[quprs::ir::Quan
         if done%32==0||terms(ps)>=3000{
             println!("CRR_POLICY_BEGIN arm={arm} step={done} bra={bra} index={j} terms={} hidden={} gate={gate:?}",terms(ps),internal(ps).len());
         }
-        gate.apply(ps,bra);ps.set_auto_reduce(true);
+        // On a bra CX that actually crosses the term cap, retry once
+        // with an exact input lift. No cap increase and no solver changes.
+        // The old input coordinate remains an external input.
+        let rescue=std::env::var_os("CRR_BRA_RESCUE").is_some()&&bra&&matches!(gate,quprs::ir::QuantumOp::CX(..))&&pairs.len()<32;
+        let checkpoint=if rescue{Some(ps.clone())}else{None};
+        gate.apply(ps,bra);
+        if terms(ps)>TERM_CAP{
+            if let (Some(old),quprs::ir::QuantumOp::CX(_,target))=(checkpoint,gate){
+                let direct_terms=terms(ps);
+                let mut trial=old;
+                let (u,z)=lift_input(&mut trial,*target as u32);
+                gate.apply(&mut trial,true);
+                let candidate=terms(&trial);
+                let accepted=candidate<direct_terms&&candidate<=TERM_CAP;
+                println!("CRR_BRA_RESCUE step={done} index={j} target={target} direct_terms={direct_terms} lifted_terms={candidate} accepted={accepted}");
+                if accepted{*ps=trial;pairs.push((u,z));audit.lifts+=1;}
+            }
+        }
+        ps.set_auto_reduce(true);
         done+=1;peak=peak.max(terms(ps));max_inc=max_inc.max(incidence(ps));
         if terms(ps)>TERM_CAP{println!("CRR_POLICY_CAP step={done} bra={bra} index={j} gate={gate:?} terms={}",terms(ps));stop="term_cap";break;}
         lift_saturate(ps,&mut audit);
@@ -1125,4 +1155,34 @@ fn lift_policy_bounds(){
     assert_eq!(expansion_bound(12,2,2048),78);
     assert_eq!(expansion_bound(0,5,2048),0);
     assert_eq!(expansion_bound(12,0,2048),0);
+}
+
+
+// Inserting HH on the input boundary is the dual of output lifting.
+// Rename x_t only in P/F, retain external x_t, introduce fresh u,z.
+fn lift_input(ps:&mut PathSum,x:u32)->(u32,u32){
+    assert!((x as usize)<ps.v.num_qubits);
+    let u=ps.v.get_fresh_var();let z=ps.v.get_fresh_var();
+    let rhs:Anf=[vec![u]].into_iter().collect();
+    ps.p.substitute_var_with_poly(x,&rhs);
+    ps.f.substitute_var_with_poly(x,&rhs);
+    ps.p.add_term(vec![x,z],PhaseCoeff::HALF);
+    ps.p.add_term(vec![u,z],PhaseCoeff::HALF);
+    (u,z)
+}
+#[test]
+fn lift_input_bra_cx_roundtrip(){
+    use quprs::ir::QuantumOp;
+    let mut ps=PathSum::new(2);ps.set_auto_reduce(false);
+    let y=ps.v.get_fresh_var();
+    ps.p.add_term(vec![0,1,y],PhaseCoeff::new_constant(Rational::new(1,8)));
+    ps.p.add_term(vec![1],PhaseCoeff::QUARTER);
+    ps.f.functions[1]=[vec![0,y],vec![1]].into_iter().collect();
+    let mut direct=ps.clone();QuantumOp::CX(0,1).apply(&mut direct,true);
+    let (u,z)=lift_input(&mut ps,1);QuantumOp::CX(0,1).apply(&mut ps,true);
+    assert!(ps.get_reducible_vars().contains(&z));
+    assert!(ps.try_reduce_hh(&[z]));
+    assert!(!ps.v.path_vars.contains(&u)&&!ps.v.path_vars.contains(&z));
+    assert_eq!(ir(&ps,None),ir(&direct,None));
+    println!("CRR_BRA_LIFT_CONTROL exact_roundtrip=true");
 }

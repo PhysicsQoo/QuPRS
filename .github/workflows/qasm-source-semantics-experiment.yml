@@ -1197,16 +1197,17 @@ jobs:
           fi
 
           machine_word_status=0
+          lean AffineMachineWordTrustAudit.lean 2>&1 | tee /tmp/qasm-lean-affine-machine-word-trust-audit.log || machine_word_status=$?
           lean AffineMachineWord.lean 2>&1 | tee /tmp/qasm-lean-affine-machine-word.log || machine_word_status=$?
           if grep -E 'sorryAx|Lean[.]trustCompiler|Lean[.]ofReduceBool|Classical[.]choice|[.]_native[.]|_native[.]' /tmp/qasm-lean-affine-machine-word.log; then
             machine_word_status=1
           fi
-          test "$(grep -Ec 'does not depend on any axioms|depends on axioms' /tmp/qasm-lean-affine-machine-word.log)" -eq 37 || machine_word_status=1
-          for theorem in complement_nat not_neg_local low_zero clear_zero low_nonzero low_onehot low_subset low_minimal clear_identity clear_lt split_mask merge_partition select_distributes selected_digit walk_partition remaining_zero remaining_of_numeric_bound processed_complete reconstruct_prefix reconstruct_complete neg_concat_even neg_concat_odd sub_concat_even sub_concat_odd low_concat_false low_concat_true clear_concat_false clear_concat_true count_zero_iff count_clear low_minimal_aux low_projection remaining_count remaining_iff_count exact_count_finish admitted_width_finish reconstruct_at_count; do
+          test "$(grep -Ec 'does not depend on any axioms|depends on axioms' /tmp/qasm-lean-affine-machine-word.log)" -eq 40 || machine_word_status=1
+          for theorem in complement_bit complement_concat complement_involutive complement_nat not_neg_local low_zero clear_zero low_nonzero low_onehot low_subset low_minimal clear_identity clear_lt split_mask merge_partition select_distributes selected_digit walk_partition remaining_zero remaining_of_numeric_bound processed_complete reconstruct_prefix reconstruct_complete neg_concat_even neg_concat_odd sub_concat_even sub_concat_odd low_concat_false low_concat_true clear_concat_false clear_concat_true count_zero_iff count_clear low_minimal_aux low_projection remaining_count remaining_iff_count exact_count_finish admitted_width_finish reconstruct_at_count; do
             test "$(grep -Ec "^'QuPRS[.]AffineMachineWord[.]$theorem' (does not depend on any axioms|depends on axioms)" /tmp/qasm-lean-affine-machine-word.log)" -eq 1 || machine_word_status=1
           done
           if test "$machine_word_status" -eq 0; then
-            echo 'LEAN4_AFFINE_MACHINE_WORD_PASS theorem_axiom_reports=37 lowbit=true mask_partition_induction=true numeric_termination_bound=true reverse_prefix=true popcount_bound=true usize_refinement=false rust_refinement=false'
+            echo 'LEAN4_AFFINE_MACHINE_WORD_PASS theorem_axiom_reports=40 lowbit=true mask_partition_induction=true numeric_termination_bound=true reverse_prefix=true popcount_bound=true usize_refinement=false rust_refinement=false'
           else
             echo 'LEAN4_AFFINE_MACHINE_WORD_FAIL' >&2
           fi

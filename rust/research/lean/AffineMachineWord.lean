@@ -36,6 +36,32 @@ theorem neg_concat_even {w : Nat} (x : BitVec w) :
     change 2^w * 2 - (x.toNat * 2 + 0) = (2^w - x.toNat) * 2 + 0
     omega
 
+/-- Derive the in-range complement bit directly from the XOR definition,
+    avoiding the getElem_not/toNat_not simplification path. -/
+theorem complement_bit {w : Nat} (x : BitVec w) (i : Nat) (hi : i < w) :
+    (~~~x).getLsbD i = !x.getLsbD i := by
+  rw [BitVec.not_def, BitVec.getLsbD_xor, BitVec.getLsbD_allOnes, decide_eq_true hi]
+  cases x.getLsbD i <;> rfl
+
+theorem complement_concat {w : Nat} (x : BitVec w) (b : Bool) :
+    ~~~(x.concat b) = (~~~x).concat (!b) := by
+  apply BitVec.eq_of_getLsbD_eq_iff.mpr
+  intro i hi
+  rw [complement_bit _ i hi]
+  cases i with
+  | zero =>
+      rw [BitVec.getLsbD_concat_zero, BitVec.getLsbD_concat_zero]
+  | succ j =>
+      have hj : j < w := by omega
+      rw [BitVec.getLsbD_concat_succ, BitVec.getLsbD_concat_succ, complement_bit x j hj]
+
+theorem complement_involutive {w : Nat} (x : BitVec w) :
+    ~~~(~~~x) = x := by
+  apply BitVec.eq_of_getLsbD_eq_iff.mpr
+  intro i hi
+  rw [complement_bit _ i hi, complement_bit x i hi]
+  cases x.getLsbD i <;> rfl
+
 /-- Avoid the library complement-to-Nat theorem's transitive trust
     dependencies by deriving the identity from the concat recurrence. -/
 theorem complement_nat {w : Nat} (x : BitVec w) :
@@ -45,7 +71,7 @@ theorem complement_nat {w : Nat} (x : BitVec w) :
   · decide
   · intro n y b ih
     have hy := y.isLt
-    rw [BitVec.not_concat, BitVec.toNat_concat, BitVec.toNat_concat, ih, Nat.pow_succ]
+    rw [complement_concat, BitVec.toNat_concat, BitVec.toNat_concat, ih, Nat.pow_succ]
     cases b
     · change (2^n - 1 - y.toNat) * 2 + 1 = 2^n * 2 - 1 - (y.toNat * 2 + 0)
       omega
@@ -87,27 +113,25 @@ theorem not_neg_local {w : Nat} (x : BitVec w) :
         have hp : 0#(n+1) < x := by
           change 0 < x.toNat
           omega
-        have hle : 1#(n+1) ≤ x := by
-          change (1#(n+1)).toNat ≤ x.toNat
-          rw [hone]
-          omega
         have hx := x.isLt
         apply BitVec.toNat_eq.mpr
-        rw [complement_nat, BitVec.toNat_neg_of_pos hp, BitVec.toNat_sub_of_le hle, hone]
+        rw [complement_nat, BitVec.toNat_neg_of_pos hp, BitVec.toNat_sub, hone]
+        have ha : 2^(n+1) - 1 + x.toNat = 2^(n+1) + (x.toNat - 1) := by omega
+        rw [ha, Nat.add_mod_left, Nat.mod_eq_of_lt (by omega)]
         omega
 
 theorem sub_concat_even {w : Nat} (x : BitVec w) :
     x.concat false - 1#(w+1) = (x-1#w).concat true := by
   calc
     _ = ~~~(-(x.concat false)) := (not_neg_local _).symm
-    _ = (~~~(-x)).concat true := by rw [neg_concat_even, BitVec.not_concat]; rfl
+    _ = (~~~(-x)).concat true := by rw [neg_concat_even, complement_concat]; rfl
     _ = _ := by rw [not_neg_local]
 
 theorem sub_concat_odd {w : Nat} (x : BitVec w) :
     x.concat true - 1#(w+1) = x.concat false := by
   calc
     _ = ~~~(-(x.concat true)) := (not_neg_local _).symm
-    _ = _ := by rw [neg_concat_odd, BitVec.not_concat, BitVec.not_not]; rfl
+    _ = _ := by rw [neg_concat_odd, complement_concat, complement_involutive]; rfl
 
 theorem low_concat_false {w : Nat} (x : BitVec w) :
     lowBit (x.concat false) = (lowBit x).concat false := by
@@ -120,7 +144,7 @@ theorem low_concat_true {w : Nat} (x : BitVec w) :
   have hz : x &&& ~~~x = 0#w := by
     apply BitVec.eq_of_getLsbD_eq_iff.mpr
     intro i hi
-    simp only [BitVec.getLsbD_and, BitVec.getLsbD_not, decide_eq_true hi, Bool.true_and, BitVec.getLsbD_zero]
+    rw [BitVec.getLsbD_and, complement_bit x i hi, BitVec.getLsbD_zero]
     cases x.getLsbD i <;> rfl
   unfold lowBit
   rw [neg_concat_odd, BitVec.concat_and_concat, hz]
@@ -136,8 +160,8 @@ theorem clear_identity {w : Nat} (m : BitVec w) : clear m = m &&& (m - 1#w) := b
   rw [← not_neg_local]
   apply BitVec.eq_of_getLsbD_eq_iff.mpr
   intro i hi
-  simp only [clear, lowBit, BitVec.getLsbD_xor, BitVec.getLsbD_and,
-    BitVec.getLsbD_not, decide_eq_true hi, Bool.true_and]
+  simp only [clear, lowBit, BitVec.getLsbD_xor, BitVec.getLsbD_and]
+  rw [complement_bit (-m) i hi]
   cases m.getLsbD i <;> cases (-m).getLsbD i <;> rfl
 
 theorem clear_concat_false {w : Nat} (x : BitVec w) :
@@ -248,8 +272,8 @@ theorem split_mask {w : Nat} (m : BitVec w) :
     cases m.getLsbD i <;> cases (-m).getLsbD i <;> rfl
 
 theorem merge_partition (b p r m : Word)
-    (hu : b ||| (p ||| r) = m) (hb : b &&& (p ||| r) = 0)
-    (hp : p &&& r = 0) :
+    (hu : b ||| (p ||| r) = m) (hb : b &&& (p ||| r) = 0#64)
+    (hp : p &&& r = 0#64) :
     (b ||| p) ||| r = m ∧ (b ||| p) &&& r = 0#64 := by
   constructor
   · rw [BitVec.or_assoc, hu]
@@ -312,16 +336,16 @@ def processed : Nat → Word → Word
 
 theorem walk_partition (fuel : Nat) (m : Word) :
     processed fuel m ||| remaining fuel m = m ∧
-    processed fuel m &&& remaining fuel m = 0 := by
+    processed fuel m &&& remaining fuel m = 0#64 := by
   induction fuel generalizing m with
   | zero =>
-      change (0 : Word) ||| m = m ∧ (0 : Word) &&& m = 0
+      change (0#64) ||| m = m ∧ (0#64) &&& m = 0#64
       simp
   | succ n ih =>
       have hp := ih (clear m)
       have hs := split_mask m
       change (lowBit m ||| processed n (clear m)) ||| remaining n (clear m) = m ∧
-        (lowBit m ||| processed n (clear m)) &&& remaining n (clear m) = 0
+        (lowBit m ||| processed n (clear m)) &&& remaining n (clear m) = 0#64
       apply merge_partition
       · rw [hp.1, hs.1]
       · rw [hp.1, hs.2]
@@ -352,7 +376,7 @@ theorem remaining_of_numeric_bound (fuel : Nat) (m : Word)
         change remaining n (clear m) = 0
         exact ih (clear m) (by omega)
 
-theorem processed_complete (fuel : Nat) (m : Word) (h : remaining fuel m = 0) :
+theorem processed_complete (fuel : Nat) (m : Word) (h : remaining fuel m = 0#64) :
     processed fuel m = m := by
   have hp := (walk_partition fuel m).1
   rw [h] at hp
@@ -364,7 +388,7 @@ theorem processed_complete (fuel : Nat) (m : Word) (h : remaining fuel m = 0) :
 def reconstruct : Nat → Word → Word → Word
   | 0, _, _ => 0
   | n+1, m, a =>
-      (if a &&& lowBit m = 0 then 0 else lowBit m) |||
+      (if a &&& lowBit m = 0#64 then 0#64 else lowBit m) |||
         reconstruct n (clear m) a
 
 theorem reconstruct_prefix (fuel : Nat) (m a : Word) :
@@ -374,7 +398,7 @@ theorem reconstruct_prefix (fuel : Nat) (m a : Word) :
       change (0 : Word) = a &&& 0
       simp
   | succ n ih =>
-      change (if a &&& lowBit m = 0 then 0 else lowBit m) |||
+      change (if a &&& lowBit m = 0#64 then 0#64 else lowBit m) |||
         reconstruct n (clear m) a = a &&& (lowBit m ||| processed n (clear m))
       rw [selected_digit a (lowBit m) (low_onehot m), ih]
       exact select_distributes a (lowBit m) (processed n (clear m))
@@ -396,22 +420,25 @@ theorem remaining_count (fuel : Nat) (m : Word) :
       omega
 
 theorem remaining_iff_count (fuel : Nat) (m : Word) :
-    remaining fuel m = 0 ↔ m.cpop.toNat ≤ fuel := by
+    remaining fuel m = 0#64 ↔ m.cpop.toNat ≤ fuel := by
   rw [← count_zero_iff (remaining fuel m), remaining_count]
   omega
 
 theorem exact_count_finish (m : Word) :
-    remaining m.cpop.toNat m = 0 :=
+    remaining m.cpop.toNat m = 0#64 :=
   (remaining_iff_count _ _).mpr (Nat.le_refl _)
 
 theorem admitted_width_finish (m : Word) (h : m.cpop.toNat ≤ 12) :
-    remaining 12 m = 0 :=
+    remaining 12 m = 0#64 :=
   (remaining_iff_count _ _).mpr h
 
 theorem reconstruct_at_count (m a : Word) :
     reconstruct m.cpop.toNat m a = a &&& m :=
   reconstruct_complete _ m a (exact_count_finish m)
 
+#print axioms complement_bit
+#print axioms complement_concat
+#print axioms complement_involutive
 #print axioms complement_nat
 #print axioms not_neg_local
 #print axioms low_zero

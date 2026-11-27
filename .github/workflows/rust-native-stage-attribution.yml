@@ -32,6 +32,7 @@ on:
           - d5b
           - d6a
           - d6b
+          - d6c
           - e1c-matrix
           - l1
   push:
@@ -1644,4 +1645,64 @@ jobs:
         with:
           name: eq-dag-d6b-heldout-replay
           path: d6b-evidence/
+          retention-days: 30
+
+  eq-dag-d6c:
+    if: github.ref == 'refs/heads/experiment/eq-dag-encoder' && ((github.event_name == 'push' && contains(github.event.head_commit.message, 'heldout source witness and completion replay')) || (github.event_name == 'workflow_dispatch' && inputs.dag_stage == 'd6c'))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: eq-dag-d6a-heldout
+          run-id: 46049209329
+          github-token: ${{ github.token }}
+          path: d6a
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Independent original QASM Float64 source witness
+        run: |
+          set -euo pipefail
+          mkdir d6c-evidence
+          node rust/research/eq_dag_d6c_witness.mjs rust/research/eq_dag_d6a_manifest.json d6c-evidence/witness.json | tee d6c-witness.log
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: 'rust -> target'
+      - name: Build only frozen-router candidate
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y cmake pkg-config libgmp-dev libmpfr-dev zlib1g-dev m4 make gcc time
+          python3 scripts/install_gpmc_release.py --dest "$RUNNER_TEMP/gpmc"
+          QUPRS_SOLVER_PROVISION=external cargo build --locked --release --manifest-path rust/Cargo.toml -p quprs --features research-parity-e2e --example eq_dag_d1
+      - name: Seven candidate-only E2E completion replays
+        run: |
+          set -euo pipefail
+          (cd d6a && sha256sum -c SHA256SUMS)
+          python3 -u rust/research/eq_dag_d6c_repeat.py rust/target/release/examples/eq_dag_d1 "$RUNNER_TEMP/gpmc" d6a d6c-evidence/repeat | tee d6c-repeat.log
+      - name: Seal evidence
+        if: always()
+        run: |
+          mkdir -p d6c-evidence
+          test ! -f d6c-witness.log || cp d6c-witness.log d6c-evidence/
+          test ! -f d6c-repeat.log || cp d6c-repeat.log d6c-evidence/
+          git rev-parse HEAD > d6c-evidence/head.txt
+          git rev-parse 'HEAD^{tree}' > d6c-evidence/tree.txt
+          lscpu > d6c-evidence/cpu.txt
+          cd d6c-evidence
+          find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 -r sha256sum > SHA256SUMS
+          sha256sum -c SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: eq-dag-d6c-source-witness-repeat
+          path: d6c-evidence/
           retention-days: 30

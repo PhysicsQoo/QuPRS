@@ -16,6 +16,13 @@ const CORE_TERMS:usize=256;
 // Bounded phase-only admission experiment: MOGrover04 reached 258
 // phase terms with max output 27. Keep Boolean and guard caps unchanged.
 const CORE_PHASE_TERMS:usize=1024; // bounded MO05 pilot: observed 748 terms
+// Preserve the last accepted RR policy separately from construction.
+// A larger admitted input may reduce, but must not grow beyond its own
+// phase size. This is a bounded policy, not a solver-cost theorem.
+const CORE_RR_PHASE_TERMS:usize=512;
+fn core_rr_phase_admitted(before:usize,after:usize)->bool{
+    after<=CORE_RR_PHASE_TERMS.max(before)
+}
 fn core_bit(v:u32)->Option<u64>{if v<63{Some(1u64<<v)}else{None}}
 fn core_mask(m:&[u32])->Option<u64>{
     m.iter().try_fold(0u64,|a,&v|Some(a|core_bit(v)?))
@@ -407,6 +414,7 @@ impl CpsCore {
     fn rr_step(&self)->Option<(Self,CoreRrReceipt)>{
         if !self.valid()||self.n()!=self.q(){return None;}
         let step=guarded_native_step(&self.ps,self.n(),&self.guard)?;
+        if !core_rr_phase_admitted(self.ps.p.terms.len(),step.ps.p.terms.len()){return None;}
         let native=guarded_receipt(&self.ps,self.n(),&self.guard,&step)?;
         let decrement=i32::try_from(native.scale2).ok()?;
         let after_k=self.k.checked_sub(decrement)?;
@@ -437,6 +445,12 @@ fn core_rr_equal(a:&CpsCore,b:&CpsCore){
 }
 #[test]
 fn hoare_cps_core_guarded_rr(){
+    assert!(core_rr_phase_admitted(300,512));
+    assert!(!core_rr_phase_admitted(300,513));
+    assert!(core_rr_phase_admitted(748,748));
+    assert!(core_rr_phase_admitted(748,600));
+    assert!(!core_rr_phase_admitted(748,749));
+    println!("CPS_RR_PHASE_ADMISSION=PASS legacy512=PASS wide_non_growth=PASS");
     let circuits=[
         vec![G::H(0),G::H(0)],
         vec![G::H(0),G::S(0),G::H(0)],

@@ -28,6 +28,7 @@ version=subprocess.run([str(autoq),"-v"],capture_output=True,text=True,check=Tru
 assert PIN in version.stdout+version.stderr
 worker=pathlib.Path(__file__).with_name("cps_core_matched_p0.py").resolve()
 records=[]
+regressions=[]
 for ci,(case,hashes) in enumerate(BLOBS.items()):
     family,width=case.split("/")
     width=int(width)
@@ -106,13 +107,20 @@ for ci,(case,hashes) in enumerate(BLOBS.items()):
         by_mode={r["mode"]:r for r in group}
         # Preserve every previously admitted native verdict, not merely the
         # permissive screening condition UNKNOWN-or-expected.
+        mandatory=["autoq"]
         if family=="BV":
-            assert all(by_mode[m]["verdict"]==expected for m in MODES if m!="autoq"),by_mode
+            mandatory.extend(m for m in MODES if m!="autoq")
         if case=="Grover/04":
-            assert all(by_mode[m]["verdict"]==expected for m in ("wmc","hybrid","wmc-dag","hybrid-dag")),by_mode
+            mandatory.extend(("wmc","hybrid","wmc-dag","hybrid-dag"))
         if case=="MOGrover/04":
-            assert by_mode["hybrid"]["verdict"]==expected,by_mode
-        assert by_mode["autoq"]["verdict"]==expected,by_mode
+            mandatory.append("hybrid")
+        # Collect all admission/timeout regressions before failing the gate
+        # so an early case cannot censor the larger-source diagnostics.
+        # Incorrect definite verdicts and parity failures still fail closed.
+        for m in mandatory:
+            if by_mode[m]["verdict"]!=expected:
+                regressions.append(dict(case=case,variant=variant,mode=m,expected=expected,
+                                        actual=by_mode[m]["verdict"],reason=by_mode[m]["reason"]))
         for flat,dag in (("wmc","wmc-dag"),("hybrid","hybrid-dag")):
             a,b=by_mode[flat],by_mode[dag]
             if a.get("primary",0)>0 and b.get("primary",0)>0:
@@ -122,6 +130,8 @@ for ci,(case,hashes) in enumerate(BLOBS.items()):
 assert len(records)==108
 summary={m:dict(definite=sum(r["verdict"]!="UNKNOWN" for r in records if r["mode"]==m),
                 unknown=dict(collections.Counter(r.get("stage",r["reason"]) for r in records if r["mode"]==m and r["verdict"]=="UNKNOWN"))) for m in MODES}
-(out/"summary.json").write_text(json.dumps(dict(source_pin=PIN,cap_s=CAP,rows=records,summary=summary,
+(out/"summary.json").write_text(json.dumps(dict(source_pin=PIN,cap_s=CAP,rows=records,summary=summary,mandatory_regressions=regressions,
         binary_sha256=sha(binary),solver_sha256=sha(solver),autoq_sha256=sha(autoq)),indent=2)+"\n")
 print("CPS_HELDOUT_SUMMARY",json.dumps(dict(arms=len(records),cases=6,obligations=18,**summary)),flush=True)
+print("CPS_HELDOUT_MANDATORY_REGRESSIONS",json.dumps(regressions),flush=True)
+assert not regressions,regressions

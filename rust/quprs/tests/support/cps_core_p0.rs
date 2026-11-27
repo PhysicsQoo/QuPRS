@@ -2221,7 +2221,9 @@ fn hoare_cps_guard_truth_oracle(){
         // Include a parity factor so the direct oracle exercises every coordinate.
         gs.push(live.iter().map(|&id|SparseMono::new(vec![id]).unwrap()).collect());
         let (ids,tt)=sparse_guard_truth_table(&gs).unwrap();assert_eq!(ids,live);
-        let direct=|x:usize|gs.iter().all(|g|g.iter().fold(false,|a,m|a^m.ids().iter().all(|id|x&(1<<ids.binary_search(id).unwrap())!=0))));
+        let direct=|x:usize|gs.iter().all(|g|{
+            g.iter().fold(false,|a,m|a^m.ids().iter().all(|id|x&(1usize<<ids.binary_search(id).unwrap())!=0))
+        });
         for x in 0..1usize<<width{assert_eq!((tt[x/64]>>(x%64))&1!=0,direct(x));}
         for (j,&y) in ids.iter().enumerate(){
             let mut want=[0u64;4];

@@ -141,6 +141,7 @@ jobs:
           grep -F 'CPS_SPARSE_RR elim=PASS hh=PASS omega=PASS high_id=PASS replay=PASS mutant=REJECTED' evidence/cps-sparse-rr.log
           timeout 30s "$(cat evidence/property_hoare_experiment.path)" --exact exact_property_cnf::hoare_cps_sparse_guard_section --nocapture | tee evidence/cps-core8-section.log
           grep -Fx 'CPS_CORE8_SECTION matrix=PASS scale=PASS mutant=REJECTED' evidence/cps-core8-section.log
+          # Independent offline truth oracle; never timed as a verification arm.
           timeout 30s "$(cat evidence/property_hoare_experiment.path)" --exact exact_property_cnf::hoare_cps_guard_truth_oracle --nocapture | tee evidence/cps-core8-truth-oracle.log
           grep -Fx 'CPS_CORE8_TRUTH_ORACLE direct=PASS all_coordinates=PASS width_cap=PASS' evidence/cps-core8-truth-oracle.log
           grep -F 'rejection_controls=9' evidence/cps-core-closure.log

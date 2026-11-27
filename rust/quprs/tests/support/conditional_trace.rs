@@ -3390,6 +3390,8 @@ pub(super) fn generic_trace_handoff(ps:&PathSum,pairs:&[(u32,u32)],case:&str,var
         println!("CRR_GENERIC_CALL case={case} variant={variant} arm={arm} status=complete verdict=Equivalent proof=rr_exact_projective solver=false pairs=0 extracted=0 construct_s={construct_s} prepare_s=0 solve_s=0 total_s={}",construct_s+rr_start.elapsed().as_secs_f64());
         return;
     }
+    // Include the failed shortcut probe in the reported construction/total time.
+    let construct_s=construct_s+rr_start.elapsed().as_secs_f64();
     if Trace::from_native(ps).is_none()||ps.p.terms.len()+ps.f.functions.iter().map(|p|p.len()).sum::<usize>()>TERM_CAP{
         println!("CRR_GENERIC_STOP case={case} variant={variant} arm={arm} reason=residual_admission");return;
     }

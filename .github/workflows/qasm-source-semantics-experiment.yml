@@ -1343,6 +1343,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          fetch-depth: 0
           persist-credentials: false
       - uses: actions/checkout@v4
         with:
@@ -1365,6 +1366,7 @@ jobs:
           git rev-parse HEAD | tee evidence/source-head.txt
           git -C pinned-main rev-parse HEAD | tee evidence/main-head.txt
           test "$(cat evidence/main-head.txt)" = "b398f07d6845efc23540549ccbfec717c27b1722"
+          git cat-file -e ff3c6bbfadc83997b302f2486b99487e819ee9ee^{commit}
           git diff ff3c6bbfadc83997b302f2486b99487e819ee9ee HEAD -- rust/quprs/tests/support/conditional_trace.rs | tee evidence/rr-first-diff.patch
           test "$(git rev-parse HEAD:rust/quprs/tests/support/conditional_stitch.rs)" = "f98bd48d711c1d7bed70982699db4d8061b664e1"
           test "$(git rev-parse HEAD:rust/quprs/src/wmc.rs)" = "584b889dafa9b5f428bed31627883f76238f276b"

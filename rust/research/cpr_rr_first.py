@@ -16,11 +16,14 @@ from cpr_router_acceptance import limit
 from conditional_rr_stitch import ROOT, GENERIC_NEGATIVE
 
 ARMS=["main","frozen","cpr"]
-EASY={("ghz_32","positive"),("ghz_32","random_rotation"),("qpeexact_8","random_rotation")}
+EASY={e[:2] for e in c3a_entries()}
+def repetitions(name,variant):
+    if (name,variant)==("ghz_32","positive"):return 12
+    return 6 if (name,variant) in EASY else 4
 def cohort_arms(name,variant):
     return ARMS if (name,variant) in EASY else ARMS[1:]
 def expected_trials():
-    return sum(len(cohort_arms(name,variant))*3 for name,variant,*_ in entries())
+    return sum(len(cohort_arms(name,variant))*repetitions(name,variant) for name,variant,*_ in entries())
 EXTRA=[("qwalk-noancilla_5","positive"),("qwalk-noancilla_5","random_rotation"),
        ("grover-noancilla_6","positive"),("wstate_16","positive"),("wstate_16","random_rotation")]
 def entries():
@@ -40,7 +43,7 @@ def native():
     for a,p in bins.items():
         assert p.is_file()
         emit("CPR_RRFIRST_BINARY",arm=a,path=str(p),sha256=hashlib.sha256(p.read_bytes()).hexdigest())
-    errors=[]; regressions=[]; mismatches=[]; total=0
+    errors=[]; regressions=[]; mismatches=[]; perf_blocks=[]; total=0
     for name,variant,n,source,target in entries():
         paths=[]
         for entry in (source,target):
@@ -50,7 +53,8 @@ def native():
             paths.append(p)
         arms=cohort_arms(name,variant)
         rows={a:{} for a in arms}
-        for repeat in range(3):
+        repeats=repetitions(name,variant)
+        for repeat in range(repeats):
             for pos,arm in enumerate(arms[repeat%len(arms):]+arms[:repeat%len(arms)]):
                 env=dict(os.environ,CRR_CASE=name,CRR_VARIANT=variant,CRR_SOURCE=str(paths[0]),CRR_TARGET=str(paths[1]),CRR_POLICY="strict",CRR_SCHEDULE="difference",CRR_GENERIC_ARM="conditional_router",CRR_BRA_RESCUE="1",CRR_LIFT_INDEXED="1")
                 for k in ("CPR_CNF_DIR","CRR_LIFT_CHECKPOINT","CRR_LIFT_POLICY","QUPRS_STAGE_LEDGER"):
@@ -87,12 +91,12 @@ def native():
         all_rows=[r for a in arms for r in rows[a].values()]
         # Positive control must avoid GPMC in the new arm, never in frozen C2.
         if (name,variant)==("ghz_32","positive"):
-            if len(rows["cpr"])!=3 or any(r.get("proof")!="rr_exact_projective" or r.get("solver")!="false" for r in rows["cpr"].values()):errors.append(["GHZ32_RR_SHORTCUT_NOT_EXERCISED"])
+            if len(rows["cpr"])!=repeats or any(r.get("proof")!="rr_exact_projective" or r.get("solver")!="false" for r in rows["cpr"].values()):errors.append(["GHZ32_RR_SHORTCUT_NOT_EXERCISED"])
         if any(r.get("proof")=="rr_exact_projective" for r in rows["frozen"].values()):errors.append(["FROZEN_SHORTCUT_DRIFT",name,variant])
-        if len(rows["frozen"])!=3 or len(rows["cpr"])!=3:errors.append(["C3B_COMPLETION_NOT_REPRODUCED",name,variant])
+        if len(rows["frozen"])!=repeats or len(rows["cpr"])!=repeats:errors.append(["C3B_COMPLETION_NOT_REPRODUCED",name,variant])
         if len({r["binary_verdict"] for r in all_rows})>1:mismatches.append([name,variant])
         for a,rs in rows.items():
-            emit("CPR_RRFIRST_SUMMARY",case=name,variant=variant,arm=a,complete=len(rs),attempted=3,
+            emit("CPR_RRFIRST_SUMMARY",case=name,variant=variant,arm=a,complete=len(rs),attempted=repeats,
                  median_total_s=statistics.median(float(r["total_s"]) for r in rs.values()) if rs else None,
                  median_outer_s=statistics.median(r["outer_s"] for r in rs.values()) if rs else None,
                  median_rss_kib=statistics.median(r["rss_kib"] for r in rs.values()) if rs else None,
@@ -102,12 +106,30 @@ def native():
             lost=sorted(set(rows[a])-set(rows["cpr"]))
             gained=sorted(set(rows["cpr"])-set(rows[a]))
             if lost:regressions.append([name,variant,a,lost])
+            if len(both)!=repeats:
+                perf_blocks.append([name,variant,a,"insufficient_matched_samples"])
+            else:
+                # Predeclared practical non-regression budgets, not zero noise.
+                limits={"total_s":(0.05,0.000025),"rss_kib":(0.05,512)}
+                if statistics.median(rows[a][i]["outer_s"] for i in both)>=0.1:
+                    limits["outer_s"]=(0.05,0.01)
+                else:
+                    emit("CPR_RRFIRST_PERF_METRIC",case=name,variant=variant,baseline=a,metric="outer_s",status="RESOLUTION_LIMITED")
+                for metric,(fraction,floor) in limits.items():
+                    before=[float(rows[a][i][metric]) for i in both]
+                    after=[float(rows["cpr"][i][metric]) for i in both]
+                    deltas=[y-x for x,y in zip(before,after)]
+                    allowed=max(floor,fraction*statistics.median(before))
+                    delta=statistics.median(deltas)
+                    passed=delta<=allowed
+                    emit("CPR_RRFIRST_PERF_METRIC",case=name,variant=variant,baseline=a,metric=metric,status="WITHIN_BUDGET" if passed else "BLOCKED",baseline_median=statistics.median(before),candidate_median=statistics.median(after),paired_delta_median=delta,allowed_delta=allowed,paired_deltas=deltas)
+                    if not passed:perf_blocks.append([name,variant,a,metric,delta,allowed])
             emit("CPR_RRFIRST_PAIR",case=name,variant=variant,baseline=a,paired=len(both),lost=lost,gained=gained,
                  internal_ratios=[float(rows[a][i]["total_s"])/float(rows["cpr"][i]["total_s"]) for i in both],
                  outer_ratios=[rows[a][i]["outer_s"]/rows["cpr"][i]["outer_s"] if rows["cpr"][i]["outer_s"]>0 else None for i in both])
     emit("CPR_RRFIRST_NATIVE_GATE",complete=total,attempted=expected_trials(),verdict_mismatches=mismatches,completion_regressions=regressions,errors=errors)
-    # Completion loss is a scientific negative result, not an infrastructure failure.
-    assert total>0 and not errors and not mismatches and not regressions
+    emit("CPR_RRFIRST_PERF_GATE",status="WITHIN_BUDGET" if not perf_blocks else "BLOCKED",blocks=perf_blocks)
+    assert total>0 and not errors and not mismatches and not regressions and not perf_blocks
 
 def source_parity():
     from conditional_rr_source_ball import load, controls, dense_overlap, EPS, arb, acb, fmpq, ctx

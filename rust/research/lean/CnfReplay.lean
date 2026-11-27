@@ -5174,7 +5174,7 @@ theorem ledger_sub_pivot_witness (s : LedgerStep) (y : Nat) (rhs : List (List Na
       ledgerRowAt s.before.constraints i = some row ∧
       row ∈ s.before.constraints ∧ ledgerIsolatedPivot y row = some rhs := by
   unfold ledgerSubPivot at h
-  generalize (splitBytes 44 s.witness).mapM parseNatToken = parsed at h
+  generalize hparsed : (splitBytes 44 s.witness).mapM parseNatToken = parsed at h
   cases parsed with
   | none => cases h
   | some xs =>
@@ -5199,8 +5199,8 @@ theorem ledger_sub_pivot_witness (s : LedgerStep) (y : Nat) (rhs : List (List Na
             have hz := Prod.mk.inj (Option.some.inj he)
             have hp := and_true_parts hg
             refine ⟨i,row,?_,?_,?_,hr,ledger_row_at_member _ _ _ hr,?_⟩
-            · rw [hz.1]
-              assumption
+            · rw [← hz.1]
+              exact hparsed
             · rw [← hz.1]
               exact (nat_mem_iff _ _).mp hp.1
             · rw [← hz.1]

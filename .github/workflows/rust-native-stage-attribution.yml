@@ -9,6 +9,7 @@ on:
       - 'rust/research/eq_dag_d1*'
       - 'rust/research/eq_dag_phase_screen.py'
       - 'rust/research/eq_dag_d1d*'
+      - 'rust/research/eq_dag_d1e*'
       - '.github/workflows/rust-native-stage-attribution.yml'
 
 permissions:
@@ -152,7 +153,7 @@ jobs:
           retention-days: 30
 
   eq-dag-d1d:
-    if: github.ref == 'refs/heads/experiment/eq-dag-encoder' && github.event_name == 'push'
+    if: github.ref == 'refs/heads/experiment/eq-dag-encoder' && github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-24.04
     timeout-minutes: 40
     steps:
@@ -201,3 +202,41 @@ jobs:
           path: eq-dag-d1d-evidence/
           retention-days: 30
 
+
+  eq-dag-d1e:
+    if: github.ref == 'refs/heads/experiment/eq-dag-encoder' && github.event_name == 'push'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: eq-dag-d1d-heldout-mqt
+          run-id: 46004315659
+          github-token: ${{ github.token }}
+          path: d1d
+      - name: Validate original receipts and screen proper subset roots
+        run: |
+          set -euo pipefail
+          (cd d1d && sha256sum -c SHA256SUMS)
+          python3 -u rust/research/eq_dag_d1e_screen.py d1d eq-dag-d1e-evidence | tee d1e.log
+      - name: Seal evidence
+        if: always()
+        run: |
+          mkdir -p eq-dag-d1e-evidence
+          test ! -f d1e.log || cp d1e.log eq-dag-d1e-evidence/
+          git rev-parse HEAD > eq-dag-d1e-evidence/head.txt
+          cd eq-dag-d1e-evidence
+          find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 -r sha256sum > SHA256SUMS
+          sha256sum -c SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: eq-dag-d1e-subset-root-screen
+          path: eq-dag-d1e-evidence/
+          retention-days: 30

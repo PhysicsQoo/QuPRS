@@ -6,64 +6,84 @@ on:
     paths:
       - 'rust/quprs/src/**'
       - 'rust/quprs/Cargo.toml'
-      - 'rust/quprs/tests/**'
       - 'rust/quprs/examples/**'
+      - 'rust/research/**'
       - '.github/workflows/cpr-integration-gate.yml'
 permissions:
   contents: read
 jobs:
-  engineering-correctness:
+  matched-native:
     runs-on: ubuntu-24.04
     timeout-minutes: 40
     env:
-      QUPRS_SOLVER_PROVISION: source
+      QUPRS_SOLVER_PROVISION: external
       CARGO_TERM_COLOR: never
-      RUST_TEST_THREADS: '1'
     steps:
       - uses: actions/checkout@v4
         with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: b398f07d6845efc23540549ccbfec717c27b1722
+          path: pinned-main
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: 'rust -> target'
+          workspaces: |
+            rust -> target
+            pinned-main/rust -> target
+          key: cpr-g4a-main
       - name: Install native prerequisites
-        run: sudo apt-get update && sudo apt-get install -y cmake pkg-config libgmp-dev libmpfr-dev zlib1g-dev
-      - name: Full unfiltered native correctness and explicit opt-in contracts
+        run: sudo apt-get update && sudo apt-get install -y cmake pkg-config libgmp-dev libmpfr-dev zlib1g-dev python3-venv
+      - name: G4a frozen matched native admission
         run: |
           set -euo pipefail
           mkdir -p evidence
-          git rev-parse HEAD | tee evidence/head.txt
-          git rev-parse 'HEAD^{tree}' | tee evidence/tree.txt
+          git rev-parse HEAD | tee evidence/source-head.txt
+          git rev-parse 'HEAD^{tree}' | tee evidence/source-tree.txt
+          git -C pinned-main rev-parse HEAD | tee evidence/main-head.txt
+          git -C pinned-main rev-parse 'HEAD^{tree}' | tee evidence/main-tree.txt
+          test "$(cat evidence/main-head.txt)" = "b398f07d6845efc23540549ccbfec717c27b1722"
+          test "$(cat evidence/main-tree.txt)" = "1dc21015f0f4f69f057c4685b886b686d82b882d"
+          # Exact G3-certified runtime and fixture tree; new evidence code only.
+          git diff --exit-code 00496e7fef00c629912f5621d1a2e209d1b1978c HEAD -- rust/quprs/src rust/quprs/tests rust/quprs/Cargo.toml rust/Cargo.lock rust/quprs/examples/cpr_native_optin.rs benchmarks docs/development/paper-corpus-manifest.json
+          git diff --exit-code b398f07d6845efc23540549ccbfec717c27b1722 HEAD -- rust/Cargo.lock benchmarks docs/development/paper-corpus-manifest.json
+          git diff --stat b398f07d6845efc23540549ccbfec717c27b1722 HEAD -- rust/quprs/src rust/quprs/Cargo.toml rust/Cargo.lock | tee evidence/main-source-diff.txt
+          sha256sum rust/quprs/src/{lib,cpr,cpr_optin,circuit,strategy,wmc,reduction}.rs rust/research/{cpr_native_i2b,cpr_native_i3b,conditional_rr_source_ball,conditional_rr_tensor_source}.py rust/quprs/examples/{cpr_native_optin,cpr_native_public}.rs rust/quprs/examples/cpr_support/public.rs rust/Cargo.lock pinned-main/rust/Cargo.lock > evidence/source-sha256.txt
           rustc --version | tee evidence/rustc.txt
-          sha256sum rust/quprs/src/{lib,cpr,cpr_optin,circuit,strategy,wmc,reduction}.rs rust/Cargo.lock rust/quprs/Cargo.toml rust/quprs/examples/cpr_native_optin.rs > evidence/source-sha256.txt
-          unset CRR_SOURCE CRR_TARGET QUPRS_GPMC_PATH QUPRS_GANAK_PATH
-          # CLI fault injection requires debug assertions; the frozen CPR heavy gate
-          # also requires optimized execution to meet its unchanged 15s deadline.
-          # Optimize only the CI test profile, explicitly retaining debug/overflow checks.
-          # All tests remain unfiltered; release gates below remain unchanged.
-          # Continue independent gates on a failure, but aggregate every exit code.
-          failed=0
-          run_gate() {
-            local label="$1"; shift
-            local rc=0
-            "$@" 2>&1 | tee "evidence/${label}.log" || rc=$?
-            printf '%s %s\n' "$label" "$rc" | tee -a evidence/gate-exits.txt
-            if [ "$rc" -ne 0 ]; then failed=1; fi
+          tmp="$(mktemp -d)"
+          python3 scripts/install_gpmc_release.py --dest "$tmp/gpmc" | tee evidence/gpmc-release.json
+          sha256sum "$tmp/gpmc" | tee evidence/gpmc-sha256.txt
+          export QUPRS_GPMC_PATH="$tmp/gpmc"
+          test ! -e pinned-main/rust/quprs/examples/cpr_native_public.rs
+          test ! -e pinned-main/rust/quprs/examples/cpr_support/public.rs
+          mkdir -p pinned-main/rust/quprs/examples/cpr_support
+          cp rust/quprs/examples/cpr_native_public.rs pinned-main/rust/quprs/examples/
+          cp rust/quprs/examples/cpr_support/public.rs pinned-main/rust/quprs/examples/cpr_support/
+          build_example() {
+            local manifest="$1" name="$2" dest="$3"; shift 3
+            cargo build --release --locked --manifest-path "$manifest" -p quprs --example "$name" "$@" --message-format=json > "$dest"
+            python3 -c 'import json,sys; rows=[json.loads(l) for l in open(sys.argv[1])]; p=[r["executable"] for r in rows if r.get("reason")=="compiler-artifact" and r.get("target",{}).get("name")==sys.argv[2] and r.get("executable")]; assert len(p)==1,p; print(p[0])' "$dest" "$name"
           }
-          run_gate default-checked-optimized-full env CARGO_PROFILE_TEST_OPT_LEVEL=3 CARGO_PROFILE_TEST_DEBUG_ASSERTIONS=true CARGO_PROFILE_TEST_OVERFLOW_CHECKS=true cargo test --locked --manifest-path rust/Cargo.toml -p quprs -p QuPRS_cli
-          run_gate checked-heavy-receipt grep -F 'cpr::tests::i1b_frozen_heavy_construction ... ok' evidence/default-checked-optimized-full.log
-          run_gate checked-cli-receipt grep -F 'supervisor_timeout_includes_qasm_read_and_both_cli_modes ... ok' evidence/default-checked-optimized-full.log
-          run_gate default-release-core cargo test --locked --release --manifest-path rust/Cargo.toml -p quprs
-          run_gate optin-full cargo test --locked --release --manifest-path rust/Cargo.toml -p quprs --features experimental-cpr
-          run_gate entry-contract grep -F 'cpr_optin::tests::optin_request_and_rr_first_contract ... ok' evidence/optin-full.log
-          run_gate stop-contract grep -F 'cpr_optin::tests::stop_and_native_failure_classification ... ok' evidence/optin-full.log
-          run_gate worker-isolation grep -F 'cpr_native_router_tests::i2b_locked_source_worker ... ignored' evidence/optin-full.log
-          run_gate browser-contract cargo test --locked --release --manifest-path rust/Cargo.toml -p quprs --features experimental-cpr,browser-transport --lib cpr_optin::tests::browser_capture_is_not_native_optin -- --exact
-          run_gate browser-rejection grep -F 'cpr_optin::tests::browser_capture_is_not_native_optin ... ok' evidence/browser-contract.log
-          run_gate browser-check cargo check --locked --manifest-path rust/Cargo.toml -p quprs --no-default-features --features browser-transport
-          run_gate example-build cargo build --locked --release --manifest-path rust/Cargo.toml -p quprs --features experimental-cpr --example cpr_native_optin
-          test "$failed" = 0
+          export CPR_BIN_MAIN="$(build_example pinned-main/rust/Cargo.toml cpr_native_public evidence/main-build.jsonl)"
+          export CPR_BIN_CPR="$(build_example rust/Cargo.toml cpr_native_optin evidence/cpr-build.jsonl --features experimental-cpr)"
+          test "$(git -C pinned-main diff --name-only)" = ""
+          size "$CPR_BIN_MAIN" "$CPR_BIN_CPR" | tee evidence/binary-size.txt
+          set +e
+          timeout --kill-after=5s 1200s python3 rust/research/cpr_native_i3b.py 2>&1 | tee evidence/matched.log
+          cohort_status=${PIPESTATUS[0]}
+          set -e
+          python3 -m venv "$tmp/reference-venv"
+          "$tmp/reference-venv/bin/pip" install --disable-pip-version-check python-flint==0.9.0
+          set +e
+          CRR_GENERIC_LOG=evidence/matched.log CRR_BALL_BITS=2048 timeout --kill-after=5s 480s "$tmp/reference-venv/bin/python" rust/research/cpr_native_i3b.py 2>&1 | tee evidence/source-parity.log
+          source_status=${PIPESTATUS[0]}
+          set -e
+          printf 'native %s\nsource %s\n' "$cohort_status" "$source_status" | tee evidence/gate-exits.txt
+          test "$cohort_status" = 0
+          test "$source_status" = 0
       - name: Seal evidence
         if: always()
         run: |
@@ -72,5 +92,5 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: cpr-integration-engineering
+          name: cpr-integration-g4a-matched
           path: evidence/

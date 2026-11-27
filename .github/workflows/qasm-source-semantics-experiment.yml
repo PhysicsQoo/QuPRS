@@ -103,23 +103,7 @@ jobs:
           git -C "$src" checkout --detach FETCH_HEAD
           test "$(git -C "$src" rev-parse HEAD)" = "$pin"
           CPS_CORE_SOURCE_DIR="$src" timeout 60s "$bin" --exact exact_property_cnf::hoare_cps_core_source_lowering --nocapture | tee evidence/cps-core-source.log
-          test "$(grep -c '^CPS_CORE_SOURCE_FILE .* verified=true
-          timeout 220s python3 rust/research/autoq_shared_width_p0.py "$bin" "$RUNNER_TEMP/cps-gpmc" evidence/aq-width "$src" evidence/width-smoke 2>&1 | tee evidence/aq-width.log
-          grep -F 'AQ_SHARED_WIDTH_SUMMARY ' evidence/aq-width.log
-          timeout 150s python3 rust/research/autoq_shared_family_p0.py "$bin" "$RUNNER_TEMP/cps-gpmc" evidence/aq-family "$src" 2>&1 | tee evidence/aq-family.log
-          grep -F 'AQ_SHARED_FAMILY_SUMMARY ' evidence/aq-family.log
-          timeout 110s python3 rust/research/autoq_ss2_p0.py "$bin" "$RUNNER_TEMP/cps-gpmc" evidence/aq-ss2 2>&1 | tee evidence/aq-ss2.log
-          grep -F 'AQ_SS2_SUMMARY ' evidence/aq-ss2.log
-          timeout 150s python3 rust/research/autoq_ss3_p0.py "$bin" "$RUNNER_TEMP/cps-gpmc" evidence/aq-ss3 2>&1 | tee evidence/aq-ss3.log
-          grep -F 'AQ_SS3_SUMMARY ' evidence/aq-ss3.log
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: qasm-shared-semantics-p0-evidence
-          path: evidence/
-          if-no-files-found: ignore
-          retention-days: 7
- evidence/cps-core-source.log)" = 9
+          test "$(grep -c '^CPS_CORE_SOURCE_FILE .* verified=true$' evidence/cps-core-source.log)" = 9
           grep -F 'CPS_CORE_SOURCE_SUMMARY predicates=6 oracle_columns=20 oracle_entries=4192' evidence/cps-core-source.log
           timeout 220s python3 rust/research/autoq_shared_width_p0.py "$bin" "$RUNNER_TEMP/cps-gpmc" evidence/aq-width "$src" evidence/width-smoke 2>&1 | tee evidence/aq-width.log
           grep -F 'AQ_SHARED_WIDTH_SUMMARY ' evidence/aq-width.log

@@ -1,0 +1,119 @@
+{
+  "scope": "bounded exact cyclotomic HSL subset, explicit enumerated CPS witness; no native or AutoQ binary",
+  "controls": [
+    {
+      "name": "bell",
+      "rows": 4,
+      "paths": 16,
+      "scaleExponent": 2,
+      "amplitudeChecks": 16
+    },
+    {
+      "name": "mixed-scale",
+      "rows": 1,
+      "paths": 4,
+      "scaleExponent": 2,
+      "amplitudeChecks": 2
+    },
+    {
+      "name": "complex-Z8",
+      "rows": 1,
+      "paths": 2,
+      "scaleExponent": 0,
+      "amplitudeChecks": 2
+    },
+    {
+      "name": "complex-cancel",
+      "rows": 1,
+      "paths": 2,
+      "scaleExponent": 0,
+      "amplitudeChecks": 2
+    },
+    {
+      "name": "union",
+      "rows": 2,
+      "paths": 2,
+      "scaleExponent": 0,
+      "amplitudeChecks": 4
+    },
+    {
+      "name": "tensor",
+      "rows": 2,
+      "paths": 4,
+      "scaleExponent": 0,
+      "amplitudeChecks": 8
+    },
+    {
+      "name": "duplicate",
+      "rows": 2,
+      "paths": 2,
+      "scaleExponent": 0,
+      "amplitudeChecks": 4
+    },
+    {
+      "name": "sum",
+      "rows": 1,
+      "paths": 14,
+      "scaleExponent": 0,
+      "amplitudeChecks": 32
+    },
+    {
+      "name": "cyclotomic-division",
+      "rows": 1,
+      "paths": 2,
+      "scaleExponent": 2,
+      "amplitudeChecks": 2
+    },
+    {
+      "name": "scope-collision",
+      "rows": 1,
+      "paths": 8,
+      "scaleExponent": 0,
+      "amplitudeChecks": 8
+    }
+  ],
+  "rejects": [
+    "non-dyadic",
+    "symbolic",
+    "set-difference",
+    "width",
+    "sum-width",
+    "constraints",
+    "phase-off-grid"
+  ],
+  "original": [
+    {
+      "name": "BV/03",
+      "n": 4,
+      "gates": 11,
+      "hadamards": 8,
+      "prePaths": 1,
+      "postPaths": 1,
+      "circuitPaths": 256,
+      "amplitudes": 16,
+      "positive": "PROVED_REFERENCE",
+      "negative": "REFUTED_REFERENCE"
+    },
+    {
+      "name": "Grover/03",
+      "n": 5,
+      "gates": 52,
+      "hadamards": 17,
+      "prePaths": 1,
+      "postPaths": 36,
+      "circuitPaths": 131072,
+      "amplitudes": 32,
+      "positive": "PROVED_REFERENCE",
+      "negative": "REFUTED_REFERENCE"
+    }
+  ],
+  "lsta": {
+    "machines": 96,
+    "tuples": 1792,
+    "acceptedTuples": 465,
+    "runWitnesses": 465,
+    "distinct": 357,
+    "mismatch": 0,
+    "overlapRejected": 96
+  }
+}

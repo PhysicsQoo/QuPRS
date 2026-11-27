@@ -141,6 +141,8 @@ jobs:
           grep -F 'CPS_SPARSE_RR elim=PASS hh=PASS omega=PASS high_id=PASS replay=PASS mutant=REJECTED' evidence/cps-sparse-rr.log
           timeout 30s "$(cat evidence/property_hoare_experiment.path)" --exact exact_property_cnf::hoare_cps_sparse_guard_section --nocapture | tee evidence/cps-core8-section.log
           grep -Fx 'CPS_CORE8_SECTION matrix=PASS scale=PASS mutant=REJECTED' evidence/cps-core8-section.log
+          timeout 30s "$(cat evidence/property_hoare_experiment.path)" --exact exact_property_cnf::hoare_cps_guard_truth_oracle --nocapture | tee evidence/cps-core8-truth-oracle.log
+          grep -Fx 'CPS_CORE8_TRUTH_ORACLE direct=PASS all_coordinates=PASS width_cap=PASS' evidence/cps-core8-truth-oracle.log
           grep -F 'rejection_controls=9' evidence/cps-core-closure.log
           grep -F 'CPS_CORE_CANONICAL padding=384' evidence/cps-core-closure.log
           timeout 60s "$(cat evidence/property_hoare_experiment.path)" --exact exact_property_cnf::hoare_cps_core_guarded_rr --nocapture | tee evidence/cps-core-rr.log
@@ -234,8 +236,22 @@ jobs:
           grep -F 'CPS_CORE8_STRUCTURE stage=residual ' evidence/cps-sparse-source-admission.log
           grep -F 'CPS_CORE8_HH_ADMISSION ' evidence/cps-sparse-source-admission.log
           grep -Fx 'CPS_CORE8_ELIM_EXPORT candidates=15' evidence/cps-sparse-source-admission.log
+          grep -F 'CPS_CORE8_TRUTH_SUMMARY candidates=15 exact=15 ' evidence/cps-sparse-source-admission.log
           timeout 45s python3 rust/research/cps_core_guard_cofactor_p0.py evidence/cps-core8-elim "$RUNNER_TEMP/cps-gpmc" | tee evidence/cps-core8-elim.log
           grep -F 'CPS_CORE8_ELIM_SUMMARY {"candidates": 15,' evidence/cps-core8-elim.log
+          python3 - <<'PY' | tee evidence/cps-core8-truth-parity.log
+          import csv, json, pathlib
+          d=pathlib.Path("evidence/cps-core8-elim")
+          truth={r["key"]:list(map(int,r["bins"].split(","))) for r in csv.DictReader((d/"truth-bins.tsv").open(),delimiter="\t")}
+          rows=json.loads((d/"summary.json").read_text())["rows"]
+          assert len(truth)==len(rows)==15 and set(truth)=={r["key"] for r in rows}
+          compared=0
+          for row in rows:
+              if row.get("bins") is not None:
+                  assert row["bins"]==truth[row["key"]],row
+                  compared+=1
+          print(f"CPS_CORE8_TRUTH_PARITY exact_oracle={len(truth)} gpmc_compared={compared}")
+          PY
           grep -F 'CPS_CORE8_STRUCTURE stage=section-pilot ' evidence/cps-sparse-source-admission.log
           grep -F 'CPS_CORE8_SECTION_PILOT case=MOGrover05 ' evidence/cps-sparse-source-admission.log
           CPS_CORE_SOURCE_DIR="$src" timeout 90s "$(cat evidence/release-bin.path)" --exact exact_property_cnf::hoare_cps_core_heldout_predicates --nocapture | tee evidence/cps-core-heldout-predicates.log

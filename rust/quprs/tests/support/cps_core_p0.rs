@@ -2144,6 +2144,98 @@ fn sparse_guard_cofactor_plan(c:&CpsCore<SparseGuardFrame>,y:u32)->Option<(Cnf,[
     if !f.bounded(){return None;}
     Some((f.c,pair,primary))
 }
+// Independent offline Boolean oracle for the observed 25-bit guard
+// support. Two bit-packed tables, at most 8 MiB combined. Not a solver
+// route, not a quantum oracle and not a timed E2E acceptance.
+fn sparse_guard_truth_table(gs:&[SparseAnf])->Option<(Vec<u32>,Vec<u64>)>{
+    let ids:Vec<u32>=gs.iter().flat_map(|g|g.iter()).flat_map(|m|m.ids().iter().copied()).collect::<BTreeSet<_>>().into_iter().collect();
+    if ids.len()>25{return None;}
+    let size=1usize<<ids.len();
+    let words=size.div_ceil(64);
+    let tail=if size<64{(1u64<<size)-1}else{u64::MAX};
+    let mut total=vec![u64::MAX;words];*total.last_mut()?=tail;
+    let mut bits=vec![0u64;words];
+    for g in gs{
+        bits.fill(0);
+        for m in g{
+            let pos=m.ids().iter().try_fold(0usize,|a,id|Some(a|(1usize<<ids.binary_search(id).ok()?)))?;
+            bits[pos/64]^=1u64<<(pos%64);
+        }
+        // GF(2) subset zeta transform maps ANF coefficients to values.
+        // Low six coordinates are inside a word; higher coordinates
+        // use disjoint contiguous word blocks.
+        for j in 0..ids.len().min(6){
+            let d=1usize<<j;
+            let low=(0..64).filter(|i|i&d==0).fold(0u64,|a,i|a|(1u64<<i));
+            for v in &mut bits{*v^=(*v&low)<<d;}
+        }
+        for j in 6..ids.len(){
+            let d=1usize<<(j-6);
+            for block in bits.chunks_exact_mut(2*d){
+                let (lo,hi)=block.split_at_mut(d);
+                for (a,b) in lo.iter().zip(hi.iter_mut()){*b^=*a;}
+            }
+        }
+        for (a,b) in total.iter_mut().zip(&bits){*a&=*b;}
+    }
+    Some((ids,total))
+}
+fn sparse_guard_truth_bins(ids:&[u32],table:&[u64],y:u32)->Option<[u64;4]>{
+    let j=ids.binary_search(&y).ok()?;
+    let bound=1u64<<(ids.len()-1);
+    let mut lo_count=0u64;let mut hi_count=0u64;let mut both=0u64;
+    if j<6{
+        let d=1usize<<j;
+        let low=(0..64).filter(|i|i&d==0).fold(0u64,|a,i|a|(1u64<<i));
+        for &v in table{
+            let a=v&low;let b=(v>>d)&low;
+            lo_count+=u64::from(a.count_ones());hi_count+=u64::from(b.count_ones());both+=u64::from((a&b).count_ones());
+        }
+    }else{
+        let d=1usize<<(j-6);
+        for block in table.chunks_exact(2*d){
+            let (lo,hi)=block.split_at(d);
+            for (&a,&b) in lo.iter().zip(hi){
+                lo_count+=u64::from(a.count_ones());hi_count+=u64::from(b.count_ones());both+=u64::from((a&b).count_ones());
+            }
+        }
+    }
+    Some([bound.checked_sub(lo_count+hi_count-both)?,lo_count-both,hi_count-both,both])
+}
+#[test]
+fn hoare_cps_guard_truth_oracle(){
+    // Independent direct ANF evaluation on each assignment, including
+    // a coordinate above the word boundary and multiple factors.
+    for width in 1..=9usize{
+        let live:Vec<u32>=(0..width).map(|i|3*i as u32+1).collect();
+        let mut gs=Vec::new();
+        for seed in 0..3usize{
+            let mut g=SparseAnf::new();
+            for mask in 0..1usize<<width{
+                if (mask.wrapping_mul(37)+seed*11)%17<3{
+                    g.insert(SparseMono::new(live.iter().enumerate().filter_map(|(j,&id)|(mask&(1<<j)!=0).then_some(id)).collect()).unwrap());
+                }
+            }
+            gs.push(g);
+        }
+        // Include a parity factor so the direct oracle exercises every coordinate.
+        gs.push(live.iter().map(|&id|SparseMono::new(vec![id]).unwrap()).collect());
+        let (ids,tt)=sparse_guard_truth_table(&gs).unwrap();assert_eq!(ids,live);
+        let direct=|x:usize|gs.iter().all(|g|g.iter().fold(false,|a,m|a^m.ids().iter().all(|id|x&(1<<ids.binary_search(id).unwrap())!=0))));
+        for x in 0..1usize<<width{assert_eq!((tt[x/64]>>(x%64))&1!=0,direct(x));}
+        for (j,&y) in ids.iter().enumerate(){
+            let mut want=[0u64;4];
+            for x in (0..1usize<<width).filter(|x|x&(1<<j)==0){
+                let i=usize::from(direct(x))+2*usize::from(direct(x|(1<<j)));want[i]+=1;
+            }
+            assert_eq!(sparse_guard_truth_bins(&ids,&tt,y),Some(want));
+        }
+    }
+    let wide=vec![(0..26u32).map(|id|SparseMono::new(vec![id]).unwrap()).collect()];
+    assert!(sparse_guard_truth_table(&wide).is_none());
+    println!("CPS_CORE8_TRUTH_ORACLE direct=PASS all_coordinates=PASS width_cap=PASS");
+}
+
 fn sparse_guard_cofactor_export(c:&CpsCore<SparseGuardFrame>,dir:&std::path::Path){
     std::fs::create_dir(dir).unwrap();
     let mut manifest=String::from("key\tprimary\tvars\tclauses\tphase\n");
@@ -2160,6 +2252,15 @@ fn sparse_guard_cofactor_export(c:&CpsCore<SparseGuardFrame>,dir:&std::path::Pat
     let g=SparseAnf::from([SparseMono::new(vec![0]).unwrap(),SparseMono::new(vec![0,y]).unwrap(),SparseMono::new(vec![1,y]).unwrap()]);
     let smoke=CpsCore::<SparseGuardFrame>::shared_from_parts(ps,vec![g],1).unwrap();
     emit("smoke",sparse_guard_cofactor_plan(&smoke,y));
+    let (smoke_ids,smoke_table)=sparse_guard_truth_table(&smoke.guard.factors).unwrap();
+    assert_eq!(sparse_guard_truth_bins(&smoke_ids,&smoke_table,y),Some([1,1,1,1]));
+    let start=std::time::Instant::now();
+    let truth=sparse_guard_truth_table(&c.guard.factors);
+    let mut truth_records=String::from("key\tbins\n");
+    let mut exact=0usize;
+    if let Some((ids,table))=&truth{
+        println!("CPS_CORE8_TRUTH_TABLE support={} bytes={} build_ns={}",ids.len(),table.len()*8,start.elapsed().as_nanos());
+    }else{println!("CPS_CORE8_TRUTH_TABLE unsupported=width");}
     let support:BTreeSet<u32>=c.guard.factors.iter().flat_map(|g|g.iter()).flat_map(|m|m.ids().iter().copied()).collect();
     let mut ids:Vec<_>=c.ps.get_reducible_vars().into_iter().filter(|&v|(v as usize)>=c.n()&&support.contains(&v)).collect();ids.sort_unstable();
     let mut hits=0;
@@ -2169,8 +2270,18 @@ fn sparse_guard_cofactor_export(c:&CpsCore<SparseGuardFrame>,dir:&std::path::Pat
         // Only genuine absent P/f variables satisfy the multiplicity lemma.
         assert!(c.ps.p.terms.keys().all(|m|!m.contains(&y))&&c.ps.f.functions.iter().all(|f|f.iter().all(|m|!m.contains(&y))));
         hits+=1;emit(&format!("y{y}"),sparse_guard_cofactor_plan(c,y));
+        if let Some((ids,table))=&truth{
+            let bins=sparse_guard_truth_bins(ids,table,y).unwrap();
+            assert_eq!(bins.iter().sum::<u64>(),1u64<<(ids.len()-1));
+            let kind=if bins[1]+bins[2]+bins[3]==0{"ZERO"}else if bins[1]+bins[2]==0{"FIXED_TWO"}else if bins[3]==0{"FIXED_ONE"}else{"MIXED_ONE_TWO"};
+            exact+=1;
+            println!("CPS_CORE8_TRUTH_ARM y={y} bins={bins:?} classification={kind}");
+            truth_records.push_str(&format!("y{y}\t{},{},{},{}\n",bins[0],bins[1],bins[2],bins[3]));
+        }
     }
     std::fs::write(dir.join("manifest.tsv"),manifest).unwrap();
+    std::fs::write(dir.join("truth-bins.tsv"),truth_records).unwrap();
+    println!("CPS_CORE8_TRUTH_SUMMARY candidates={hits} exact={exact} elapsed_ns={}",start.elapsed().as_nanos());
     println!("CPS_CORE8_ELIM_EXPORT candidates={hits}");
 }
 

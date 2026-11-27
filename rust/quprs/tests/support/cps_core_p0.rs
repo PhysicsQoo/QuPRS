@@ -1214,6 +1214,11 @@ fn core_hsl_bound_factors(bits:&[u32],bound:u64)->Option<Vec<Anf>>{
 // retain already supported conjunctions when old flat ingress overflows.
 // For conditional clause g = 1 xor M, E => g is 1 xor E*M.
 fn core_hsl_state_factored(a:&AqState,n:usize,base:Vec<CoreBool>)->Option<CpsCore>{
+    core_hsl_state_factored_selector(a,n,base,false)
+}
+// Experimental source-only representation: repurpose one existing pinned
+// padding coordinate as a unique equality witness. No new scale or path.
+fn core_hsl_state_factored_selector(a:&AqState,n:usize,base:Vec<CoreBool>,selector:bool)->Option<CpsCore>{
     if base.len()!=a.n||n>5||a.k>32{return None;}
     let [first,rest @ ..]=a.terms.as_slice() else{return None;};
     let AqPattern::Fixed(fixed)=first.pattern else{return None;};
@@ -1233,8 +1238,16 @@ fn core_hsl_state_factored(a:&AqState,n:usize,base:Vec<CoreBool>)->Option<CpsCor
     if mag==0{return None;}
     let r=(64-(mag-1).leading_zeros()) as usize;
     let mut count=Vec::new();for _ in 0..r{count.push(core_hsl_fresh(&mut ps)?);}
-    let mut other=equal.clone();xor_insert(&mut other,0);
     let mut factors=Vec::new();
+    if selector{
+        if rest.len()!=1||ps.v.path_vars.len().checked_sub(n)?>=a.k{return None;}
+        let e=core_bit(core_hsl_fresh(&mut ps)?)?;
+        // G includes 1 XOR e XOR E. Exactly one e for each relative
+        // coordinate assignment, replacing one pinned padding bit.
+        let mut eq=equal.clone();xor_insert(&mut eq,0);xor_insert(&mut eq,e);
+        factors.push(eq);equal=Anf::from([e]);
+    }
+    let mut other=equal.clone();xor_insert(&mut other,0);
     // The stricter interval is conditional; the larger interval is
     // unconditional. This is equivalent to the two disjoint branches
     // and avoids redundant clauses and large conjunctions.
@@ -1266,11 +1279,14 @@ fn core_hsl_state_factored(a:&AqState,n:usize,base:Vec<CoreBool>)->Option<CpsCor
     CpsCore::from_factors(ps,factors,k)
 }
 fn core_hsl_lower(src:&str)->Option<CpsCore>{
+    core_hsl_lower_with(src,core_hsl_state)
+}
+fn core_hsl_lower_with(src:&str,lower:impl Fn(&AqState,usize,Vec<CoreBool>)->Option<CpsCore>)->Option<CpsCore>{
     let Some((prefix,domain))=src.trim_end().rsplit_once(" : ")else{
         let a=aq_parse(src)?;
         let AqPattern::Fixed(fixed)=a.terms.first()?.pattern else{return None;};
         let base=(0..a.n).map(|i|if fixed>>i&1!=0{CoreBool::from_iter([vec![]])}else{CoreBool::default()}).collect();
-        return core_hsl_state(&a,0,base);
+        return lower(&a,0,base);
     };
     // Symbolic admitted outer binder: one unrestricted bit-vector,
     // fixed ket template and optionally a disjoint complementary cube
@@ -1312,7 +1328,7 @@ fn core_hsl_lower(src:&str)->Option<CpsCore>{
     if parts.next().is_some(){return None;}
     canonical.push('}');
     let a=aq_parse(&format!("{header}\n{canonical}"))?;
-    core_hsl_state(&a,n,base)
+    lower(&a,n,base)
 }
 // The source oracle deliberately enumerates only in this independent
 // bounded test, never in the CPS builder. Compare full signed amplitudes,
@@ -2307,6 +2323,65 @@ fn hoare_cps_sparse_guard_section(){
     assert_eq!(next.k,c.k);assert_eq!(sparse_core_matrix(&next),sparse_core_matrix(&c));
     assert!(sparse_guard_section_trial(&c,i,v,&SparseAnf::new()).is_none());
     println!("CPS_CORE8_SECTION matrix=PASS scale=PASS mutant=REJECTED");
+}
+
+// CORE-9a source-structure pilot, not an alternative matched route.
+// Independently verify original coefficients, signs, outputs and the
+// unique extension of a previously pinned source coordinate.
+#[test]
+fn hoare_cps_source_selector_pilot(){
+    let root=std::path::PathBuf::from(std::env::var("CPS_CORE_SOURCE_DIR").unwrap());
+    let dir=root.join("benchmarks/all/MOGrover/05");
+    let a=core_hsl_lower(&std::fs::read_to_string(dir.join("pre.hsl")).unwrap()).unwrap();
+    let src=std::fs::read_to_string(dir.join("post.hsl")).unwrap();
+    let (ops,_)=quprs::qasm::parse_qasm_str_source_pinned(&std::fs::read_to_string(dir.join("circuit.qasm")).unwrap()).unwrap();
+    let ua=a.then_circuit_diagnostic(&ops).unwrap().to_sparse().unwrap();
+    for (variant,post) in [
+        ("source",src.clone()),
+        ("relative",src.replace("aH := 23161 /","aH := -23161 /")),
+        ("global",src.replace("aH := 23161 /","aH := -23161 /").replace("aL := -119 /","aL := 119 /")),
+    ]{
+        let old=core_hsl_lower(&post).unwrap();
+        let new=core_hsl_lower_with(&post,|a,n,b|core_hsl_state_factored_selector(a,n,b,true)).unwrap();
+        assert_eq!((old.n(),old.q(),old.k,&old.guard.ids),(new.n(),new.q(),new.k,&new.guard.ids));
+        assert_eq!((new.n(),new.k),(5,29));
+        assert_eq!(old.ps.f.functions,new.ps.f.functions);
+        // Relative bits5..9, counter10..24, selector25, other pins26..33.
+        let accepted=|c:&CpsCore,x:u64|c.guard.factors().all(|g|eval(g,x));
+        for u in [0u64,1]{
+            let sel=u64::from(u==0)<<25;
+            let bound=if u==0{23161}else{119};
+            for m in 0..1u64<<15{
+                let x=31|(u<<5)|(m<<10);
+                assert_eq!(accepted(&old,x),m<bound);
+                assert_eq!(accepted(&new,x|sel),m<bound);
+                assert!(!accepted(&new,x|(sel^(1<<25))));
+            }
+            for j in 26..34{assert!(!accepted(&new,31|(u<<5)|sel|(1<<j)));}
+        }
+        for x in 0..32u64{for u in 0..32u64{
+            let z=x|(u<<5);let sel=u64::from(u==0)<<25;
+            assert!(accepted(&new,z|sel)&&!accepted(&new,z|(sel^(1<<25))));
+            let phase=|c:&CpsCore,bits:u64|c.ps.p.terms.iter().filter(|(m,_)|m.iter().all(|&v|bits&(1u64<<v)!=0)).map(|(_,p)|core_phase8(p).unwrap() as usize).sum::<usize>()%8;
+            assert_eq!(phase(&old,z),phase(&new,z|sel));
+        }}
+        println!("CPS_CORE9_SELECTOR_SOURCE variant={variant} scale={} old_factors={} new_factors={} old_guard_terms={} new_guard_terms={} old_phase={} new_phase={} source_parity=PASS",new.k,old.guard.factors().count(),new.guard.factors().count(),old.guard.factors().map(|g|g.len()).sum::<usize>(),new.guard.factors().map(|g|g.len()).sum::<usize>(),old.ps.p.terms.len(),new.ps.p.terms.len());
+        for (route,target) in [("baseline",old),("selector",new)]{
+            let start=std::time::Instant::now();
+            let target=target.to_sparse().unwrap();
+            match ua.shared_then_adjoint_affine(&target){
+                Ok((c,rank,pins))=>{
+                    let build_ns=start.elapsed().as_nanos();let mut residual=c.clone();let mut rs=Vec::new();
+                    for _ in 0..32{let Some((next,r))=residual.sparse_rr_step() else{break;};rs.push(r);residual=next;}
+                    assert_eq!(c.replay_sparse_rr(&rs).unwrap().rr_snapshot(),residual.rr_snapshot());
+                    let plan=|v:&CpsCore<SparseGuardFrame>|v.sparse_norm_plan(true).map(|(cnf,_,p,_)|(p,cnf.vars,cnf.clauses.len()));
+                    println!("CPS_CORE9_SELECTOR_COMPOSE variant={variant} route={route} rank={rank} pins={pins} live={} k={} guard_terms={} phase={} rr={} residual_live={} residual_k={} residual_guard_terms={} residual_phase={} raw_dag={:?} residual_dag={:?} build_ns={build_ns}",c.guard.ids.len(),c.k,c.guard.factors.iter().map(|g|g.len()).sum::<usize>(),c.ps.p.terms.len(),rs.len(),residual.guard.ids.len(),residual.k,residual.guard.factors.iter().map(|g|g.len()).sum::<usize>(),residual.ps.p.terms.len(),plan(&c),plan(&residual));
+                },
+                Err(e)=>println!("CPS_CORE9_SELECTOR_COMPOSE variant={variant} route={route} blocked={e}")
+            }
+        }
+    }
+    println!("CPS_CORE9_SELECTOR_PILOT variants=3 source_parity=PASS");
 }
 
 #[test]

@@ -1,0 +1,50 @@
+{
+  "head": "04aa6cb255caa9fcb273f3022952b1ff66f7bcb9",
+  "run_id": 45954275039,
+  "job_id": 140357020512,
+  "artifact_id": 15178172440,
+  "source_lines": [
+    "CRR_GENERIC_SOURCE wstate_16 positive benchmarks/MQTBench/wstate_nativegates_ibm_qiskit_opt0_16.qasm c02981a497a5a7e0e4fc78c5c54c201b0970a0ef9eb03b2206055a09c800643d",
+    "CRR_GENERIC_SOURCE wstate_16 positive benchmarks/MQTBench/h,ry,rz,cx/wstate_nativegates_ibm_qiskit_opt0_16.qasm c1522afc4a31d8e8a6462fece11551055e104240191823d6290f4ac0020557bc",
+    "CRR_GENERIC_SOURCE wstate_16 random_rotation benchmarks/MQTBench/wstate_nativegates_ibm_qiskit_opt0_16.qasm c02981a497a5a7e0e4fc78c5c54c201b0970a0ef9eb03b2206055a09c800643d",
+    "CRR_GENERIC_SOURCE wstate_16 random_rotation benchmarks/MQTBench/Random_Rotation/wstate_nativegates_ibm_qiskit_opt0_16.qasm 5f63a518860b8a092720f88e51a7571bdf7b7a4e207d280c9d58a03ef3f3ef69"
+  ],
+  "rows": [
+    {
+      "case": "wstate_16",
+      "variant": "positive",
+      "arm": "conditional",
+      "status": "complete",
+      "verdict": "Equivalent",
+      "vars": "2827",
+      "clauses": "16644",
+      "pairs": "1",
+      "extracted": "1",
+      "twice": "84",
+      "construct_s": "0.012927672",
+      "prepare_s": "0.018691402",
+      "solve_s": "4.103626817",
+      "total_s": "4.135246222",
+      "real": "-100510016564238581497794171646231555319096990312616520855937452766376456467993710922418751/500000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+      "imag": "21990232555519999999999999999924004525780391700264889805891048205987176681697499753205759/5000000000000000000000000000000000000000000000000000000000000000000000000000"
+    },
+    {
+      "case": "wstate_16",
+      "variant": "random_rotation",
+      "arm": "conditional",
+      "status": "complete",
+      "verdict": "NotEquivalent",
+      "vars": "2836",
+      "clauses": "16658",
+      "pairs": "1",
+      "extracted": "1",
+      "twice": "87",
+      "construct_s": "0.013258929999999999",
+      "prepare_s": "0.018866955",
+      "solve_s": "4.802799897",
+      "total_s": "4.834925975",
+      "real": "-428358086322444346422208626659097823909773287118425163632592625117020190501412844779164909/5000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+      "imag": "-24862692308502928674835333676102842534864204667399955272183475758362066891445402351247633/100000000000000000000000000000000000000000000000000000000000000000000000000000"
+    }
+  ]
+}

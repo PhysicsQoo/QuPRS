@@ -35,7 +35,7 @@ p=stage/"rust/quprs/Cargo.toml"
 s=p.read_text()
 assert "[features]" in s
 s=s.replace("[features]",'[features]\nrawmocs-native = ["dep:rawmocs_mpfr"]',1)
-s+='\n[target.\'cfg(not(target_arch = "wasm32"))\'.dependencies]\nrawmocs_mpfr = { package = "rawmocs", version = "=0.4.0-rc.1", optional = true }\n'
+s+='\n[target.\'cfg(not(target_arch = "wasm32"))\'.dependencies]\nrawmocs_mpfr = { package = "rawmocs", version = "=0.4.0", optional = true }\n'
 p.write_text(s)
 replace("rust/python_ffi/Cargo.toml","[features]",'[features]\nrawmocs-native = ["pathsum/rawmocs-native"]')
 for name in ("quprs","python_ffi"):

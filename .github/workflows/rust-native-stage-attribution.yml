@@ -36,6 +36,7 @@ on:
           - d7a
           - d7b
           - d7c
+          - d7d
           - e1c-matrix
           - l1
   push:
@@ -1880,4 +1881,72 @@ jobs:
         with:
           name: eq-dag-d7c-rr-diagnostic
           path: d7c-evidence/
+          retention-days: 30
+
+  eq-dag-d7d:
+    if: github.ref == 'refs/heads/experiment/eq-dag-encoder' && ((github.event_name == 'push' && contains(github.event.head_commit.message, 'HH internal-target red green')) || (github.event_name == 'workflow_dispatch' && inputs.dag_stage == 'd7d'))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    permissions:
+      contents: read
+    env:
+      QUPRS_SOLVER_PROVISION: external
+      CARGO_TARGET_DIR: ${{ github.workspace }}/rust/target
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: 'rust -> target'
+      - name: Pin original and independent fix trees
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y cmake pkg-config libgmp-dev libmpfr-dev zlib1g-dev m4 make gcc
+          git fetch origin refs/heads/fix/hh-internal-target
+          test "$(git rev-parse FETCH_HEAD)" = f1c75aa3f1429af1c4747a451355b64d25792947
+          test "$(git rev-parse f1c75aa3f1429af1c4747a451355b64d25792947^{tree})" = 0924ca6f7a701ae1e13fc925a79d1c0a3ce438f5
+          test "$(git rev-parse b398f07d6845efc23540549ccbfec717c27b1722^{tree})" = 1dc21015f0f4f69f057c4685b886b686d82b882d
+          git worktree add --detach "$RUNNER_TEMP/hh-original" b398f07d6845efc23540549ccbfec717c27b1722
+          git worktree add --detach "$RUNNER_TEMP/hh-fixed" f1c75aa3f1429af1c4747a451355b64d25792947
+          mkdir d7d-evidence
+          cp "$RUNNER_TEMP/hh-fixed/rust/quprs/tests/standalone_rr.rs" "$RUNNER_TEMP/hh-original/rust/quprs/tests/standalone_rr.rs"
+          sha256sum "$RUNNER_TEMP"/hh-{original,fixed}/rust/quprs/tests/standalone_rr.rs | tee d7d-evidence/test-sha.txt
+      - name: Original must fail both new regressions
+        run: |
+          set -euo pipefail
+          set +e
+          cargo test --locked --release --manifest-path "$RUNNER_TEMP/hh-original/rust/Cargo.toml" -p quprs --test standalone_rr hh_ -- --nocapture 2>&1 | tee d7d-evidence/red.log
+          rc=${PIPESTATUS[0]}
+          set -e
+          test "$rc" = 101
+          grep -F 'test hh_external_target_must_preserve_free_input ... FAILED' d7d-evidence/red.log
+          grep -F 'test hh_feynman_grover_source_pair_rr_and_hybrid ... FAILED' d7d-evidence/red.log
+          grep -E 'test result: FAILED. 0 passed; 2 failed;' d7d-evidence/red.log
+      - name: Fixed source must pass RR regression and existing rule tests
+        run: |
+          set -euo pipefail
+          cargo test --locked --release --manifest-path "$RUNNER_TEMP/hh-fixed/rust/Cargo.toml" -p quprs --test standalone_rr -- --nocapture 2>&1 | tee d7d-evidence/green.log
+          grep -F 'test hh_external_target_must_preserve_free_input ... ok' d7d-evidence/green.log
+          grep -F 'test hh_feynman_grover_source_pair_rr_and_hybrid ... ok' d7d-evidence/green.log
+          cargo test --locked --release --manifest-path "$RUNNER_TEMP/hh-fixed/rust/Cargo.toml" -p quprs --lib reduction::tests -- --nocapture 2>&1 | tee d7d-evidence/rules.log
+          echo D7D_RED_GREEN_PASS
+      - name: Seal regression evidence
+        if: always()
+        run: |
+          mkdir -p d7d-evidence
+          git rev-parse HEAD > d7d-evidence/head.txt
+          git rev-parse 'HEAD^{tree}' > d7d-evidence/tree.txt
+          printf '%s\n' 'f1c75aa3f1429af1c4747a451355b64d25792947' > d7d-evidence/fix-head.txt
+          cd d7d-evidence
+          find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 -r sha256sum > SHA256SUMS
+          sha256sum -c SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: eq-dag-d7d-hh-red-green
+          path: d7d-evidence/
           retention-days: 30

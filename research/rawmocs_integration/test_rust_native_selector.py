@@ -24,7 +24,7 @@ for name,c,expected in (("eq",eq,"equivalent"),("neq",neq,"not_equivalent")):
         d=_pathsum_rust.check_equivalence(qasm2.dumps(id),qasm2.dumps(c),tool_name="rawmocs_rust_native",method=method,timeout=10)
         ledger=d["stage_ledger"]
         assert ledger["solver_child_spawns"]==0
-        assert ledger["calls"].get("cnf_file_write",0)==0
+        assert ledger["stage_calls"].get("cnf_file_write",0)==0
         rows[-1]["direct_ffi_ledger"]=ledger
 out=Path(os.environ["R3B_EVIDENCE"])
 (out/"public-api.json").write_text(json.dumps({"status":"PASS","rows":rows},indent=2)+"\n")

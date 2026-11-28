@@ -1,0 +1,124 @@
+{
+  "schema": "eq-dag-d7a-factored-pair-holdout-v1",
+  "baseline": "b398f07d6845efc23540549ccbfec717c27b1722",
+  "baseline_tree": "1dc21015f0f4f69f057c4685b886b686d82b882d",
+  "frozen_router": "9168826d9db2f0c7b56b07966806d71f8d798ef2",
+  "router_tree": "77a0aaff5b2946d94d0297d33bc1d0cade697a5d",
+  "router_source_blobs": {
+    "rust/quprs/src/wmc_parity_experiment.rs": "6c7ad400a3434618dbf144f28e206f6e672d1a1d",
+    "rust/quprs/src/lib.rs": "9f1c071156194d4d7a30ddb4a338f114970ed4a4"
+  },
+  "excluded_training_manifests": [
+    "rust/research/eq_dag_d1_manifest.json",
+    "rust/research/eq_dag_d1d_manifest.json",
+    "rust/research/eq_dag_d6a_manifest.json"
+  ],
+  "selection": "Preselected historical perturbation kinds and sizes plus independent Feynman source pair; both mutation and unordered pair new relative to D1/D1d/D6a. Historical MQT baseline source may overlap; this is perturbation/pair holdout, not source-family holdout. No observed router outcome used to select cases.",
+  "timeout_s": 60,
+  "address_space_mib": 4096,
+  "repeat_rule": "One pair for every case. Only cases with both process-successful decisive Hybrid (or matching non-timeout RR) and each wall <=5s proceed to six extra alternating paired periods. All cases reported, no post hoc exclusion. Censored or incomplete never counted as finite speedup.",
+  "cases": [
+    {
+      "id": "grover-noancilla_5_random_rotation",
+      "family": "grover-noancilla",
+      "mode": "hybrid",
+      "expected": "NEQ",
+      "expectation": "historical mutation corpus expectation, not independently certified",
+      "strategy": "proportional",
+      "left": {
+        "path": "benchmarks/MQTBench/grover-noancilla_nativegates_ibm_qiskit_opt0_5.qasm",
+        "git_blob_sha1": "0bb566ed3fa41b07a106c2c40f25dd4a817fb18d"
+      },
+      "right": {
+        "path": "benchmarks/MQTBench/Random_Rotation/grover-noancilla_nativegates_ibm_qiskit_opt0_5.qasm",
+        "git_blob_sha1": "e2f0d392b2e323b6ada4fb211726b186d47a93f1"
+      },
+      "base_blob_reused": true
+    },
+    {
+      "id": "grover-noancilla_5_random_pauli",
+      "family": "grover-noancilla",
+      "mode": "hybrid",
+      "expected": "NEQ",
+      "expectation": "historical mutation corpus expectation, not independently certified",
+      "strategy": "proportional",
+      "left": {
+        "path": "benchmarks/MQTBench/grover-noancilla_nativegates_ibm_qiskit_opt0_5.qasm",
+        "git_blob_sha1": "0bb566ed3fa41b07a106c2c40f25dd4a817fb18d"
+      },
+      "right": {
+        "path": "benchmarks/MQTBench/Random_Pauli/grover-noancilla_nativegates_ibm_qiskit_opt0_5.qasm",
+        "git_blob_sha1": "dba9e6dff75f42f84a926a5fa6314aac3bacc474"
+      },
+      "base_blob_reused": true
+    },
+    {
+      "id": "qwalk-noancilla_5_random_rotation",
+      "family": "qwalk-noancilla",
+      "mode": "hybrid",
+      "expected": "NEQ",
+      "expectation": "historical mutation corpus expectation, not independently certified",
+      "strategy": "proportional",
+      "left": {
+        "path": "benchmarks/MQTBench/qwalk-noancilla_nativegates_ibm_qiskit_opt0_5.qasm",
+        "git_blob_sha1": "7d3f1f9703a1548163470c8b2e98456a0aa11eb3"
+      },
+      "right": {
+        "path": "benchmarks/MQTBench/Random_Rotation/qwalk-noancilla_nativegates_ibm_qiskit_opt0_5.qasm",
+        "git_blob_sha1": "d927ecd21bf3676069d90a3ad3bc4e7ee434a0de"
+      },
+      "base_blob_reused": true
+    },
+    {
+      "id": "qwalk-noancilla_5_random_pauli",
+      "family": "qwalk-noancilla",
+      "mode": "hybrid",
+      "expected": "NEQ",
+      "expectation": "historical mutation corpus expectation, not independently certified",
+      "strategy": "proportional",
+      "left": {
+        "path": "benchmarks/MQTBench/qwalk-noancilla_nativegates_ibm_qiskit_opt0_5.qasm",
+        "git_blob_sha1": "7d3f1f9703a1548163470c8b2e98456a0aa11eb3"
+      },
+      "right": {
+        "path": "benchmarks/MQTBench/Random_Pauli/qwalk-noancilla_nativegates_ibm_qiskit_opt0_5.qasm",
+        "git_blob_sha1": "4aba0d3e62092c45f2675c570f8874d74ea4eef1"
+      },
+      "base_blob_reused": true
+    },
+    {
+      "id": "qwalk-noancilla_4_random_rotation",
+      "family": "qwalk-noancilla",
+      "mode": "hybrid",
+      "expected": "NEQ",
+      "expectation": "historical mutation corpus expectation, not independently certified",
+      "strategy": "proportional",
+      "left": {
+        "path": "benchmarks/MQTBench/qwalk-noancilla_nativegates_ibm_qiskit_opt0_4.qasm",
+        "git_blob_sha1": "d44a138cc54ab06cc586706ed6aabc312e551dc6"
+      },
+      "right": {
+        "path": "benchmarks/MQTBench/Random_Rotation/qwalk-noancilla_nativegates_ibm_qiskit_opt0_4.qasm",
+        "git_blob_sha1": "ab5cda304a5ddb76e10a957b87baa343513b1d9e"
+      },
+      "base_blob_reused": true
+    },
+    {
+      "id": "feynman_grover_5_eq",
+      "family": "feynman_grover",
+      "mode": "hybrid",
+      "expected": "EQ",
+      "expectation": "source/transpiled projective EQ expectation, not independently certified",
+      "strategy": "proportional",
+      "left": {
+        "path": "benchmarks/Feynman/grover_5.qasm",
+        "git_blob_sha1": "2aa12dd7cd68e826583e9d73bebfbac6e6483eb8"
+      },
+      "right": {
+        "path": "benchmarks/Feynman/h,y,z,t,tdg,cx/grover_5.qasm",
+        "git_blob_sha1": "b425b1cd2bf29c85e327902d1648b11ebfe44b73"
+      },
+      "base_blob_reused": false
+    }
+  ]
+}

@@ -180,14 +180,6 @@ impl PathSum {
             return false;
         }
 
-        #[cfg(feature="research-parity-e2e")]
-        if let Ok(mode)=std::env::var("QUPRS_RESEARCH_D7C_RR") {
-            if matches!(mode.as_str(),"audit"|"guard_hh"|"guard_both") {
-                eprintln!("D7C_ELIM count={} live={} terms={} blocked={}",vars_to_remove.len(),self.v.path_vars.len(),self.p.terms.len(),mode=="guard_both");
-                if mode=="guard_both" {return false;}
-            }
-        }
-
         for var in &vars_to_remove {
             self.v.path_vars.remove(var);
             debug!("[Elimination] Removed decoupled path variable: {}", self.v.fmt_var(*var));
@@ -242,7 +234,16 @@ impl PathSum {
             for term in &phi {
                 if term.len() == 1 {
                     let var = term[0];
-                    
+
+                    // HH sums out two bound path variables. An external input
+                    // is a free index of the represented operator: substituting
+                    // it without keeping the constraint changes its columns
+                    // and the normalization. Skip external targets; do not
+                    // turn this into an implicit input restriction.
+                    if (var as usize) < self.v.num_qubits || !self.v.path_vars.contains(&var) {
+                        continue;
+                    }
+
                     // Validate: v cannot be present in other terms of phi.
                     // If it is, `replacement` would depend on `v`, causing infinite recursion
                     // or leaving `v` un-eliminated in F.
@@ -254,12 +255,6 @@ impl PathSum {
                         }
                     }
                     
-                    #[cfg(feature="research-parity-e2e")]
-                    if !var_in_replacement && (var as usize)<self.v.num_qubits {
-                        if matches!(std::env::var("QUPRS_RESEARCH_D7C_RR").as_deref(),Ok("guard_hh"|"guard_both")) {
-                            continue;
-                        }
-                    }
                     if !var_in_replacement {
                         if target_v.map_or(true, |max_v| var > max_v) {
                             target_v = Some(var);
@@ -281,11 +276,6 @@ impl PathSum {
                     self.v.fmt_var(var), 
                     self.v.fmt_var(v), 
                     self.v.fmt_polynomial(&replacement));
-
-            #[cfg(feature="research-parity-e2e")]
-            if matches!(std::env::var("QUPRS_RESEARCH_D7C_RR").as_deref(),Ok("audit"|"guard_hh"|"guard_both")) {
-                eprintln!("D7C_HH y={} target={} input_target={} live={} terms={}",var,v,(v as usize)<self.v.num_qubits,self.v.path_vars.len(),self.p.terms.len());
-            }
 
             // Step 3: Perform variable substitution
             for mono in &y_terms_to_remove {

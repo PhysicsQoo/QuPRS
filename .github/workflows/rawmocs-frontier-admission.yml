@@ -11,13 +11,13 @@ on:
       suite:
         description: Bounded Frontier admission suite
         type: choice
-        options: [frontier-release-quality, frontier-vqe16-gpmc-scout, v020-cross-family-scout, v020-pinned-integration, v020-planner-diagnosis, v020-width-transfer, v020-rust-integration, v020-final-admission, v020-frontier-holdout, v020-shared-contraction, v020-package-rehearsal, p4-native-first, p4-native-long, p4-native-safety]
+        options: [frontier-release-quality, frontier-vqe16-gpmc-scout, v020-cross-family-scout, v020-pinned-integration, v020-planner-diagnosis, v020-width-transfer, v020-rust-integration, v020-final-admission, v020-frontier-holdout, v020-shared-contraction, v020-package-rehearsal, p4-native-first, p4-native-long, p4-native-safety, p47-released-native]
         default: frontier-release-quality
 permissions:
   contents: read
   actions: read
 concurrency:
-  group: rawmocs-frontier-admission-${{ github.ref }}
+  group: rawmocs-frontier-admission-${{ github.ref }}-${{ github.event_name == 'workflow_dispatch' && inputs.suite || 'routine' }}
   cancel-in-progress: true
 jobs:
   frontier-release-quality:
@@ -2029,6 +2029,102 @@ jobs:
           include-hidden-files: true
           if-no-files-found: warn
 
+  p47-released-native:
+    if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.suite == 'p47-released-native')
+    name: P4.7 released v0.3.0 source and optional native parity
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: PhysicsQoo/RaWMoCS
+          ref: 05e650f46d60aed9d4fa5e6147709d12f8c3f6a9
+          path: .rawmocs-candidate
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: PhysicsQoo/GPMC
+          ref: 89bbc89d0de918e7a5385740355df55765039230
+          path: .gpmc
+          submodules: recursive
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            .rawmocs-candidate/crates/rawmocs-cli -> target
+            .p4-release-src/rawmocs-0.3.0/crates/rawmocs-python -> target
+      - name: Verify published source archives and build released native API with GPMC
+        run: |
+          set -euo pipefail
+          test "$(git -C .rawmocs-candidate rev-parse HEAD)" = 05e650f46d60aed9d4fa5e6147709d12f8c3f6a9
+          test "$(git -C .gpmc rev-parse HEAD)" = 89bbc89d0de918e7a5385740355df55765039230
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends cmake ninja-build libgmp-dev libmpfr-dev zlib1g-dev m4 make gcc pkg-config
+          python -m pip install maturin==1.8.3 numpy sympy symengine 'qiskit==2.6.1' qiskit-qasm3-import psutil
+          cargo build --locked --release --manifest-path .rawmocs-candidate/crates/rawmocs-cli/Cargo.toml
+          mkdir -p .p4-native-evidence .p4-release-src
+          curl --fail --location --retry 3 --output .p4-release-src/rawmocs-0.3.0-source.tar.gz https://github.com/PhysicsQoo/RaWMoCS/releases/download/v0.3.0/rawmocs-0.3.0-source.tar.gz
+          curl --fail --location --retry 3 --output .p4-release-src/rawmocs-0.3.0.tar.gz https://github.com/PhysicsQoo/RaWMoCS/releases/download/v0.3.0/rawmocs-0.3.0.tar.gz
+          (cd .p4-release-src; printf '%s\n' '66136ae861c926f66e684313f8d40b8984e469061309ed4ab763108bcf265ef7  rawmocs-0.3.0-source.tar.gz' 'b965478c39e3d7377ca390bee583c6e8eb2305648bed926bd01465f8e97b0139  rawmocs-0.3.0.tar.gz' | sha256sum -c -)
+          git -C .rawmocs-candidate archive --format=tar --prefix=rawmocs-0.3.0/ HEAD | gzip -n > "$RUNNER_TEMP/p4-exact-source.tar.gz"
+          cmp "$RUNNER_TEMP/p4-exact-source.tar.gz" .p4-release-src/rawmocs-0.3.0-source.tar.gz
+          tar -xzf .p4-release-src/rawmocs-0.3.0.tar.gz -C .p4-release-src
+          (cd .p4-release-src/rawmocs-0.3.0; maturin build --locked --release --interpreter python --compatibility linux --out "$RUNNER_TEMP/p4-wheel")
+          python -m pip install --no-index "$RUNNER_TEMP"/p4-wheel/*.whl
+          python -c 'import rawmocs, importlib.metadata; assert importlib.metadata.version("rawmocs") == "0.3.0"'
+          sha256sum .p4-release-src/*.tar.gz > .p4-native-evidence/released-source.sha256
+          printf '%s\n' '05e650f46d60aed9d4fa5e6147709d12f8c3f6a9' > .p4-native-evidence/released-source-revision.txt
+          cmake -S .gpmc -B .gpmc/build -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake --build .gpmc/build --target gpmc-bin --parallel 2
+          mkdir -p .p4-native-evidence
+          python -m pip freeze > .p4-native-evidence/dependencies.txt
+          sha256sum "$RUNNER_TEMP"/p4-wheel/*.whl .rawmocs-candidate/crates/rawmocs-cli/target/release/rawmocs .gpmc/build/gpmc > .p4-native-evidence/binaries.sha256
+      - name: Actual QuPRS run_wmc and public Python verdict parity
+        env:
+          PYTHONPATH: ${{ github.workspace }}/src:${{ github.workspace }}/.rawmocs-candidate/crates/rawmocs-cli/tools
+          PYTHONHASHSEED: '0'
+        run: |
+          set -euo pipefail
+          python research/rawmocs_integration/native_first.py
+      - name: P4.7 paired bounded transport WallTime and Simulation preparation
+        env:
+          PYTHONPATH: ${{ github.workspace }}:${{ github.workspace }}/src:${{ github.workspace }}/.rawmocs-candidate/crates/rawmocs-cli/tools
+          PYTHONHASHSEED: '0'
+        run: python research/rawmocs_integration/native_perf.py prepare
+      - name: P4.7 bounded solver-boundary CPU Simulation
+        timeout-minutes: 8
+        env:
+          PYTHONPATH: ${{ github.workspace }}:${{ github.workspace }}/src:${{ github.workspace }}/.rawmocs-candidate/crates/rawmocs-cli/tools
+          PYTHONHASHSEED: '0'
+        uses: CodSpeedHQ/action@v5
+        with:
+          mode: simulation
+          cycle-estimation: 'true'
+          exclude-allocations: 'false'
+          simulation-track-subprocess: 'true'
+          config: codspeed-p4-transport.generated.yml
+      - name: Verify Simulation outputs against admitted WallTime counts
+        env:
+          PYTHONPATH: ${{ github.workspace }}:${{ github.workspace }}/src:${{ github.workspace }}/.rawmocs-candidate/crates/rawmocs-cli/tools
+        run: python research/rawmocs_integration/native_perf.py verify
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: rawmocs-p47-v030-released-native
+          path: .p4-native-evidence/
+          include-hidden-files: true
+          if-no-files-found: warn
+
   p4-native-long:
     if: github.event_name == 'workflow_dispatch' && inputs.suite == 'p4-native-long'
     name: P4.5 long witnessed transport / ${{ matrix.case }}
@@ -2127,7 +2223,7 @@ jobs:
           if-no-files-found: warn
 
   p4-native-safety:
-    if: github.event_name == 'push' || inputs.suite == 'p4-native-safety'
+    if: github.event_name == 'workflow_dispatch' && inputs.suite == 'p4-native-safety'
     name: P4.6 cooperative cancellation, deadline and repeated RSS
     runs-on: ubuntu-24.04
     timeout-minutes: 12

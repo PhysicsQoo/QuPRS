@@ -2096,7 +2096,7 @@ jobs:
           mkdir -p .p4-native-evidence
           python -m pip freeze > .p4-native-evidence/dependencies.txt
           sha256sum "$RUNNER_TEMP"/p4-wheel/*.whl .rawmocs-candidate/crates/rawmocs-cli/target/release/rawmocs .gpmc/build/gpmc > .p4-native-evidence/binaries.sha256
-      - name: R1 bounded direct Rust library boundary (no RaWMoCS subprocess)
+      - name: R1 exact registry RC direct Rust library boundary (no RaWMoCS subprocess)
         timeout-minutes: 12
         env:
           QUPRS_SOLVER_PROVISION: external
@@ -2115,7 +2115,7 @@ jobs:
           [workspace]
           [dependencies]
           quprs = { path = "$GITHUB_WORKSPACE/rust/quprs" }
-          rawmocs-cli = { path = "$GITHUB_WORKSPACE/.rawmocs-candidate/crates/rawmocs-cli" }
+          rawmocs_mpfr = { package = "rawmocs", version = "=0.4.0-rc.1" }
           anyhow = "1"
           num-bigint = "0.4"
           num-rational = "0.4"
@@ -2125,15 +2125,16 @@ jobs:
           # The production crate/workspace is not modified.
           cp "$RUNNER_TEMP/r1-rust/Cargo.toml" "$R1_EVIDENCE/Cargo.toml"
           cargo generate-lockfile --manifest-path "$RUNNER_TEMP/r1-rust/Cargo.toml"
+          python research/rawmocs_integration/verify_registry_lock.py "$RUNNER_TEMP/r1-rust/Cargo.lock" "$R1_EVIDENCE/registry.json"
           cp "$RUNNER_TEMP/r1-rust/Cargo.lock" "$R1_EVIDENCE/Cargo.lock"
           rustc -Vv > "$R1_EVIDENCE/rustc.txt"
           git rev-parse HEAD > "$R1_EVIDENCE/quprs-sha.txt"
-          git -C .rawmocs-candidate rev-parse HEAD > "$R1_EVIDENCE/rawmocs-sha.txt"
+          git -C .rawmocs-candidate rev-parse HEAD > "$R1_EVIDENCE/rawmocs-v030-baseline-sha.txt"
           git -C .gpmc rev-parse HEAD > "$R1_EVIDENCE/gpmc-sha.txt"
           CARGO_TARGET_DIR="$GITHUB_WORKSPACE/.rawmocs-candidate/crates/rawmocs-cli/target" cargo run --locked --release --manifest-path "$RUNNER_TEMP/r1-rust/Cargo.toml" 2>&1 | tee "$R1_EVIDENCE/probe.log"
           grep -Fx 'R1_DIRECT_LIBRARY_BOUNDARY_PASS cases=8 failures=2 reentry=1' "$R1_EVIDENCE/probe.log"
           sha256sum "$R1_EVIDENCE"/*.cnf > "$R1_EVIDENCE/cnf.sha256"
-      - name: R3 direct Rust EQ native solver (release-pinned)
+      - name: R3 direct Rust EQ native solver (registry RC)
         timeout-minutes: 5
         env:
           QUPRS_SOLVER_PROVISION: external
@@ -2144,7 +2145,7 @@ jobs:
           cp research/rawmocs_integration/rust_native_eq.rs "$RUNNER_TEMP/r1-rust/src/main.rs"
           CARGO_TARGET_DIR="$GITHUB_WORKSPACE/.rawmocs-candidate/crates/rawmocs-cli/target" cargo run --locked --release --manifest-path "$RUNNER_TEMP/r1-rust/Cargo.toml" 2>&1 | tee .p4-native-evidence/r3-rust-eq.log
           grep -Fx 'R3_DIRECT_RUST_EQ_PASS cases=6 failure_controls=3 reentry=1' .p4-native-evidence/r3-rust-eq.log
-      - name: R3b optional Rust native selector and PyO3 staged build
+      - name: R3b optional Rust native selector and PyO3 registry build
         timeout-minutes: 6
         env:
           QUPRS_SOLVER_PROVISION: external
@@ -2155,12 +2156,13 @@ jobs:
           stage="$RUNNER_TEMP/quprs-r3b"
           mkdir -p "$stage" "$R3B_EVIDENCE"
           git archive HEAD | tar -x -C "$stage"
-          python research/rawmocs_integration/stage_rust_native.py "$stage" "$GITHUB_WORKSPACE/.rawmocs-candidate" "$R3B_EVIDENCE"
+          python research/rawmocs_integration/stage_rust_native.py "$stage" "$R3B_EVIDENCE"
           python -m venv --system-site-packages "$RUNNER_TEMP/r3b-venv"
           source "$RUNNER_TEMP/r3b-venv/bin/activate"
           export CARGO_TARGET_DIR="$GITHUB_WORKSPACE/.rawmocs-candidate/crates/rawmocs-cli/target"
           cd "$stage"
           cargo generate-lockfile --manifest-path rust/Cargo.toml
+          python research/rawmocs_integration/verify_registry_lock.py rust/Cargo.lock "$R3B_EVIDENCE/registry.json"
           cp rust/Cargo.lock "$R3B_EVIDENCE/Cargo.lock"
           maturin develop --locked --release --features rawmocs-native 2>&1 | tee "$R3B_EVIDENCE/build.log"
           PYTHONPATH="$stage/src" python research/rawmocs_integration/test_rust_native_selector.py 2>&1 | tee "$R3B_EVIDENCE/api.log"

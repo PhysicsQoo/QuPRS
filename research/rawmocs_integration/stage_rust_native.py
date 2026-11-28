@@ -1,11 +1,10 @@
-"""R3b isolated source feature rehearsal; never modifies production manifests."""
+"""R3b isolated registry feature rehearsal; never modifies production manifests."""
 from pathlib import Path
 import json
 import subprocess
 import sys
 
-stage, upstream, evidence = map(lambda s: Path(s).resolve(), sys.argv[1:])
-assert subprocess.check_output(["git","-C",str(upstream),"rev-parse","HEAD"],text=True).strip()=="05e650f46d60aed9d4fa5e6147709d12f8c3f6a9"
+stage, evidence = map(lambda s: Path(s).resolve(), sys.argv[1:])
 evidence.mkdir(parents=True,exist_ok=True)
 def replace(path,old,new):
     f=stage/path
@@ -36,7 +35,7 @@ p=stage/"rust/quprs/Cargo.toml"
 s=p.read_text()
 assert "[features]" in s
 s=s.replace("[features]",'[features]\nrawmocs-native = ["dep:rawmocs_mpfr"]',1)
-s+='\n[target.\'cfg(not(target_arch = "wasm32"))\'.dependencies]\nrawmocs_mpfr = { package = "rawmocs-cli", path = '+json.dumps(str(upstream/"crates/rawmocs-cli"))+', version = "=0.3.0", optional = true }\n'
+s+='\n[target.\'cfg(not(target_arch = "wasm32"))\'.dependencies]\nrawmocs_mpfr = { package = "rawmocs", version = "=0.4.0-rc.1", optional = true }\n'
 p.write_text(s)
 replace("rust/python_ffi/Cargo.toml","[features]",'[features]\nrawmocs-native = ["pathsum/rawmocs-native"]')
 for name in ("quprs","python_ffi"):

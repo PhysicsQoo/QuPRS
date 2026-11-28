@@ -34,6 +34,7 @@ on:
           - d6b
           - d6c
           - d7a
+          - d7b
           - e1c-matrix
           - l1
   push:
@@ -1764,3 +1765,68 @@ jobs:
           retention-days: 30
 
 
+
+  eq-dag-d7b:
+    if: github.ref == 'refs/heads/experiment/eq-dag-encoder' && ((github.event_name == 'push' && contains(github.event.head_commit.message, 'diagnose Feynman source EQ discrepancy')) || (github.event_name == 'workflow_dispatch' && inputs.dag_stage == 'd7b'))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: eq-dag-d7a-perturbation-heldout
+          run-id: 46094800685
+          github-token: ${{ github.token }}
+          path: d7a
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Full source trace oracle
+        run: |
+          set -euo pipefail
+          mkdir d7b-evidence
+          node rust/research/eq_dag_d7b_oracle.mjs rust/research/eq_dag_d7a_manifest.json d7b-evidence/oracle.json | tee d7b-oracle.log
+      - name: Independent Factored replay
+        run: |
+          set -euo pipefail
+          (cd d7a && sha256sum -c SHA256SUMS)
+          sudo apt-get update
+          sudo apt-get install -y libgmp-dev libmpfr-dev
+          cc -O2 -shared -fPIC rust/quprs/native/mpfr_weight_bridge.c -lmpfr -lgmp -o "$RUNNER_TEMP/phase_weight.so"
+          cc -O2 -shared -fPIC rust/research/eq_dag_e1f_interval.c -lmpfr -lgmp -o "$RUNNER_TEMP/interval.so"
+          python3 -u rust/research/eq_dag_d7b_replay.py d7a "$RUNNER_TEMP/phase_weight.so" "$RUNNER_TEMP/interval.so" d7b-evidence/replay | tee d7b-replay.log
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: 'rust -> target'
+      - name: Build production count reader and pinned GPMC
+        run: |
+          set -euo pipefail
+          sudo apt-get install -y cmake pkg-config libgmp-dev libmpfr-dev zlib1g-dev m4 make gcc time
+          python3 scripts/install_gpmc_release.py --dest "$RUNNER_TEMP/gpmc"
+          QUPRS_SOLVER_PROVISION=external cargo build --locked --release --manifest-path rust/Cargo.toml -p quprs --example eq_dag_d3_count
+      - name: Feynman raw counts at 30 and 90 digits
+        run: |
+          set -euo pipefail
+          python3 -u rust/research/eq_dag_d7b_count.py d7a "$RUNNER_TEMP/gpmc" rust/target/release/examples/eq_dag_d3_count d7b-evidence/counts | tee d7b-count.log
+      - name: Seal diagnostic evidence
+        if: always()
+        run: |
+          mkdir -p d7b-evidence
+          for log in d7b-oracle.log d7b-replay.log d7b-count.log; do test ! -f "$log" || cp "$log" d7b-evidence/; done
+          git rev-parse HEAD > d7b-evidence/head.txt
+          git rev-parse 'HEAD^{tree}' > d7b-evidence/tree.txt
+          cd d7b-evidence
+          find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 -r sha256sum > SHA256SUMS
+          sha256sum -c SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: eq-dag-d7b-feynman-diagnostic
+          path: d7b-evidence/
+          retention-days: 30

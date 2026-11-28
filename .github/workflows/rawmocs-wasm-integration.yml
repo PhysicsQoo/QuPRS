@@ -1,0 +1,71 @@
+name: QuPRS RaWMoCS WASM integration research
+on:
+  workflow_dispatch:
+concurrency:
+  group: wasm-w2b-${{ github.ref }}
+  cancel-in-progress: true
+permissions:
+  contents: read
+  actions: read
+jobs:
+  replay:
+    if: github.repository == 'PhysicsQoo/QuPRS' && github.ref == 'refs/heads/experiment/rawmocs-integration'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      QUPRS_SOLVER_PROVISION: external
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Syntax preflight
+        run: python3 -m py_compile research/rawmocs_integration/wasm/*.py
+      - uses: actions/checkout@v4
+        with:
+          repository: PhysicsQoo/QuPRS
+          ref: 2a510a7bba0d5af612c84fc2822cc29bcea45daa
+          path: quprs
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: '1.100.1'
+          targets: wasm32-unknown-unknown
+      # Cache dependencies/tooling, not admitted binary artifacts.
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: quprs/rust -> target
+          key: w2b-quprs-2a510a7
+          cache-workspace-crates: "false"
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin/wasm-bindgen
+          key: w2b-wasm-bindgen-0.2.100-rust-1.100.1-${{ runner.os }}-${{ runner.arch }}
+      - name: Install bounded dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends gcc g++ libgmp-dev libmpfr-dev zlib1g-dev
+          python3 -m pip install playwright==1.65.2
+          python3 -m playwright install --with-deps chromium
+      - name: Download immutable W2a evidence
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/w2b/evidence"
+          gh api repos/PhysicsQoo/RaWMoCS/actions/artifacts/15259712439/zip > "$RUNNER_TEMP/w2b/w2a.zip"
+          echo '2cc356553c0da8d2d2170aa7cb50299c3089135ecbe84c71e25b9f207e002b49  '"$RUNNER_TEMP/w2b/w2a.zip" | sha256sum -c -
+      - name: Reuse exact-source admitted GPMC comparator (no rebuild)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh api repos/PhysicsQoo/QuPRS/actions/runs/46131469986 --jq '.head_sha + " " + .conclusion' | grep -Fx '2a510a7bba0d5af612c84fc2822cc29bcea45daa success'
+          gh api repos/PhysicsQoo/QuPRS/actions/artifacts/15258630253/zip > "$RUNNER_TEMP/w2b/gpmc.zip"
+          echo '9c3b6aded7fd0d186ad073128ab900b4eba182261774c0f8afb87b09783c00ec  '"$RUNNER_TEMP/w2b/gpmc.zip" | sha256sum -c -
+      - name: Stage actual QuPRS core and run differential gate
+        run: python3 research/rawmocs_integration/wasm/gate.py "$RUNNER_TEMP/w2b" "$GITHUB_WORKSPACE/quprs"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: rawmocs-wasm-w2b-evidence
+          path: ${{ runner.temp }}/w2b/evidence/
+          if-no-files-found: error

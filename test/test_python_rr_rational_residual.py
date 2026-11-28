@@ -57,5 +57,6 @@ def test_rational_aggregate_bound_exact_and_fail_closed():
     assert bound(scalar, (x,y), eps) is None
     assert bound(a*x*z, (x,y), eps) is None
     assert bound(a*x**2, (x,y), eps) is None
+    assert bound(sp.Float(1e-15)*x, (x,y), eps) is None
     assert bound(sp.sqrt(2)*a*x, (x,y), eps) is None
     assert bound(sp.Symbol("theta")*x, (x,y), eps) is None

@@ -79,7 +79,7 @@ def _rr_rational_diagonal_phase(phase, bits, tolerance):
     if not variables:
         return None
     expr = sp.sympify(phase)
-    if not expr.free_symbols.issubset(set(variables)):
+    if expr.atoms(sp.Float) or not expr.free_symbols.issubset(set(variables)):
         return None
     try:
         poly = sp.Poly(expr, *variables, domain=sp.QQ)

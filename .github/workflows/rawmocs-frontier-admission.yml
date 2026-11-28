@@ -2157,6 +2157,7 @@ jobs:
           mkdir -p "$stage" "$R3B_EVIDENCE"
           git archive HEAD | tar -x -C "$stage"
           python research/rawmocs_integration/stage_rust_native.py "$stage" "$R3B_EVIDENCE"
+          python research/rawmocs_integration/r4_stage_phase.py "$stage" "$R3B_EVIDENCE"
           python -m venv --system-site-packages "$RUNNER_TEMP/r3b-venv"
           source "$RUNNER_TEMP/r3b-venv/bin/activate"
           export CARGO_TARGET_DIR="$GITHUB_WORKSPACE/.rawmocs-candidate/crates/rawmocs-cli/target"

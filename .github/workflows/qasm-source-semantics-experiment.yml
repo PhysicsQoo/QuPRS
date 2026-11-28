@@ -303,8 +303,8 @@ jobs:
           # CORE-10a retry: construct the existing FxHashSet with Default.
           timeout 350s python3 rust/research/cps_core_basis_family_p0.py "$(cat evidence/release-bin.path)" "$RUNNER_TEMP/cps-gpmc" "$src/build/cli/autoq" "$src" evidence/cps-core10 | tee evidence/cps-core10.log
           grep -F 'CPS_CORE10_SUMMARY {"arms": 72, "cases": 4,' evidence/cps-core10.log
-      - name: CORE-10c rectangular fourth-moment StateSet screening
-        timeout-minutes: 4
+      - name: CORE-10d entangled orthonormal source StateSet screening
+        timeout-minutes: 8
         run: |
           set -euo pipefail
           src="$RUNNER_TEMP/autoq-matched"
@@ -312,8 +312,10 @@ jobs:
           timeout 30s "$(cat evidence/release-bin.path)" --exact exact_property_cnf::hoare_cps_entrywise_square --nocapture | tee evidence/cps-core10-fourth-oracle.log
           grep -Fx 'CPS_CORE10_FOURTH_ORACLE matrix=PASS span_counterexample=PASS product_sign=PASS' evidence/cps-core10-fourth-oracle.log
           grep -Fx 'CPS_CORE10_RECTANGULAR_ORACLE matrix=PASS both_directions=PASS encoder_admission=PASS' evidence/cps-core10-fourth-oracle.log
-          timeout 210s python3 rust/research/cps_core_fourth_p0.py "$(cat evidence/release-bin.path)" "$RUNNER_TEMP/cps-gpmc" "$src/build/cli/autoq" "$src" evidence/cps-core10-fourth | tee evidence/cps-core10-fourth.log
-          grep -F 'CPS_CORE10_FOURTH_SUMMARY {"arms": 42, "cases": 3,' evidence/cps-core10-fourth.log
+          timeout 30s "$(cat evidence/release-bin.path)" --exact exact_property_cnf::hoare_cps_cat_family --nocapture | tee evidence/cps-core10-cat-oracle.log
+          grep -Fx 'CPS_CORE10_CAT_ORACLE hsl_columns=PASS gram=PASS chain_spread=PASS rejection_controls=PASS' evidence/cps-core10-cat-oracle.log
+          timeout 420s python3 rust/research/cps_core_fourth_p0.py "$(cat evidence/release-bin.path)" "$RUNNER_TEMP/cps-gpmc" "$src/build/cli/autoq" "$src" evidence/cps-core10-fourth | tee evidence/cps-core10-fourth.log
+          grep -F 'CPS_CORE10_FOURTH_SUMMARY {"arms": 78, "cases": 6,' evidence/cps-core10-fourth.log
       - uses: actions/upload-artifact@v4
         if: always()
         with:

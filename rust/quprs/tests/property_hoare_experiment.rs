@@ -35,7 +35,10 @@ fn shift(a: Root, k: usize) -> Root {
     r
 }
 fn admitted(n: usize, ops: &[G]) -> bool {
-    n>0 && n<=16 && ops.len()<=128 &&
+    admitted_width(n, ops, 16)
+}
+fn admitted_width(n: usize, ops: &[G], width: usize) -> bool {
+    n>0 && n<=width && ops.len()<=128 &&
     ops.iter().filter(|g| matches!(g,G::H(_))).count()<=10 &&
     ops.iter().all(|g| match *g {
         G::H(q)|G::X(q)|G::Z(q)|G::S(q)|G::T(q) => q<n,

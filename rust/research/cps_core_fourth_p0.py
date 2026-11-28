@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""CORE-10e: larger original GHZall and non-Clifford phase-spread
+"""CORE-10f: width32 original GHZall and non-Clifford phase-spread
 controls, retaining HXH and rectangular MCToffoli. Same CPS worker.
 """
 import json
@@ -21,6 +21,7 @@ BLOBS={
  "GHZall/008":("a712713768d9605514ff30208785b5bfdbffad06","7a2693425da63470feca65ca62d93e9d19d3a461","f2c88eaf5779c0bd340a501514432290369fdf7f"),
  "GHZall/012":("62415f766e476bf3cd2118270dc41edd7eb3943c","cc32b5ec1b00cbdc8b28f2b70d0589bcd4eef081","2a571c1ca0b5a18e86e6cc1d7eecdb4638e8869b"),
  "GHZall/016":("65b297e71a5df283ebb3ebf7fb1c4b55abe3b706","964c158acda2746f2d3d637c4be0139a3ec32ebe","f182c4d9f0c3c09b60b1576b6d4c5145d30703e6"),
+ "GHZall/032":("4ea30ba35f4500b127e967bd355c05aaa296570e","2f63afe31bbf162c945e18deb66d3b7d297bce37","2e95cc49dd60b7ec26020f5f7350c4e79b29d1cc"),
 }
 def main(binary,solver,autoq,root,out):
     out.mkdir(parents=True,exist_ok=False)
@@ -100,7 +101,7 @@ def main(binary,solver,autoq,root,out):
                     assert all(a.get(x)==b.get(x) for x in ("initial_sha256","n","k","h","steps","primary")),(a,b)
                 if a["verdict"]!="UNKNOWN" and b["verdict"]!="UNKNOWN":
                     assert all(a.get(x)==b.get(x) for x in ("verdict","norm","bins")),(a,b)
-    assert len(rows)==120
+    assert len(rows)==138
     # Preserve previously definite native results; new cases are a
     # screening cohort, not an assumption that all policies terminate.
     for r in rows:
@@ -110,14 +111,16 @@ def main(binary,solver,autoq,root,out):
             assert r["verdict"]==r["expected"],r
         # Preserve the observed CORE-10d definite routes (not new phase
         # controls). New widths are measured without assuming completion.
-        if r["case"] in ("GHZall/002","GHZall/004","GHZall/008") and r["variant"] in ("source","spread"):
+        if r["case"] in ("GHZall/002","GHZall/004","GHZall/008","GHZall/012","GHZall/016") and r["variant"] in ("source","spread"):
             if r["mode"]!="rr" or r["variant"]=="source":
                 assert r["verdict"]==r["expected"],r
             if r["variant"]=="source" and r["mode"] in ("rr","hybrid","hybrid-dag"):
                 assert r["h"]==r["k"]==0 and r["steps"]==2 and not r["solver_invoked"],r
+        if r["case"] in ("GHZall/008","GHZall/012","GHZall/016") and r["variant"]=="phase-spread" and r["mode"] in ("wmc","hybrid","autoq"):
+            assert r["verdict"]==r["expected"],r
     summary={case:{m:sum(r["case"]==case and r["mode"]==m and r["verdict"]!="UNKNOWN" for r in rows) for m in MODES} for case in BLOBS}
     (out/"summary.json").write_text(json.dumps(dict(source_pin=PIN,binary_sha256=sha(binary),solver_sha256=sha(solver),autoq_sha256=sha(autoq),cap_s=CAP,rows=rows,summary=summary),indent=2)+"\n")
-    print("CPS_CORE10_FOURTH_SUMMARY",json.dumps(dict(arms=len(rows),cases=8,summary=summary)),flush=True)
+    print("CPS_CORE10_FOURTH_SUMMARY",json.dumps(dict(arms=len(rows),cases=9,summary=summary)),flush=True)
 
 if __name__=="__main__":
     main(*map(lambda p:pathlib.Path(p).resolve(),sys.argv[1:6]))

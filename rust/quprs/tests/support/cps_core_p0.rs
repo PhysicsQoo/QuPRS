@@ -13,6 +13,10 @@ struct CpsCore<F=NativeGuardFrame> {
 }
 type CoreBool = rustc_hash::FxHashSet<Vec<u32>>;
 const CORE_TERMS:usize=256;
+// CORE-10f: experimental native CPS shape admission only. Retain the
+// existing narrow 63 stable-ID, phase, guard and term budgets; do not
+// enlarge legacy dense-reference or production gate admission.
+const CORE_WIDTH:usize=32;
 // Bounded phase-only admission experiment: MOGrover04 reached 258
 // phase terms with max output 27. Keep Boolean and guard caps unchanged.
 const CORE_PHASE_TERMS:usize=1024; // bounded MO05 pilot: observed 748 terms
@@ -305,7 +309,7 @@ impl<F:CoreGuardStorage> CpsCore<F>{
     fn q(&self)->usize{self.ps.f.functions.len()}
     fn shared_valid(&self)->bool{
         let ps=&self.ps;let n=self.n();let q=self.q();let live=&ps.v.path_vars;
-        if n>16||q>16||ps.rr_approximate||ps.rr_tolerance!=0.0||
+        if n>CORE_WIDTH||q>CORE_WIDTH||ps.rr_approximate||ps.rr_tolerance!=0.0||
             !ps.v.continuous_vars.is_empty()||ps.p.terms.len()>F::PHASE_LIMIT||ps.f.functions.iter().any(|p|p.len()>CORE_TERMS)||
             (0..n).any(|i|!live.contains(&(i as u32)))||
             ps.v.next_id>F::ID_LIMIT||live.iter().any(|&v|v>=F::ID_LIMIT||v>=ps.v.next_id)||
@@ -513,7 +517,7 @@ impl CpsCore{
     // Explicit raw embedding only. An already reduced PathSum cannot be
     // imported as raw: it must enter via a checked transformation receipt.
     fn circuit(n:usize,ops:&[G])->Option<Self>{
-        if !admitted(n,ops){return None;}
+        if !admitted_width(n,ops,CORE_WIDTH){return None;}
         let mut ps=PathSum::new(n);ps.set_auto_reduce(false);
         for g in ops{g.apply(&mut ps,false);if !core_terms_ok(&ps){return None;}}
         let k=i32::try_from(ops.iter().filter(|g|matches!(g,G::H(_))).count()).ok()?;
@@ -1297,7 +1301,7 @@ fn core_hsl_basis_family(src:&str)->Option<CpsCore>{
         let mut chars=name.chars();let ch=chars.next()?;
         if chars.next().is_some()||!ch.is_ascii_lowercase(){return None;}
         let width=width.parse::<usize>().ok()?;
-        if width==0||width>16||n.checked_add(width)?>16||binders.insert(ch,(n,width)).is_some(){return None;}
+        if width==0||width>CORE_WIDTH||n.checked_add(width)?>CORE_WIDTH||binders.insert(ch,(n,width)).is_some(){return None;}
         n+=width;
     }
     let mut fs=Vec::<CoreBool>::new();let mut used=BTreeSet::new();
@@ -1309,7 +1313,7 @@ fn core_hsl_basis_family(src:&str)->Option<CpsCore>{
                 for i in off..off+width{fs.push(CoreBool::from_iter([vec![i as u32]]));}}
         }
     }
-    if n==0||fs.len()>16||used.len()!=binders.len(){return None;}
+    if n==0||fs.len()>CORE_WIDTH||used.len()!=binders.len(){return None;}
     let mut ps=PathSum::new(n);ps.set_auto_reduce(false);
     ps.f=quprs::pathsum::BooleanState::new(fs.len());ps.f.functions=fs;
     if sign{ps.p.add_term(vec![],quprs::PhaseCoeff::HALF);}
@@ -1349,7 +1353,7 @@ fn core_hsl_cat_basis(src:&str)->Option<CpsCore>{
         lines.next()?!="cn := -1/sqrt2"||lines.next()?!="Extended Dirac"{return None;}
     let w=lines.next()?.strip_prefix("{cp |0i> + cp |1i'> : |i|=")?
         .strip_suffix("} ∪")?.parse::<usize>().ok()?;
-    if !(1..=15).contains(&w){return None;}
+    if !(1..CORE_WIDTH).contains(&w){return None;}
     let last=format!("{{cp |0i> + cn |1i'> : |i|={w}}}");
     if lines.next()?!=last.as_str()||lines.any(|s|!s.is_empty()){return None;}
     let n=w+1;
@@ -1407,6 +1411,35 @@ fn hoare_cps_cat_family(){
             src.replace("cp := 1/sqrt2","cp := 1"),
         ]{assert!(core_hsl_fourth_family(&bad).is_none());}
     }
+    // Capacity boundary: no dense oracle or enumeration at 32 bits.
+    // Retain legacy admission, reject 33 and stable-ID overflow.
+    let n=CORE_WIDTH;
+    assert!(!admitted(n,&[G::H(0)]));
+    assert!(CpsCore::circuit(n+1,&[]).is_none());
+    let cat=|w:usize|format!("Constants\ncp := 1/sqrt2\ncn := -1/sqrt2\nExtended Dirac\n{{cp |0i> + cp |1i'> : |i|={w}}} ∪\n{{cp |0i> + cn |1i'> : |i|={w}}}\n");
+    assert!(core_hsl_fourth_family(&cat(n)).is_none());
+    let a=core_hsl_basis_family(&format!("Constants\nc1 := 1\nExtended Dirac\n{{c1 |ji> : |j|=1, |i|={}}}\n",n-1)).unwrap();
+    let (b,_)=core_hsl_fourth_family(&cat(n-1)).unwrap();
+    let mut chain=vec![G::H(0)];
+    for j in 1..n{chain.push(G::CX(j-1,j));}
+    let ua=a.then_circuit_diagnostic(&chain).unwrap();
+    let (m,_,_)=ua.then_adjoint_affine(&b).unwrap();
+    let sq=core_entrywise_square(&m).unwrap();
+    assert_eq!((sq.n(),sq.q(),sq.k,sq.guard.ids.len()),(n,n,4,n+4));
+    assert!(sq.ps.v.next_id<=63);
+    for plan in [sq.wmc_norm_plan(),sq.wmc_norm_factored_plan()]{
+        let (_,_,primary,k)=plan.unwrap();
+        assert_eq!((primary,k),(n+8,4));
+    }
+    let (one,r1)=sq.rr_step_shape().unwrap();
+    let (two,r2)=one.rr_step_shape().unwrap();
+    let replay=sq.replay_rr_shape(&[r1,r2]).unwrap();
+    assert_eq!((two.k,two.guard.ids.len()),(0,n));
+    assert_eq!(core_ray_rr_terminal(&two),Some("PROVED"));
+    assert_eq!(guarded_snapshot_shape(&two.ps,n,n,&two.guard),guarded_snapshot_shape(&replay.ps,n,n,&replay.guard));
+    let mut near_cap=sq.clone();near_cap.ps.v.next_id=63;
+    assert!(near_cap.valid()&&core_entrywise_square(&near_cap).is_none());
+    println!("CPS_CORE10_WIDE_ORACLE width32=PASS legacy_cap=PASS width33_reject=PASS id_cap=PASS replay=PASS");
     println!("CPS_CORE10_CAT_ORACLE hsl_columns=PASS gram=PASS chain_spread=PASS rejection_controls=PASS");
 }
 // Entrywise square M∘M in the same CPS core. Formal input labels are
@@ -1666,7 +1699,7 @@ impl CpsCore {
             let detail=|reason:&str,ps:&PathSum|format!(
                 "{reason} gate_index={i} gate={g:?} next_id={} live={} phase_terms={} max_output_terms={}",
                 ps.v.next_id,ps.v.path_vars.len(),ps.p.terms.len(),ps.f.functions.iter().map(|p|p.len()).max().unwrap_or(0));
-            if !admitted(self.q(),std::slice::from_ref(g)){return Err(detail("gate-admission",&ps));}
+            if !admitted_width(self.q(),std::slice::from_ref(g),CORE_WIDTH){return Err(detail("gate-admission",&ps));}
             let h=matches!(g,G::H(_));
             if h&&ps.v.next_id>=63{return Err(detail("stable-id-cap",&ps));}
             let before=ps.v.path_vars.len();

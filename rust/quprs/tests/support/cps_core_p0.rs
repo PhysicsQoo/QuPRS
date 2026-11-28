@@ -1278,6 +1278,92 @@ fn core_hsl_state_factored_selector(a:&AqState,n:usize,base:Vec<CoreBool>,select
     let k=i32::try_from(ps.v.path_vars.len().checked_sub(n)?).ok()?;
     CpsCore::from_factors(ps,factors,k)
 }
+// CORE-10a: fixed computational-basis families with one or more
+// independent bit-vector binders. Each binder occurs in the ket, so
+// the map from all labels to computational basis kets is injective.
+// This certifies isometry, not equality of matching label indices.
+fn core_hsl_basis_family(src:&str)->Option<CpsCore>{
+    let mut lines=src.lines().map(str::trim);
+    if lines.next()?!="Constants"{return None;}
+    let sign=match lines.next()?{"c1 := 1"=>false,"c1 := -1"=>true,_=>return None};
+    if lines.next()?!="Extended Dirac"{return None;}
+    let body=lines.next()?.strip_prefix('{')?.strip_suffix('}')?.trim();
+    if lines.any(|l|!l.is_empty()){return None;}
+    let (ket,domain)=body.split_once(" : ")?;
+    let ket=ket.trim().strip_prefix("c1 |")?.strip_suffix('>')?;
+    let mut binders=BTreeMap::<char,(usize,usize)>::new();let mut n=0usize;
+    for d in domain.split(','){
+        let (name,width)=d.trim().strip_prefix('|')?.split_once("|=")?;
+        let mut chars=name.chars();let ch=chars.next()?;
+        if chars.next().is_some()||!ch.is_ascii_lowercase(){return None;}
+        let width=width.parse::<usize>().ok()?;
+        if width==0||width>16||n.checked_add(width)?>16||binders.insert(ch,(n,width)).is_some(){return None;}
+        n+=width;
+    }
+    let mut fs=Vec::<CoreBool>::new();let mut used=BTreeSet::new();
+    for ch in ket.chars(){
+        match ch{
+            '0'=>fs.push(CoreBool::new()),
+            '1'=>fs.push(CoreBool::from_iter([vec![]])),
+            _=>{let &(off,width)=binders.get(&ch)?;used.insert(ch);
+                for i in off..off+width{fs.push(CoreBool::from_iter([vec![i as u32]]));}}
+        }
+    }
+    if n==0||fs.len()>16||used.len()!=binders.len(){return None;}
+    let mut ps=PathSum::new(n);ps.set_auto_reduce(false);
+    ps.f=quprs::pathsum::BooleanState::new(fs.len());ps.f.functions=fs;
+    if sign{ps.p.add_term(vec![],quprs::PhaseCoeff::HALF);}
+    let c=CpsCore::canonical(ps,Anf::from([0]))?;
+    core_basis_isometry(&c).then_some(c)
+}
+fn core_basis_isometry(c:&CpsCore)->bool{
+    if !c.valid()||c.k!=0||c.guard.ids.len()!=c.n()||
+        !c.guard.factors().all(|g|g==&Anf::from([0]))||
+        c.ps.p.terms.keys().any(|m|!m.is_empty()){return false;}
+    let mut seen=BTreeSet::new();
+    for f in &c.ps.f.functions{
+        if f.len()>1{return false;}
+        if let Some(m)=f.iter().next(){
+            if m.len()>1{return false;}
+            if let Some(&v)=m.first(){if v as usize>=c.n(){return false;}seen.insert(v);}
+        }
+    }
+    seen.len()==c.n()
+}
+#[test]
+fn hoare_cps_basis_family_source(){
+    let root=std::path::PathBuf::from(std::env::var("CPS_CORE_SOURCE_DIR").unwrap());
+    let mut columns=0usize;
+    for (case,n,q) in [("MCToffoli/04",5usize,8usize),("MCToffoli/08",9,16),("MOBV_reorder/04",4,9),("MOBV_reorder/06",6,13)]{
+        let folder=root.join("benchmarks/all").join(case);
+        let mut pair=Vec::new();
+        for file in ["pre.hsl","post.hsl"]{
+            let src=std::fs::read_to_string(folder.join(file)).unwrap();
+            let c=core_hsl_basis_family(&src).unwrap();
+            assert_eq!((c.n(),c.q(),c.k),(n,q,0));assert!(core_basis_isometry(&c));
+            let mut seen=BTreeSet::new();
+            for x in 0..1usize<<n{
+                let z=c.ps.f.functions.iter().enumerate().fold(0usize,|a,(i,f)|a|((f.iter().filter(|m|m.iter().all(|&v|x&(1usize<<v)!=0)).count()%2)<<i));
+                let expected=if case.starts_with("MCToffoli"){
+                    let controls=n-1;(x&((1<<controls)-1))|((x>>controls)<<(q-1))
+                }else if file=="pre.hsl"{x}else{x|(x<<n)|(1<<(q-1))};
+                assert_eq!(z,expected);assert!(seen.insert(z));columns+=1;
+            }
+            assert_eq!(seen.len(),1<<n);pair.push(c);
+        }
+        let (ops,nq)=quprs::qasm::parse_qasm_str_source_pinned(&std::fs::read_to_string(folder.join("circuit.qasm")).unwrap()).unwrap();
+        assert_eq!(nq,q);
+        let ua=pair[0].then_circuit_diagnostic(&ops).unwrap();
+        assert_eq!((ua.n(),ua.q()),(n,q));
+        println!("CPS_CORE10_BASIS case={case} labels={n} qubits={q} columns={} gates={} isometry=PASS",1usize<<n,ops.len());
+    }
+    let sample="Constants\nc1 := 1\nExtended Dirac\n{ c1 |i000j> : |i|=4, |j|=1 }\n";
+    for bad in [sample.replace("i000j","i0000"),sample.replace("|j|=1","|i|=1"),sample.replace("c1 := 1","c1 := 2"),sample.replace("|i|=4","|i|=17")]{
+        assert!(core_hsl_basis_family(&bad).is_none());
+    }
+    println!("CPS_CORE10_BASIS_SUMMARY cases=4 columns={columns} rejection_controls=4");
+}
+
 fn core_hsl_lower(src:&str)->Option<CpsCore>{
     core_hsl_lower_with(src,core_hsl_state)
 }
@@ -1657,9 +1743,11 @@ fn hoare_cps_core_matched_worker(){
         let post=std::fs::read_to_string(dir.join("post.hsl")).ok()?;
         let src=std::fs::read_to_string(dir.join("circuit.qasm")).ok()?;
         let t=std::time::Instant::now();
-        stage="pre-lowering";let a=core_hsl_lower(&pre)?;
+        let basis=std::env::var("CPS_CORE_SOURCE_VARIANT").as_deref()==Ok("basis-family");
+        stage="pre-lowering";let a=if basis{core_hsl_basis_family(&pre)?}else{core_hsl_lower(&pre)?};
         stage="post-lowering";
         let b=match std::env::var("CPS_CORE_SOURCE_VARIANT").as_deref(){
+            Ok("basis-family")=>core_hsl_basis_family(&post)?,
             Err(std::env::VarError::NotPresent)|Ok("baseline")=>core_hsl_lower(&post)?,
             Ok("selector")=>core_hsl_lower_with(&post,|a,n,b|core_hsl_state_factored_selector(a,n,b,true))?,
             _=>return None,
@@ -1669,7 +1757,13 @@ fn hoare_cps_core_matched_worker(){
         stage="native-gate-composition";let ua=match a.then_circuit_diagnostic(&ops){
             Ok(v)=>v,Err(detail)=>{println!("CPS_COMPOSITION_DETAIL {detail}");return None;}
         };
-        stage="label-certificate";if !core_label_support(&ua,&b){return None;}
+        stage="label-certificate";
+        if basis{
+            // A and B are isometries, U is admitted unitary. Frobenius
+            // mass of B^dagger U A equals dim(A) iff range inclusion.
+            // The current square norm encoder needs equal label widths.
+            if !core_basis_isometry(&a)||!core_basis_isometry(&b)||ua.n()!=b.n()||ua.q()!=b.q(){return None;}
+        }else if !core_label_support(&ua,&b){return None;}
         stage="adjoint";let bd=match b.adjoint_diagnostic(){
             Ok(v)=>v,Err(detail)=>{println!("CPS_COMPOSITION_DETAIL {detail}");return None;}
         };

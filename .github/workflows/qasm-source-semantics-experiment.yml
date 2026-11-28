@@ -42,7 +42,7 @@ jobs:
           rustc --version | tee evidence/rustc-version.txt
           cargo --version | tee evidence/cargo-version.txt
           lscpu > evidence/cpu.txt
-          sha256sum rust/quprs/tests/support/autoq_hsl_p0.rs rust/quprs/tests/property_hoare_experiment.rs rust/research/autoq_grover_p0.py rust/research/autoq_c3_pilot.py rust/research/autoq_shared_width_p0.py rust/research/autoq_shared_family_p0.py rust/research/autoq_ss2_p0.py rust/research/autoq_ss3_p0.py rust/quprs/tests/support/cps_core_p0.rs rust/research/cps_core_wmc_p0.py rust/research/cps_core_source_decision_p0.py rust/research/cps_core_matched_p0.py rust/research/cps_core_encoding_ab_p0.py rust/research/cps_core_heldout_p0.py rust/research/cps_core_guard_cofactor_p0.py rust/research/cps_core_selector_ab_p0.py > evidence/source-sha256.txt
+          sha256sum rust/quprs/tests/support/autoq_hsl_p0.rs rust/quprs/tests/property_hoare_experiment.rs rust/research/autoq_grover_p0.py rust/research/autoq_c3_pilot.py rust/research/autoq_shared_width_p0.py rust/research/autoq_shared_family_p0.py rust/research/autoq_ss2_p0.py rust/research/autoq_ss3_p0.py rust/quprs/tests/support/cps_core_p0.rs rust/research/cps_core_wmc_p0.py rust/research/cps_core_source_decision_p0.py rust/research/cps_core_matched_p0.py rust/research/cps_core_encoding_ab_p0.py rust/research/cps_core_heldout_p0.py rust/research/cps_core_guard_cofactor_p0.py rust/research/cps_core_selector_ab_p0.py rust/research/cps_core_basis_family_p0.py > evidence/source-sha256.txt
           sudo apt-get update
           sudo apt-get install -y cmake pkg-config libgmp-dev libmpfr-dev zlib1g-dev libboost-filesystem-dev libboost-test-dev libantlr4-runtime-dev
       - name: Provision pinned GPMC and qualify packed count
@@ -291,17 +291,16 @@ jobs:
           print("CPS_CORE8_DIAGNOSTICS arms=12 contract=PASS")
           PY
           grep -Fx 'CPS_CORE8_DIAGNOSTICS arms=12 contract=PASS' evidence/cps-core8-diagnostics.log
-      - name: CORE-9c source selector family screening
-        timeout-minutes: 8
+      - name: CORE-10a original basis family StateSet screening
+        timeout-minutes: 7
         run: |
           set -euo pipefail
           src="$RUNNER_TEMP/autoq-matched"
-          # MO05 screening already archived by CORE-9b; do not repeat it.
-          for family in Grover MOGrover; do
-            timeout 220s python3 rust/research/cps_core_selector_ab_p0.py "$(cat evidence/release-bin.path)" "$RUNNER_TEMP/cps-gpmc" "$src" "evidence/cps-core9-${family}04" "$family/04" | tee "evidence/cps-core9-${family}04.log"
-            grep -F 'CPS_CORE9_AB_SUMMARY {"arms": 48, "periods": 2,' "evidence/cps-core9-${family}04.log"
-            grep -F 'CPS_CORE9_FAMILY_PAIRS ' "evidence/cps-core9-${family}04.log"
-          done
+          export LD_LIBRARY_PATH="$src:$src/build/lib:$src/build/cli:${LD_LIBRARY_PATH:-}"
+          CPS_CORE_SOURCE_DIR="$src" timeout 30s "$(cat evidence/release-bin.path)" --exact exact_property_cnf::hoare_cps_basis_family_source --nocapture | tee evidence/cps-core10-basis.log
+          grep -F 'CPS_CORE10_BASIS_SUMMARY cases=4 ' evidence/cps-core10-basis.log
+          timeout 350s python3 rust/research/cps_core_basis_family_p0.py "$(cat evidence/release-bin.path)" "$RUNNER_TEMP/cps-gpmc" "$src/build/cli/autoq" "$src" evidence/cps-core10 | tee evidence/cps-core10.log
+          grep -F 'CPS_CORE10_SUMMARY {"arms": 72, "cases": 4,' evidence/cps-core10.log
       - uses: actions/upload-artifact@v4
         if: always()
         with:

@@ -74,10 +74,11 @@ fn hh_external_target_must_preserve_free_input() {
 #[test]
 fn hh_feynman_grover_source_pair_rr_and_hybrid() {
     use quprs::{QuantumCircuit,VerificationStrategy};
-    use std::path::Path;
-    let root=Path::new(env!("CARGO_MANIFEST_DIR")).join("../../benchmarks/Feynman");
-    let a=QuantumCircuit::from_qasm_file(root.join("grover_5.qasm")).unwrap();
-    let b=QuantumCircuit::from_qasm_file(root.join("h,y,z,t,tdg,cx/grover_5.qasm")).unwrap();
+    // Byte-identical copies of benchmarks/Feynman/grover_5.qasm and
+    // benchmarks/Feynman/h,y,z,t,tdg,cx/grover_5.qasm. Embed the originals
+    // so the published standalone crate needs no monorepo checkout.
+    let a=QuantumCircuit::from_qasm_str(include_str!("fixtures/feynman/grover_5.qasm")).unwrap();
+    let b=QuantumCircuit::from_qasm_str(include_str!("fixtures/feynman/grover_5_clifford_t.qasm")).unwrap();
     assert_eq!((a.num_qubits(),b.num_qubits()),(9,9));
     assert_eq!((a.operations().len(),b.operations().len()),(351,854));
     for method in [VerificationMethod::ReductionRules,VerificationMethod::Hybrid] {

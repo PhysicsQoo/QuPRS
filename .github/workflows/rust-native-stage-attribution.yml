@@ -35,6 +35,7 @@ on:
           - d6c
           - d7a
           - d7b
+          - d7c
           - e1c-matrix
           - l1
   push:
@@ -1829,4 +1830,54 @@ jobs:
         with:
           name: eq-dag-d7b-feynman-diagnostic
           path: d7b-evidence/
+          retention-days: 30
+
+  eq-dag-d7c:
+    if: github.ref == 'refs/heads/experiment/eq-dag-encoder' && ((github.event_name == 'push' && contains(github.event.head_commit.message, 'audit Feynman RR normalization and HH targets')) || (github.event_name == 'workflow_dispatch' && inputs.dag_stage == 'd7c'))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: eq-dag-d7a-perturbation-heldout
+          run-id: 46094800685
+          github-token: ${{ github.token }}
+          path: d7a
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: 'rust -> target'
+      - name: Build explicit research RR audit
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y cmake pkg-config libgmp-dev libmpfr-dev zlib1g-dev m4 make gcc time
+          python3 scripts/install_gpmc_release.py --dest "$RUNNER_TEMP/gpmc"
+          QUPRS_SOLVER_PROVISION=external cargo build --locked --release --manifest-path rust/Cargo.toml -p quprs --features research-parity-e2e --example eq_dag_d1
+      - name: Audit actual HH and Elim events and isolate guarded paths
+        run: |
+          set -euo pipefail
+          (cd d7a && sha256sum -c SHA256SUMS)
+          python3 -u rust/research/eq_dag_d7c_rr.py rust/target/release/examples/eq_dag_d1 "$RUNNER_TEMP/gpmc" d7a d7c-evidence | tee d7c.log
+      - name: Seal diagnostic evidence
+        if: always()
+        run: |
+          mkdir -p d7c-evidence
+          test ! -f d7c.log || cp d7c.log d7c-evidence/
+          git rev-parse HEAD > d7c-evidence/head.txt
+          git rev-parse 'HEAD^{tree}' > d7c-evidence/tree.txt
+          cd d7c-evidence
+          find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 -r sha256sum > SHA256SUMS
+          sha256sum -c SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: eq-dag-d7c-rr-diagnostic
+          path: d7c-evidence/
           retention-days: 30

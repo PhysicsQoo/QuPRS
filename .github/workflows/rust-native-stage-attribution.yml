@@ -42,6 +42,7 @@ on:
           - d7e3
           - d7e4
           - d8
+          - d8b
           - e1c-matrix
           - l1
   push:
@@ -2286,4 +2287,51 @@ jobs:
           path: d8-evidence/
           retention-days: 30
 
+
+
+  eq-dag-d8b:
+    if: github.ref == 'refs/heads/experiment/eq-dag-encoder' && ((github.event_name == 'push' && contains(github.event.head_commit.message, 'corrected actual CNF replay D8b')) || (github.event_name == 'workflow_dispatch' && inputs.dag_stage == 'd8b'))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: eq-dag-d8-corrected-baseline
+          run-id: 46135170535
+          github-token: ${{ github.token }}
+          path: d8
+      - name: Build original weight bridge and independent interval helper
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y libgmp-dev libmpfr-dev
+          cc -O2 -shared -fPIC rust/quprs/native/mpfr_weight_bridge.c -lmpfr -lgmp -o "$RUNNER_TEMP/phase_weight.so"
+          cc -O2 -shared -fPIC rust/research/eq_dag_e1f_interval.c -lmpfr -lgmp -o "$RUNNER_TEMP/interval.so"
+      - name: Replay actual changed held-out CNFs and bound finite weights
+        run: |
+          set -euo pipefail
+          (cd d8 && sha256sum -c SHA256SUMS)
+          python3 -u rust/research/eq_dag_d8b_replay.py d8 "$RUNNER_TEMP/phase_weight.so" "$RUNNER_TEMP/interval.so" d8b-evidence | tee d8b.log
+      - name: Seal evidence
+        if: always()
+        run: |
+          mkdir -p d8b-evidence
+          test ! -f d8b.log || cp d8b.log d8b-evidence/
+          git rev-parse HEAD > d8b-evidence/head.txt
+          git rev-parse 'HEAD^{tree}' > d8b-evidence/tree.txt
+          cd d8b-evidence
+          find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 -r sha256sum > SHA256SUMS
+          sha256sum -c SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: eq-dag-d6b-heldout-replay
+          path: d8b-evidence/
+          retention-days: 30
 

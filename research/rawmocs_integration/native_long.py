@@ -24,7 +24,8 @@ ROOT=Path(".p4-long-evidence").resolve()
 RAW=Path(".rawmocs-candidate/crates/rawmocs-cli/target/release/rawmocs").resolve()
 GPMC=Path(".gpmc/build/gpmc").resolve()
 ARMS=("gpmc","rawmocs","rawmocs_native")
-LIMIT=120
+LIMIT=int(os.environ.get("RAWMOCS_LONG_LIMIT_S", "120"))
+assert LIMIT in (60,120), "unsupported long cohort budget"
 AS_BYTES=3221225472
 DIGITS=130
 

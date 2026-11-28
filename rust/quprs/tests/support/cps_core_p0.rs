@@ -1552,10 +1552,24 @@ fn hoare_cps_basis_family_source(){
         println!("CPS_CORE10_BASIS case={case} labels={n} qubits={q} columns={} gates={} isometry=PASS",1usize<<n,ops.len());
     }
     let sample="Constants\nc1 := 1\nExtended Dirac\n{ c1 |i000j> : |i|=4, |j|=1 }\n";
-    for bad in [sample.replace("i000j","i0000"),sample.replace("|j|=1","|i|=1"),sample.replace("c1 := 1","c1 := 2"),sample.replace("|i|=4","|i|=17")]{
-        assert!(core_hsl_basis_family(&bad).is_none());
+    // Semantic rejection controls remain unchanged. The former width17
+    // rejection is now a legal 18-label / 21-output embedding. Check
+    // its structural isometry, without enumerating 2^18 columns.
+    let widened=core_hsl_basis_family(&sample.replace("|i|=4","|i|=17")).unwrap();
+    assert_eq!((widened.n(),widened.q(),widened.k),(18,21,0));
+    assert!(core_basis_isometry(&widened));
+    // Pin all three capacity boundaries separately: individual binder,
+    // sum of binder widths, and output width. Also accept at the cap.
+    let edge=core_hsl_basis_family(&sample.replace("|i|=4","|i|=28")).unwrap();
+    assert_eq!((edge.n(),edge.q(),edge.k),(29,CORE_WIDTH,0));
+    assert!(core_basis_isometry(&edge));
+    for bad in [sample.replace("i000j","i0000"),sample.replace("|j|=1","|i|=1"),sample.replace("c1 := 1","c1 := 2"),
+        sample.replace("|i|=4",&format!("|i|={}",CORE_WIDTH+1)),
+        sample.replace("|i|=4",&format!("|i|={}",CORE_WIDTH)),
+        sample.replace("|i|=4",&format!("|i|={}",CORE_WIDTH-3))]{
+        assert!(core_hsl_basis_family(&bad).is_none(),"{bad}");
     }
-    println!("CPS_CORE10_BASIS_SUMMARY cases=4 columns={columns} rejection_controls=4");
+    println!("CPS_CORE10_BASIS_SUMMARY cases=4 columns={columns} rejection_controls=6 widened=PASS output_boundary=PASS");
 }
 
 fn core_hsl_lower(src:&str)->Option<CpsCore>{

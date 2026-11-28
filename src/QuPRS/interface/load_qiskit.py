@@ -299,7 +299,7 @@ def check_equivalence(
             - 'Proportional': Uses a proportional strategy.
             - 'Naive': Uses a naive strategy.
             - 'Straightforward': Uses a straightforward strategy.
-        tool_name (str, optional): External WMC solver selection: "gpmc"
+        tool_name (str, optional): WMC solver selection: "gpmc"
             (default) or "ganak". Experimental "rawmocs" with backend="rust"
             requires an explicit absolute QUPRS_RAWMOCS_PATH; the Python
             backend still requires a registered adapter. This applies when a weighted count is
@@ -376,6 +376,9 @@ def check_equivalence(
             "Invalid method parameter. Choose from 'hybrid', "
             "'reduction_rules', or 'wmc_only'."
         )
+
+    if tool_name == "rawmocs_python_native" and backend != "python":
+        raise ValueError("rawmocs_python_native requires backend=\"python\"")
 
     if backend == "rust":
         _validate_rust_qasm_global_phase_contract(circuit1, circuit2)
@@ -726,11 +729,14 @@ def check_equivalence(
 
                 # Convert PathSum to CNF (DIMACS format)
                 to_DIMACS_start_time = time.time()
-                with tempfile.NamedTemporaryFile(
-                    delete=False, suffix=".cnf"
-                ) as temp_file:
-                    temp_name = temp_file.name
-                    CNF = to_DIMACS(pathsum_circuit, temp_name, tool_name=tool_name)
+                if tool_name == "rawmocs_python_native":
+                    CNF = to_DIMACS(pathsum_circuit, None, tool_name=tool_name)
+                else:
+                    with tempfile.NamedTemporaryFile(
+                        delete=False, suffix=".cnf"
+                    ) as temp_file:
+                        temp_name = temp_file.name
+                        CNF = to_DIMACS(pathsum_circuit, temp_name, tool_name=tool_name)
                 to_DIMACS_time = round(time.time() - to_DIMACS_start_time, 3)
 
                 # An unweighted CNF composed entirely of tautologies has
@@ -759,6 +765,7 @@ def check_equivalence(
                         temp_name, tool_name,
                         timeout=max(0.0, deadline - time.monotonic()),
                         preserve_count=True,
+                        **({"cnf_text": CNF.strip()} if tool_name == "rawmocs_python_native" else {}),
                         precision_digits=(90 if gpmc_precision_digits == 90 else None)
                         if tool_name == "gpmc" else None,
                     )

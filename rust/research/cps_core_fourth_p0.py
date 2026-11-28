@@ -118,6 +118,14 @@ def main(binary,solver,autoq,root,out):
                 assert r["h"]==r["k"]==0 and r["steps"]==2 and not r["solver_invoked"],r
         if r["case"] in ("GHZall/008","GHZall/012","GHZall/016") and r["variant"]=="phase-spread" and r["mode"] in ("wmc","hybrid","autoq"):
             assert r["verdict"]==r["expected"],r
+        if r["case"]=="GHZall/032":
+            # Mandatory source admission and algebraic proof. Counting
+            # controls may time out, but must not hit the old parser cap.
+            assert r.get("stage")!="qasm-parse",r
+            if r["variant"]=="source" and r["mode"] in ("rr","hybrid","hybrid-dag","autoq"):
+                assert r["verdict"]==r["expected"],r
+                if r["mode"]!="autoq":
+                    assert r["h"]==r["k"]==0 and r["steps"]==2 and not r["solver_invoked"],r
     summary={case:{m:sum(r["case"]==case and r["mode"]==m and r["verdict"]!="UNKNOWN" for r in rows) for m in MODES} for case in BLOBS}
     (out/"summary.json").write_text(json.dumps(dict(source_pin=PIN,binary_sha256=sha(binary),solver_sha256=sha(solver),autoq_sha256=sha(autoq),cap_s=CAP,rows=rows,summary=summary),indent=2)+"\n")
     print("CPS_CORE10_FOURTH_SUMMARY",json.dumps(dict(arms=len(rows),cases=9,summary=summary)),flush=True)

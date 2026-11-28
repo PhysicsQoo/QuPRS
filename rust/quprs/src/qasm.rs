@@ -268,6 +268,22 @@ pub fn parse_qasm_str(source: &str) -> Result<(Vec<QuantumOp>, usize), String> {
 pub fn parse_qasm_str_source_pinned(source: &str)
     -> Result<(Vec<QuantumOp>, usize), String>
 {
+    parse_qasm_str_source_pinned_bounded(source, 16)
+}
+
+/// Explicit width32 research admission. Same source grammar, gate/byte
+/// budgets and ordered IR phase corrections as the width16 entry point.
+/// No implicit fallback or change to the existing source-pinned contract.
+#[doc(hidden)]
+pub fn parse_qasm_str_source_pinned_wide32(source: &str)
+    -> Result<(Vec<QuantumOp>, usize), String>
+{
+    parse_qasm_str_source_pinned_bounded(source, 32)
+}
+
+fn parse_qasm_str_source_pinned_bounded(source: &str, width: usize)
+    -> Result<(Vec<QuantumOp>, usize), String>
+{
     if source.len() > 32_768 {
         return Err("SourceTrust unknown: source byte budget exceeded".into());
     }
@@ -357,7 +373,7 @@ pub fn parse_qasm_str_source_pinned(source: &str)
         source.to_owned()
     };
     let (legacy_ops, n) = parse_qasm_str(&adapted)?;
-    if n == 0 || n > 16 || legacy_ops.len() != gate_names.len() {
+    if n == 0 || n > width || legacy_ops.len() != gate_names.len() {
         return Err("SourceTrust unsupported native lowering or register width".into());
     }
     let qasm2 = version == "OPENQASM 2.0;";

@@ -1422,7 +1422,22 @@ fn hoare_cps_cat_family(){
     let (b,_)=core_hsl_fourth_family(&cat(n-1)).unwrap();
     let mut chain=vec![G::H(0)];
     for j in 1..n{chain.push(G::CX(j-1,j));}
-    let ua=a.then_circuit_diagnostic(&chain).unwrap();
+    // Validate the same ordered native IR via the source frontend.
+    let mut src=format!("OPENQASM 2.0;\ninclude \"qelib1.inc\";\nqreg qubits[{n}];\n\nh qubits[0];\n");
+    for j in 1..n{src.push_str(&format!("cx qubits[{}], qubits[{j}];\n",j-1));}
+    assert!(quprs::qasm::parse_qasm_str_source_pinned(&src).is_err());
+    let (ops,nq)=quprs::qasm::parse_qasm_str_source_pinned_wide32(&src).unwrap();
+    assert_eq!((ops.as_slice(),nq),(chain.as_slice(),n));
+    // Explicit simple width16 parity, including a source phase correction.
+    let small="OPENQASM 2.0;\ninclude \"qelib1.inc\";\nqreg q[16];\nU(pi/2,pi/4,0) q[15];\n";
+    assert_eq!(quprs::qasm::parse_qasm_str_source_pinned(small).unwrap(),quprs::qasm::parse_qasm_str_source_pinned_wide32(small).unwrap());
+    for bad in [src.replace("qubits[32];","qubits[33];"),
+        src.clone()+"h qubits[32];\n",src.clone()+"cx qubits[0], qubits[0];\n",
+        src.clone()+"measure qubits[0];\n",src.clone()+"h qubits[0]; x qubits[1];\n"]{
+        assert!(quprs::qasm::parse_qasm_str_source_pinned_wide32(&bad).is_err(),"{bad}");
+    }
+    println!("CPS_CORE10_WIDE_SOURCE_ORACLE ordered_ir=PASS legacy16=PASS width33=PASS malformed=PASS");
+    let ua=a.then_circuit_diagnostic(&ops).unwrap();
     let (m,_,_)=ua.then_adjoint_affine(&b).unwrap();
     let sq=core_entrywise_square(&m).unwrap();
     assert_eq!((sq.n(),sq.q(),sq.k,sq.guard.ids.len()),(n,n,4,n+4));
@@ -1963,7 +1978,10 @@ fn hoare_cps_core_matched_worker(){
             Ok("selector")=>(core_hsl_lower_with(&post,|a,n,b|core_hsl_state_factored_selector(a,n,b,true))?,"n/a"),
             _=>return None,
         };
-        stage="qasm-parse";let (ops,n)=quprs::qasm::parse_qasm_str_source_pinned(&src).ok()?;
+        stage="qasm-parse";
+        let parsed=if fourth{quprs::qasm::parse_qasm_str_source_pinned_wide32(&src)}
+            else{quprs::qasm::parse_qasm_str_source_pinned(&src)};
+        let (ops,n)=match parsed{Ok(v)=>v,Err(e)=>{println!("CPS_COMPOSITION_DETAIL qasm-parse {e}");return None;} };
         if n!=a.q()||n!=b.q(){return None;}
         stage="native-gate-composition";let ua=match a.then_circuit_diagnostic(&ops){
             Ok(v)=>v,Err(detail)=>{println!("CPS_COMPOSITION_DETAIL {detail}");return None;}

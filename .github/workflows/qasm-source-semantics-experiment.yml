@@ -299,6 +299,7 @@ jobs:
           export LD_LIBRARY_PATH="$src:$src/build/lib:$src/build/cli:${LD_LIBRARY_PATH:-}"
           CPS_CORE_SOURCE_DIR="$src" timeout 30s "$(cat evidence/release-bin.path)" --exact exact_property_cnf::hoare_cps_basis_family_source --nocapture | tee evidence/cps-core10-basis.log
           grep -F 'CPS_CORE10_BASIS_SUMMARY cases=4 ' evidence/cps-core10-basis.log
+          # StateSet membership needs monomial or deterministic label-fibre certification, not span inclusion alone.
           timeout 350s python3 rust/research/cps_core_basis_family_p0.py "$(cat evidence/release-bin.path)" "$RUNNER_TEMP/cps-gpmc" "$src/build/cli/autoq" "$src" evidence/cps-core10 | tee evidence/cps-core10.log
           grep -F 'CPS_CORE10_SUMMARY {"arms": 72, "cases": 4,' evidence/cps-core10.log
       - uses: actions/upload-artifact@v4

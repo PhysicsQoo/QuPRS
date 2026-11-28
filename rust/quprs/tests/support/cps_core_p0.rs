@@ -1759,10 +1759,16 @@ fn hoare_cps_core_matched_worker(){
         };
         stage="label-certificate";
         if basis{
-            // A and B are isometries, U is admitted unitary. Frobenius
-            // mass of B^dagger U A equals dim(A) iff range inclusion.
-            // The current square norm encoder needs equal label widths.
+            // Range inclusion alone is not StateSet membership: a
+            // superposition of multiple allowed kets could pass the norm.
+            // Either U is monomial on basis states, or the existing
+            // deterministic label-support certificate selects at most
+            // one B column per input. In both cases inclusion implies
+            // ray membership. No arbitrary multi-column superpositions.
             if !core_basis_isometry(&a)||!core_basis_isometry(&b)||ua.n()!=b.n()||ua.q()!=b.q(){return None;}
+            let monomial=ops.iter().all(|g|matches!(g,G::X(_)|G::Z(_)|G::S(_)|G::T(_)|G::CX(_,_)|G::CZ(_,_)|G::CCX(_,_,_)));
+            if !monomial&&!core_label_support(&ua,&b){return None;}
+            println!("CPS_CORE10_MEMBERSHIP_CERT kind={}",if monomial{"monomial-unitary"}else{"deterministic-label-fibre"});
         }else if !core_label_support(&ua,&b){return None;}
         stage="adjoint";let bd=match b.adjoint_diagnostic(){
             Ok(v)=>v,Err(detail)=>{println!("CPS_COMPOSITION_DETAIL {detail}");return None;}

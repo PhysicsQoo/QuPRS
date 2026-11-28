@@ -2,7 +2,7 @@
 use anyhow::{ensure, Context, Result};
 use num_bigint::BigInt;
 use num_rational::BigRational as Q;
-use num_traits::{Signed, Zero};
+use num_traits::Signed;
 use quprs::{PathSum, PhaseCoeff, Rational, wmc::WmcManager};
 use quprs::precision_count::{parse_rawmocs_stdout, parse_stdout};
 use rawmocs_mpfr::{solve_text, solve_text_cancellable, CancellationToken, FailureKind, MpfrBinary, Precision, SolveOptions};
@@ -49,10 +49,12 @@ fn compare(case: &str, cnf: &str, expected: Option<(bool, i32, i32)>, precision:
     ensure!(output.status.success(), "GPMC failed");
     let stdout = std::str::from_utf8(&output.stdout)?;
     let reported: Vec<_> = stdout.lines().filter_map(|l|l.strip_prefix("c o precision ")).collect();
-    ensure!(reported.len()==1 && reported[0].trim().parse::<u32>()? == digits, "GPMC precision mismatch");
+    // GPMC may omit MPFR metadata only for an analytic UNSAT zero.
+    let reference = parse_stdout(stdout)?;
+    ensure!((reported.len()==1 && reported[0].trim().parse::<u32>()? == digits)
+        || (case=="unsat" && reported.is_empty() && reference.real == Q::from_integer(0.into()) && reference.imag == Q::from_integer(0.into())), "GPMC precision mismatch");
     let statuses: Vec<_> = stdout.lines().filter(|l|l.starts_with("s ")).collect();
     ensure!(statuses == [format!("s {status}").as_str()], "GPMC SAT drift");
-    let reference = parse_stdout(stdout)?;
     let eps = Q::new(BigInt::from(1), BigInt::from(10).pow(digits-5));
     ensure!(close(&count.real,&reference.real,&eps) && close(&count.imag,&reference.imag,&eps), "same-CNF count mismatch");
     println!("R1_CASE {case} digits={digits} bits={} sat={sat} route={} native_wall_ns={elapsed} core_ns={} re={} im={}",precision.bits(),native.route.as_str(),native.solve_ns,native.real,native.imag);
@@ -83,7 +85,7 @@ fn main() -> Result<()> {
         compare("quprs-phase-trace", &cnf, None, p, root, gpmc)?;
     }
     let opts = SolveOptions { timeout_ms: Some(5000), ..Default::default() };
-    ensure!(solve_text("invalid",opts).is_err(), "malformed accepted");
+    ensure!(solve_text("not a CNF\n",opts).unwrap_err().kind == FailureKind::InvalidInput, "malformed input category");
     let token = CancellationToken::new();
     token.cancel();
     ensure!(solve_text_cancellable(complex,opts,&token).unwrap_err().kind == FailureKind::Cancelled);

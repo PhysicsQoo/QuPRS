@@ -2167,6 +2167,13 @@ jobs:
           maturin develop --locked --release --features rawmocs-native 2>&1 | tee "$R3B_EVIDENCE/build.log"
           PYTHONPATH="$stage/src" python research/rawmocs_integration/test_rust_native_selector.py 2>&1 | tee "$R3B_EVIDENCE/api.log"
           grep -Fx 'R3B_PYO3_NATIVE_PASS cases=8 ffi_ledgers=4' "$R3B_EVIDENCE/api.log"
+          # Reuse the already staged native feature build; isolate default switch.
+          mkdir -p "$R3B_EVIDENCE/r4"
+          cargo tree --locked --manifest-path rust/Cargo.toml -p quprs --no-default-features --target wasm32-unknown-unknown --features browser-transport > "$R3B_EVIDENCE/r4/wasm-tree.txt"
+          cargo tree --locked --manifest-path rust/Cargo.toml -p quprs --no-default-features > "$R3B_EVIDENCE/r4/no-feature-tree.txt"
+          python research/rawmocs_integration/r4_stage_default.py "$R3B_EVIDENCE/r4"
+          PYTHONPATH="$stage/src" python research/rawmocs_integration/r4_default_gate.py "$R3B_EVIDENCE/r4" | tee "$R3B_EVIDENCE/r4/api.log"
+          grep -Fx 'R4_DEFAULT_COMPATIBILITY_PASS' "$R3B_EVIDENCE/r4/api.log"
       - name: Actual QuPRS run_wmc and public Python verdict parity
         env:
           PYTHONPATH: ${{ github.workspace }}/src:${{ github.workspace }}/.rawmocs-candidate/crates/rawmocs-cli/tools

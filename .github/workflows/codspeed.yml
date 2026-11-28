@@ -47,6 +47,11 @@ on:
         required: false
         default: legacy_eight
         options: [legacy_eight, paper_gap]
+      include_rawmocs_legacy:
+        description: 'Manual historical RaWMoCS CLI and planner comparisons (not release admission)'
+        type: boolean
+        required: false
+        default: false
       include_python_core:
         description: 'Add opt-in pure Python core CodSpeed microbenchmark'
         type: boolean
@@ -1385,7 +1390,7 @@ jobs:
 
   rawmocs-existing-solver-simulation:
     name: Existing QuPRS cases / GPMC vs RaWMoCS Simulation
-    if: github.ref == 'refs/heads/experiment/rawmocs-integration'
+    if: github.ref == 'refs/heads/experiment/rawmocs-integration' && github.event_name == 'workflow_dispatch' && inputs.include_rawmocs_legacy
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     steps:
@@ -1460,7 +1465,7 @@ jobs:
 
   rawmocs-native-hybrid-simulation:
     name: Native Rust Hybrid / GPMC vs RaWMoCS Simulation
-    if: github.ref == 'refs/heads/experiment/rawmocs-integration'
+    if: github.ref == 'refs/heads/experiment/rawmocs-integration' && github.event_name == 'workflow_dispatch' && inputs.include_rawmocs_legacy
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     steps:
@@ -1548,7 +1553,7 @@ jobs:
 
   rawmocs-planner-candidate-simulation:
     name: Bounded planner candidate / QFT16 and VQE4 Simulation
-    if: github.ref == 'refs/heads/experiment/rawmocs-integration'
+    if: github.ref == 'refs/heads/experiment/rawmocs-integration' && github.event_name == 'workflow_dispatch' && inputs.include_rawmocs_legacy
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     steps:

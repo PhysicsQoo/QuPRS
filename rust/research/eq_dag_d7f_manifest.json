@@ -1,0 +1,80 @@
+{
+  "schema": "eq-dag-d7f-rr-nonregression-v1",
+  "original": "b398f07d6845efc23540549ccbfec717c27b1722",
+  "original_tree": "1dc21015f0f4f69f057c4685b886b686d82b882d",
+  "corrected": "d486685f04824c8d3d07097c6ce0693ae6d47b7a",
+  "corrected_tree": "09c50ff09c41890c4576c74283651343f86ae46f",
+  "selection": "Four previously source-locked nonbeneficiary RR controls and Feynman correctness beneficiary; not new holdout. Seven alternating fresh native RR-only pairs if first pair <=5s each; incomplete HOLD, no censored ratio; nonbeneficiary median wall/RSS <=1.05. Default tolerance, no solver.",
+  "cases": [
+    {
+      "id": "qaoa_7",
+      "family": "qaoa",
+      "expected": "EQ",
+      "left": {
+        "path": "benchmarks/MQTBench/qaoa_nativegates_ibm_qiskit_opt0_7.qasm",
+        "git_blob_sha1": "4c314c32caef3d2577d7efe849635bcbc2b2335f"
+      },
+      "right": {
+        "path": "benchmarks/MQTBench/h,ry,rz,cx/qaoa_nativegates_ibm_qiskit_opt0_7.qasm",
+        "git_blob_sha1": "d4d115ba912d2d4129c238d8972b0a7dd0c4249c"
+      },
+      "beneficiary": false
+    },
+    {
+      "id": "qpeexact_8",
+      "family": "qpeexact",
+      "expected": "EQ",
+      "left": {
+        "path": "benchmarks/MQTBench/qpeexact_nativegates_ibm_qiskit_opt0_8.qasm",
+        "git_blob_sha1": "4582df5b4cefe3cc69227d29eb2894ccd1c5412a"
+      },
+      "right": {
+        "path": "benchmarks/MQTBench/h,ry,rz,cx/qpeexact_nativegates_ibm_qiskit_opt0_8.qasm",
+        "git_blob_sha1": "46a2b00a19bbc769aefa77eebb14fa262fd98302"
+      },
+      "beneficiary": false
+    },
+    {
+      "id": "qft_20_eq",
+      "family": "qft",
+      "expected": "EQ",
+      "left": {
+        "path": "benchmarks/MQTBench/qft_nativegates_ibm_qiskit_opt0_20.qasm",
+        "git_blob_sha1": "828c42db83d043772e9feeabe2360d490ee20a98"
+      },
+      "right": {
+        "path": "benchmarks/MQTBench/h,ry,rz,cx/qft_nativegates_ibm_qiskit_opt0_20.qasm",
+        "git_blob_sha1": "7fbba5865a93f4c9b7cf6ad3027d2da2e3aa8d60"
+      },
+      "beneficiary": false
+    },
+    {
+      "id": "graphstate_32_eq",
+      "family": "graphstate",
+      "expected": "EQ",
+      "left": {
+        "path": "benchmarks/MQTBench/graphstate_nativegates_ibm_qiskit_opt0_32.qasm",
+        "git_blob_sha1": "4c0f3a339f1624a33455595830cfbc27f7b31a72"
+      },
+      "right": {
+        "path": "benchmarks/MQTBench/h,ry,rz,cx/graphstate_nativegates_ibm_qiskit_opt0_32.qasm",
+        "git_blob_sha1": "fcb0e73f614f7e3951b3a720c27736d88076dcca"
+      },
+      "beneficiary": false
+    },
+    {
+      "id": "feynman_grover_5_eq",
+      "family": "feynman_grover",
+      "expected": "EQ",
+      "left": {
+        "path": "benchmarks/Feynman/grover_5.qasm",
+        "git_blob_sha1": "2aa12dd7cd68e826583e9d73bebfbac6e6483eb8"
+      },
+      "right": {
+        "path": "benchmarks/Feynman/h,y,z,t,tdg,cx/grover_5.qasm",
+        "git_blob_sha1": "b425b1cd2bf29c85e327902d1648b11ebfe44b73"
+      },
+      "beneficiary": true
+    }
+  ]
+}

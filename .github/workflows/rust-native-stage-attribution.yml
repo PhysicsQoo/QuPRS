@@ -40,6 +40,7 @@ on:
           - d7e
           - d7e2
           - d7e3
+          - d7e4
           - e1c-matrix
           - l1
   push:
@@ -2148,3 +2149,80 @@ jobs:
           name: eq-dag-d7e3-python-red-green
           path: d7e3-evidence/
           retention-days: 30
+
+  eq-dag-d7e4:
+    if: github.ref == 'refs/heads/experiment/eq-dag-encoder' && ((github.event_name == 'push' && contains(github.event.head_commit.message, 'combined corrected baseline D7e4 D7f')) || (github.event_name == 'workflow_dispatch' && inputs.dag_stage == 'd7e4'))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 18
+    env:
+      QUPRS_SOLVER_PROVISION: external
+      CARGO_TARGET_DIR: ${{ github.workspace }}/rust/target
+      PYTHONHASHSEED: '0'
+      OMP_NUM_THREADS: '1'
+      OPENBLAS_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: 'rust -> target'
+      - name: Pin independent original and fixed native builds
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y cmake pkg-config libgmp-dev libmpfr-dev zlib1g-dev m4 make gcc time
+          git fetch origin refs/heads/experiment/eq-dag-corrected-baseline
+          test "$(git rev-parse FETCH_HEAD)" = d486685f04824c8d3d07097c6ce0693ae6d47b7a
+          test "$(git rev-parse d486685f04824c8d3d07097c6ce0693ae6d47b7a^{tree})" = 09c50ff09c41890c4576c74283651343f86ae46f
+          test "$(git rev-parse b398f07d6845efc23540549ccbfec717c27b1722^{tree})" = 1dc21015f0f4f69f057c4685b886b686d82b882d
+          python3 scripts/install_gpmc_release.py --dest "$RUNNER_TEMP/gpmc"
+          for variant in original fixed; do
+            sha=b398f07d6845efc23540549ccbfec717c27b1722
+            if [[ "$variant" == fixed ]]; then sha=d486685f04824c8d3d07097c6ce0693ae6d47b7a; fi
+            git worktree add --detach "$RUNNER_TEMP/hh-$variant" "$sha"
+            mkdir -p "$RUNNER_TEMP/hh-$variant/rust/quprs/examples"
+            cp rust/quprs/examples/eq_dag_d1.rs "$RUNNER_TEMP/hh-$variant/rust/quprs/examples/eq_dag_d1.rs"
+            cargo build --locked --release --manifest-path "$RUNNER_TEMP/hh-$variant/rust/Cargo.toml" -p quprs --example eq_dag_d1
+            cp "$CARGO_TARGET_DIR/release/examples/eq_dag_d1" "$RUNNER_TEMP/$variant-eq"
+          done
+      - name: Source oracle and Python matcher dependencies
+        run: python -m pip install 'qiskit==2.6.1' 'numpy==2.5.5' 'sympy==1.14.0' 'symengine==0.15.0' 'qiskit-qasm3-import==0.6.0' 'psutil==7.2.2'
+      - name: Bounded source-locked original/fixed correctness and Python RR screen
+        run: |
+          set -euo pipefail
+          export PYTHONPATH="$RUNNER_TEMP/hh-fixed/src"
+          python -m py_compile rust/research/eq_dag_d7e.py
+          python -u rust/research/eq_dag_d7e.py "$RUNNER_TEMP/original-eq" "$RUNNER_TEMP/fixed-eq" "$RUNNER_TEMP/gpmc" d7e4-evidence | tee d7e4.log
+      - name: Matched native RR nonregression only after D7e4 PASS
+        run: |
+          set -euo pipefail
+          grep -x D7E_SCOPED_CORRECTNESS_PASS d7e4.log
+          python3 -u rust/research/eq_dag_d7f.py "$RUNNER_TEMP/original-eq" "$RUNNER_TEMP/fixed-eq" d7e4-evidence/d7f | tee d7e4-evidence/d7f.log
+      - name: Seal evidence
+        if: always()
+        run: |
+          mkdir -p d7e4-evidence
+          test ! -f d7e4.log || cp d7e4.log d7e4-evidence/
+          printf '%s\n' 'd486685f04824c8d3d07097c6ce0693ae6d47b7a' > d7e4-evidence/corrected-head.txt
+          printf '%s\n' '09c50ff09c41890c4576c74283651343f86ae46f' > d7e4-evidence/corrected-tree.txt
+          lscpu > d7e4-evidence/cpu.txt
+          python -m pip freeze > d7e4-evidence/python-dependencies.txt
+          git rev-parse HEAD > d7e4-evidence/head.txt
+          git rev-parse 'HEAD^{tree}' > d7e4-evidence/tree.txt
+          cd d7e4-evidence
+          find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 -r sha256sum > SHA256SUMS
+          sha256sum -c SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: eq-dag-d7e4-d7f-combined-baseline
+          path: d7e4-evidence/
+          retention-days: 30
+

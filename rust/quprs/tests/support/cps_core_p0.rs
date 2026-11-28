@@ -1303,7 +1303,7 @@ fn core_hsl_basis_family(src:&str)->Option<CpsCore>{
     let mut fs=Vec::<CoreBool>::new();let mut used=BTreeSet::new();
     for ch in ket.chars(){
         match ch{
-            '0'=>fs.push(CoreBool::new()),
+            '0'=>fs.push(CoreBool::default()),
             '1'=>fs.push(CoreBool::from_iter([vec![]])),
             _=>{let &(off,width)=binders.get(&ch)?;used.insert(ch);
                 for i in off..off+width{fs.push(CoreBool::from_iter([vec![i as u32]]));}}

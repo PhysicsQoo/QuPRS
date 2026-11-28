@@ -12,7 +12,7 @@
     "gpmc.wasm": "4d09729f093c69899fe22b10f0f573f454d4892ba651f853b9af47b2c46b1842",
     "sources/GPMC-browser.patch": "b3b7d6c24ee3185cb3d2832e00ac0ccfac29ae31706e86e2c64f117369d33b4a",
     "sources/gmp-6.3.0.tar.xz": "a3c2b80201b89e68616f4ad30bc66aee4927c3ce50e33929ca819d5c43538898",
-    "sources/gpmc-mpfr-browser-source.tar.gz": "17170c0966c523a4f455c1c042d49eda2555e75dd1b949bdfdd4f790bc95ed08",
+    "sources/gpmc-mpfr-browser-source.tar.gz": "2b650c63e66036f2611f7061116e76c67d77d339d547745f74f0a6509b35b62b",
     "sources/mpfr-4.2.1.tar.xz": "277807353a6726978996945af13e52829e3abd7a9a5b7fb2793894e18f1fcbb2"
   },
   "native_ci_sha256": "258998968ddd745ec00fc9c2c3796233762f44c47fdcf78b52dabc581262b931"

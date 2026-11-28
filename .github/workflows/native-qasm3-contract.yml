@@ -115,6 +115,7 @@ jobs:
           set -euo pipefail
           python -m pytest -q -ra test/test_rust_qasm3_subset.py \
             test/test_qasm3_python_global_phase.py \
+            test/test_rust_global_phase_qasm_contract.py \
             test/test_rust_qasm_fail_closed.py::test_direct_unsupported_qasm_rejected_before_solver \
             --junitxml=evidence/qasm3-public-contract.xml \
             2>&1 | tee evidence/qasm3-public-contract.log

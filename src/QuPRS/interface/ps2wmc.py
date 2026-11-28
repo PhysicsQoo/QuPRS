@@ -251,14 +251,15 @@ def to_DIMACS(pathsum, filename="wmc.cnf", tool_name="gpmc"):
 
     DIMACS_text = f"p cnf {len(symbols_map)} {len(clauses)}\nc t wmc"
     DIMACS_text += "\n" + "\n".join(weights + clauses)
-    with open(filename, "w") as file:
-        file.write(DIMACS_text.strip())
+    if filename is not None:
+        with open(filename, "w") as file:
+            file.write(DIMACS_text.strip())
     return DIMACS_text
 
 
 def run_wmc(
     file="wmc.cnf", tool_name="gpmc", timeout: float = 600.0, *,
-    preserve_count=False, precision_digits=None,
+    preserve_count=False, precision_digits=None, cnf_text=None,
 ):
     """Execute selected WMC solver without f64 output loss when requested.
 
@@ -278,7 +279,7 @@ def run_wmc(
     result = execute_solver(
         adapter, file, timeout,
         resource_resolver=WMC, process_runner=run_solver,
-        capture_decimal=preserve_count,
+        capture_decimal=preserve_count, cnf_text=cnf_text,
     )
     return result.count if preserve_count else (result.count.real, result.count.imag)
 

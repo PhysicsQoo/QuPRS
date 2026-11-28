@@ -1,0 +1,28 @@
+{
+  "baseline": "d486685f04824c8d3d07097c6ce0693ae6d47b7a",
+  "baseline_tree": "09c50ff09c41890c4576c74283651343f86ae46f",
+  "frozen_router": "9168826d9db2f0c7b56b07966806d71f8d798ef2",
+  "router_tree": "77a0aaff5b2946d94d0297d33bc1d0cade697a5d",
+  "router_source_blobs": {
+    "rust/quprs/src/wmc_parity_experiment.rs": "6c7ad400a3434618dbf144f28e206f6e672d1a1d",
+    "rust/quprs/src/lib.rs": "9f1c071156194d4d7a30ddb4a338f114970ed4a4",
+    "rust/quprs/src/reduction.rs": "7b44a79c234ec129db76ae61f6b0213bf55a9cbd"
+  },
+  "timeout_s": 8,
+  "address_space_mib": 4096,
+  "scope": "D9 source-locked new MQT Bench Wstate widths, discovery cohort; no router tuning; 5s first-pair repeat gate; finite >=2x second-family evidence only after seven decisive pairs and independent semantic replay",
+  "outer_timeout_s": 12,
+  "widths": [
+    10,
+    12,
+    14
+  ],
+  "upstream": {
+    "repo": "munich-quantum-toolkit/bench",
+    "commit": "766e136256bde436d2aa91c5fb984d2c9ac7f288",
+    "tag": "v2.4.0",
+    "source_blob": "4c4b270fdd957681dba60aaffc048e3841864c73",
+    "license_blob": "8eada1fb94843ab037cb58655c95c2501c8f8ca6"
+  },
+  "mutation_blob": "02f4cb4af300a5eb4f845aa7572c4720dfbd1aee"
+}

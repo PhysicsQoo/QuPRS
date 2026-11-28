@@ -1,0 +1,48 @@
+# Copyright (c) 2023 - 2026 Chair for Design Automation, TUM
+# Copyright (c) 2025 - 2026 Munich Quantum Software Company GmbH
+# All rights reserved.
+#
+# SPDX-License-Identifier: MIT
+#
+# Licensed under the MIT License
+
+"""W state benchmark definition."""
+
+from __future__ import annotations
+
+import numpy as np
+from qiskit.circuit import QuantumCircuit, QuantumRegister
+
+from ._registry import register_benchmark
+
+
+@register_benchmark("wstate", description="W-State")
+def create_circuit(num_qubits: int) -> QuantumCircuit:
+    """Prepare a W state with one excitation shared among all qubits.
+
+    Args:
+        num_qubits: Number of qubits in the state.
+
+    Returns:
+        A circuit that measures all qubits. Each ideal outcome contains exactly one set bit.
+    """
+    q = QuantumRegister(num_qubits, "q")
+    qc = QuantumCircuit(q, name="wstate")
+
+    def f_gate(qc: QuantumCircuit, q: QuantumRegister, i: int, j: int, n: int, k: int) -> None:
+        theta = np.arccos(np.sqrt(1 / (n - k + 1)))
+        qc.ry(-theta, q[j])
+        qc.cz(q[i], q[j])
+        qc.ry(theta, q[j])
+
+    qc.x(q[-1])
+
+    for m in range(1, num_qubits):
+        f_gate(qc, q, num_qubits - m, num_qubits - m - 1, num_qubits, m)
+
+    for k in reversed(range(1, num_qubits)):
+        qc.cx(k - 1, k)
+
+    qc.measure_all()
+
+    return qc

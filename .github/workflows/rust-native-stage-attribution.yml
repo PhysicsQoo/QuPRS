@@ -45,6 +45,7 @@ on:
           - d8b
           - d8c
           - d8d
+          - d9
           - e1c-matrix
           - l1
   push:
@@ -2461,6 +2462,77 @@ jobs:
         with:
           name: eq-dag-d8d-native-precision
           path: d8d-evidence/
+          retention-days: 30
+
+
+
+
+  eq-dag-d9:
+    if: github.ref == 'refs/heads/experiment/eq-dag-encoder' && ((github.event_name == 'push' && contains(github.event.head_commit.message, 'source locked medium Wstate D9')) || (github.event_name == 'workflow_dispatch' && inputs.dag_stage == 'd9'))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 18
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Generate pinned upstream Wstate sources and independent witnesses
+        run: |
+          set -euo pipefail
+          python3 -m pip install qiskit==2.6.1 numpy==2.5.5
+          python3 -u rust/research/eq_dag_d9_generate.py d9-generated | tee d9-source.log
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: 'rust -> target'
+      - name: Build pinned main and explicit research candidate
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y cmake pkg-config libgmp-dev libmpfr-dev zlib1g-dev m4 make gcc time
+          python3 scripts/install_gpmc_release.py --dest "$RUNNER_TEMP/gpmc"
+          git fetch origin refs/heads/experiment/eq-dag-corrected-baseline
+          test "$(git rev-parse FETCH_HEAD)" = d486685f04824c8d3d07097c6ce0693ae6d47b7a
+          git worktree add --detach "$RUNNER_TEMP/main-baseline" d486685f04824c8d3d07097c6ce0693ae6d47b7a
+          test "$(git -C "$RUNNER_TEMP/main-baseline" rev-parse HEAD)" = d486685f04824c8d3d07097c6ce0693ae6d47b7a
+          test "$(git -C "$RUNNER_TEMP/main-baseline" rev-parse 'HEAD^{tree}')" = 09c50ff09c41890c4576c74283651343f86ae46f
+          cmp rust/quprs/src/reduction.rs "$RUNNER_TEMP/main-baseline/rust/quprs/src/reduction.rs"
+          mkdir -p "$RUNNER_TEMP/main-baseline/rust/quprs/examples"
+          cp rust/quprs/examples/eq_dag_d1.rs "$RUNNER_TEMP/main-baseline/rust/quprs/examples/eq_dag_d1.rs"
+          export CARGO_TARGET_DIR="$GITHUB_WORKSPACE/rust/target"
+          QUPRS_SOLVER_PROVISION=external cargo build --locked --release --manifest-path "$RUNNER_TEMP/main-baseline/rust/Cargo.toml" -p quprs --example eq_dag_d1
+          cp "$CARGO_TARGET_DIR/release/examples/eq_dag_d1" "$RUNNER_TEMP/main-eq"
+          QUPRS_SOLVER_PROVISION=external cargo build --locked --release --manifest-path rust/Cargo.toml -p quprs --features research-parity-e2e --example eq_dag_d1
+          cp "$CARGO_TARGET_DIR/release/examples/eq_dag_d1" "$RUNNER_TEMP/parity-eq"
+      - name: Native EQ paired screen with preserved actual CNF
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse 9168826d9db2f0c7b56b07966806d71f8d798ef2^{tree})" = 77a0aaff5b2946d94d0297d33bc1d0cade697a5d
+          python3 -u rust/research/eq_dag_d9.py "$RUNNER_TEMP/main-eq" "$RUNNER_TEMP/parity-eq" "$RUNNER_TEMP/gpmc" d9-generated/manifest.json d9-evidence | tee d9.log
+      - name: Seal evidence
+        if: always()
+        run: |
+          mkdir -p d9-evidence
+          test ! -d d9-generated || cp -r d9-generated d9-evidence/
+          test ! -f d9-source.log || cp d9-source.log d9-evidence/
+          test ! -f d9.log || cp d9.log d9-evidence/
+          git rev-parse HEAD > d9-evidence/head.txt
+          git rev-parse 'HEAD^{tree}' > d9-evidence/tree.txt
+          lscpu > d9-evidence/cpu.txt
+          cd d9-evidence
+          find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 -r sha256sum > SHA256SUMS
+          sha256sum -c SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: eq-dag-d9-medium-wstate
+          path: d9-evidence/
           retention-days: 30
 
 

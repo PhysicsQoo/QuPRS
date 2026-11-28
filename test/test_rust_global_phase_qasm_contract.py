@@ -1,8 +1,7 @@
-"""Conservative source global-phase provenance contract for Rust QASM2.
+"""Numeric Qiskit global-phase provenance through the native IR.
 
-The bridge cannot encode a standalone QuantumCircuit.global_phase as QASM2.
-Reject unequal explicit phases before launching the native engine, rather
-than silently classifying exact equality from phase-stripped circuits.
+Explicit finite scalars are carried independently of QASM; unbound scalars
+still fail closed. Preserve gate counts and original circuit objects.
 """
 import math
 import pytest
@@ -25,24 +24,27 @@ def verify(a,b):
     (0.05,0.1),
     (-math.pi/2,math.pi/2),
 ])
-def test_unequal_explicit_scalar_phase_must_fail_closed(first,second):
+def test_unequal_explicit_scalar_phase_is_preserved(first,second):
     a,b=QuantumCircuit(1),QuantumCircuit(1)
     a.global_phase=first
     b.global_phase=second
-    with pytest.raises(ValueError,match="global_phase"):
-        verify(a,b)
+    result=verify(a,b)
+    assert result.equivalent=="equivalent*"
+    assert result.tool_time is None
+    assert (result.gate_num, result.gate_num2)==(0,0)
+    assert float(a.global_phase)!=float(b.global_phase)
 
 
-def test_scalar_cancellation_that_is_exact_but_untransportable_is_rejected():
+def test_scalar_cancellation_with_numeric_pi_is_preserved():
     left=QuantumCircuit(1)
     for gate in ("x","z","x","z"):
         getattr(left,gate)(0)
     right=QuantumCircuit(1)
     right.global_phase=math.pi
-    # XZXZ = -I, so exact source equality is possible here, but sending
-    # right through QASM2 loses its standalone -I scalar. No false verdict.
-    with pytest.raises(ValueError,match="global_phase"):
-        verify(left,right)
+    result=verify(left,right)
+    assert result.equivalent=="equivalent"
+    assert (result.gate_num,result.gate_num2)==(4,0)
+    assert float(right.global_phase)==math.pi
 
 
 @pytest.mark.parametrize("same_phase",[0.0,0.125,-math.pi/2])
@@ -58,12 +60,12 @@ def test_identical_source_phases_cancel_without_changing_verdict(same_phase):
     assert result.tool_time is None
 
 
-def test_mixed_qasm_and_circuit_with_explicit_phase_rejected():
+def test_mixed_qasm_and_circuit_with_explicit_phase_preserved():
     qasm='OPENQASM 2.0;\ninclude "qelib1.inc";\nqreg q[1];\n'
     circuit=QuantumCircuit(1)
     circuit.global_phase=0.125
-    with pytest.raises(ValueError,match="global_phase"):
-        verify(qasm,circuit)
+    assert verify(qasm,circuit).equivalent=="equivalent*"
+    assert float(circuit.global_phase)==0.125
 
 
 def test_unbound_symbolic_global_phase_rejected():

@@ -42,7 +42,8 @@ def stage(destination: Path) -> None:
             or parsed["lib"]["name"] != "quprs"
             or parsed["package"]["publish"] is not True
             or parsed["features"]["default"] != ["high-precision-gpmc"]
-            or set(parsed["features"]) != {"default", "high-precision-gpmc", "browser-transport"}
+            or set(parsed["features"]) != {"default", "high-precision-gpmc", "browser-transport", "rawmocs-native"}
+            or parsed["features"]["rawmocs-native"] != ["dep:rawmocs_mpfr", "high-precision-gpmc"]
             or parsed["features"]["browser-transport"] != []):
         raise AssertionError("staged crate differs from the reviewed source manifest")
 

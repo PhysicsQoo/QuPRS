@@ -220,14 +220,17 @@ def run_isolated(
         # Scope Solver binary extraction to the entire supervised request,
         # while leaving the embedding process's environment untouched.
         solver = options["tool_name"]
-        resource = get_ganak_path(verify=False) if solver == "ganak" else WMC(solver)
-        executable = held.enter_context(resource)
         environment = os.environ.copy()
         environment.update({
             "TMPDIR": temporary, "TMP": temporary, "TEMP": temporary,
             "QUPRS_RUST_SUPERVISOR_PARENT_PID": str(os.getpid()),
-            f"QUPRS_{solver.upper()}_PATH": str(executable),
         })
+        if solver != "rawmocs_rust_native":
+            resource = get_ganak_path(verify=False) if solver == "ganak" else WMC(solver)
+            executable = held.enter_context(resource)
+            environment[f"QUPRS_{solver.upper()}_PATH"] = str(executable)
+        else:
+            environment.pop("QUPRS_RAWMOCS_RUST_NATIVE_PATH", None)
         group = None
         supervisor = None
         operation_error = None

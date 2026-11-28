@@ -134,6 +134,21 @@ fn parse_line_with_precision(
     }))
 }
 
+/// Decode structured native decimal components without constructing stdout.
+/// Intervals describe representation only, never solver arithmetic accuracy.
+pub(crate) fn rawmocs_count_from_parts(sat: bool, re: &str, im: &str) -> Result<PrintedCount> {
+    if re.contains('/') || im.contains('/') {
+        return Err(anyhow!("RaWMoCS decimal count required"));
+    }
+    let (real, real_half_unit) = component(re)?;
+    let (imag, imag_half_unit) = component(im)?;
+    if !sat && (!real.is_zero() || !imag.is_zero()) {
+        return Err(anyhow!("RaWMoCS UNSAT with nonzero count"));
+    }
+    Ok(PrintedCount { real, imag, real_half_unit, imag_half_unit,
+                      format_name: "rawmocs-mpfr".to_string() })
+}
+
 pub fn parse_stdout_optional(stdout: &str) -> Result<Option<PrintedCount>> {
     let mut precision: Option<i32> = None;
     for line in stdout.lines() {

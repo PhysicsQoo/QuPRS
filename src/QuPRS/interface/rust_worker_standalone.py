@@ -60,6 +60,7 @@ def main() -> int:
             rr_tolerance=options["rr_tolerance"],
             phase_tolerance=options["phase_tolerance"],
             gpmc_precision_digits=options["gpmc_precision_digits"],
+            **{k: options[k] for k in ("scalar1_radians", "scalar2_radians") if k in options},
         )
         envelope = {"version": _PROTOCOL_VERSION, "ok": True, "result": result}
     except Exception as exc:

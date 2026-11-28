@@ -1,0 +1,163 @@
+{
+  "schema": "eq-dag-d7e-hh-correctness-screen-v1",
+  "original": "b398f07d6845efc23540549ccbfec717c27b1722",
+  "original_tree": "1dc21015f0f4f69f057c4685b886b686d82b882d",
+  "fix": "f1c75aa3f1429af1c4747a451355b64d25792947",
+  "fix_tree": "0924ca6f7a701ae1e13fc925a79d1c0a3ce438f5",
+  "selection": "Previously source-locked small Feynman and MQT controls; not a new holdout. Feynman old Hybrid not repeated (known false NEQ). Oracle numerical, not formal certificate. Default historical RR tolerance, exact Feynman separately tested D7d.",
+  "timeout_s": 8,
+  "outer_timeout_s": 12,
+  "address_space_mib": 4096,
+  "cases": [
+    {
+      "id": "tof_3",
+      "family": "tof_3",
+      "expected": "EQ",
+      "left": {
+        "path": "benchmarks/Feynman/h,y,z,t,tdg,cx/tof_3.qasm",
+        "git_blob_sha1": "29bbf9c6304ae44cca84cb4a599b6d65636ac790"
+      },
+      "right": {
+        "path": "benchmarks/Feynman/tof_3.qasm",
+        "git_blob_sha1": "a918b651a16c9c600bb9c85f2c7546b21b200a04"
+      },
+      "source_manifest": "d1",
+      "python_rr": true,
+      "skip_old_hybrid": false
+    },
+    {
+      "id": "qwalk-noancilla_3",
+      "family": "qwalk-noancilla",
+      "expected": "EQ",
+      "left": {
+        "path": "benchmarks/MQTBench/qwalk-noancilla_nativegates_ibm_qiskit_opt0_3.qasm",
+        "git_blob_sha1": "0960c698e44cb5320301f7bd4acdd892d9069db0"
+      },
+      "right": {
+        "path": "benchmarks/MQTBench/h,ry,rz,cx/qwalk-noancilla_nativegates_ibm_qiskit_opt0_3.qasm",
+        "git_blob_sha1": "ea56fe6eb2ff58503931784f0ceb9bc2bb59fab2"
+      },
+      "source_manifest": "d1",
+      "python_rr": true,
+      "skip_old_hybrid": false
+    },
+    {
+      "id": "qaoa_7",
+      "family": "qaoa",
+      "expected": "EQ",
+      "left": {
+        "path": "benchmarks/MQTBench/qaoa_nativegates_ibm_qiskit_opt0_7.qasm",
+        "git_blob_sha1": "4c314c32caef3d2577d7efe849635bcbc2b2335f"
+      },
+      "right": {
+        "path": "benchmarks/MQTBench/h,ry,rz,cx/qaoa_nativegates_ibm_qiskit_opt0_7.qasm",
+        "git_blob_sha1": "d4d115ba912d2d4129c238d8972b0a7dd0c4249c"
+      },
+      "source_manifest": "d1",
+      "python_rr": false,
+      "skip_old_hybrid": false
+    },
+    {
+      "id": "vqe_4",
+      "family": "vqe",
+      "expected": "EQ",
+      "left": {
+        "path": "benchmarks/MQTBench/vqe_nativegates_ibm_qiskit_opt0_4.qasm",
+        "git_blob_sha1": "20e9fd16e5f464338c72c5da8bede32225791414"
+      },
+      "right": {
+        "path": "benchmarks/MQTBench/h,ry,rz,cx/vqe_nativegates_ibm_qiskit_opt0_4.qasm",
+        "git_blob_sha1": "e42732073c416e61ffa5e0fe69dcb042f0c91cc7"
+      },
+      "source_manifest": "d1",
+      "python_rr": true,
+      "skip_old_hybrid": false
+    },
+    {
+      "id": "grover-noancilla_negative_4",
+      "family": "grover-noancilla",
+      "expected": "NEQ",
+      "left": {
+        "path": "benchmarks/MQTBench/qiskit-2.6.1-opt0/h,ry,rz,cx/grover-noancilla_nativegates_ibm_qiskit_opt0_4.qasm",
+        "git_blob_sha1": "5fd20d5e80e909c33d95800405299465b6c6fc9f",
+        "sha256": "ab338d8c185c841e30a0001293697eeae2f989a10c06effaf09f5584223c5781"
+      },
+      "right": {
+        "path": "benchmarks/MQTBench/qiskit-2.6.1-opt0/Random_Rotation/grover-noancilla_nativegates_ibm_qiskit_opt0_4.qasm",
+        "git_blob_sha1": "464be4c1781d781a02549af6fa29ca510fe2a869",
+        "sha256": "43557c87d1830c4bda99b956e2e16ade646310b0b89f8a4f9dc3b11e90935db2"
+      },
+      "source_manifest": "d1",
+      "python_rr": false,
+      "skip_old_hybrid": false
+    },
+    {
+      "id": "qwalk-noancilla_negative_3",
+      "family": "qwalk-noancilla",
+      "expected": "NEQ",
+      "left": {
+        "path": "benchmarks/MQTBench/qiskit-2.6.1-opt0/h,ry,rz,cx/qwalk-noancilla_nativegates_ibm_qiskit_opt0_3.qasm",
+        "git_blob_sha1": "56b39905de65f63ca5cec85e71cd926bc2c1a728",
+        "sha256": "4def4f0591b4f350acb00a1fe52c78245887af0f4bd8cc896fac7f589f6044e8"
+      },
+      "right": {
+        "path": "benchmarks/MQTBench/qiskit-2.6.1-opt0/Random_Rotation/qwalk-noancilla_nativegates_ibm_qiskit_opt0_3.qasm",
+        "git_blob_sha1": "e0577d70a842b916f61ef44e595ef2332324577e",
+        "sha256": "e12d5e603827136e44b10c05834afbefe49320636fd3278a673cfa6fbd4cc019"
+      },
+      "source_manifest": "d1",
+      "python_rr": false,
+      "skip_old_hybrid": false
+    },
+    {
+      "id": "wstate_4_eq",
+      "family": "wstate",
+      "expected": "EQ",
+      "left": {
+        "path": "benchmarks/MQTBench/wstate_nativegates_ibm_qiskit_opt0_4.qasm",
+        "git_blob_sha1": "b929dc5eca00dd0771c8f28e0fda42c2abcb68bf"
+      },
+      "right": {
+        "path": "benchmarks/MQTBench/h,ry,rz,cx/wstate_nativegates_ibm_qiskit_opt0_4.qasm",
+        "git_blob_sha1": "1744626787c08edc1070af0eb3c161c38c93d077"
+      },
+      "source_manifest": "d6a",
+      "python_rr": false,
+      "skip_old_hybrid": false
+    },
+    {
+      "id": "qnn_4_neq",
+      "family": "qnn",
+      "expected": "NEQ",
+      "left": {
+        "path": "benchmarks/MQTBench/qiskit-2.6.1-opt0/h,ry,rz,cx/qnn_nativegates_ibm_qiskit_opt0_4.qasm",
+        "git_blob_sha1": "dceeefbc2f608f16418b7268052bd5be4a753857",
+        "sha256": "386c6242be9cc398a461559db3f33401cbfcc0ec57379b8f92862292e4135752"
+      },
+      "right": {
+        "path": "benchmarks/MQTBench/qiskit-2.6.1-opt0/Random_Rotation/qnn_nativegates_ibm_qiskit_opt0_4.qasm",
+        "git_blob_sha1": "9b602d528dd0b71dcf89b80792346611e9b08a4d",
+        "sha256": "72df8dde80402b096d532864b1862fb116503af1a141a19ec843fe7bbf2c440d"
+      },
+      "source_manifest": "d6a",
+      "python_rr": true,
+      "skip_old_hybrid": false
+    },
+    {
+      "id": "feynman_grover_5_eq",
+      "family": "feynman_grover",
+      "expected": "EQ",
+      "left": {
+        "path": "benchmarks/Feynman/grover_5.qasm",
+        "git_blob_sha1": "2aa12dd7cd68e826583e9d73bebfbac6e6483eb8"
+      },
+      "right": {
+        "path": "benchmarks/Feynman/h,y,z,t,tdg,cx/grover_5.qasm",
+        "git_blob_sha1": "b425b1cd2bf29c85e327902d1648b11ebfe44b73"
+      },
+      "source_manifest": "d7a",
+      "python_rr": false,
+      "skip_old_hybrid": true
+    }
+  ]
+}

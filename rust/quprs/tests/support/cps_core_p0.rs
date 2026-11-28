@@ -1361,11 +1361,61 @@ fn core_hsl_cat_basis(src:&str)->Option<CpsCore>{
     for j in 1..n{ops.push(G::CX(0,j));}
     CpsCore::circuit(n,&ops)
 }
+// A normalized translated HSL template with an unchanged, explicit
+// copy of every formal label in its output has orthogonal columns.
+// Reuse the existing checked template lowering; do not certify an
+// arbitrary CPS merely from its syntax or from numerical sampling.
+fn core_hsl_tagged_isometry(src:&str)->Option<CpsCore>{
+    let c=core_hsl_lower_with(src,|a,n,base|{
+        if n==0{return None;}
+        core_hsl_state(a,n,base)
+    })?;
+    let mask=(1u64<<c.n())-1;
+    if c.guard.factors().any(|g|g.iter().any(|m|m&mask!=0))||
+        c.ps.p.terms.keys().any(|m|m.iter().any(|&v|(v as usize)<c.n())){return None;}
+    if (0..c.n()).any(|i|!c.ps.f.functions.iter().any(|f|f.len()==1&&f.contains(&vec![i as u32]))){return None;}
+    Some(c)
+}
+#[test]
+fn hoare_cps_tagged_family_source(){
+    let root=std::path::PathBuf::from(std::env::var("CPS_CORE_SOURCE_DIR").unwrap());
+    for (case,n,q) in [("03",3usize,8usize),("04",4,11)]{
+        let src=std::fs::read_to_string(root.join("benchmarks/all/MOGrover").join(case).join("post.hsl")).unwrap();
+        let (c,cert)=core_hsl_fourth_family(&src).unwrap();
+        assert_eq!(cert,"normalized-tagged-template");
+        assert_eq!((c.n(),c.q()),(n,q));
+        let (labels,states)=aq_family(&src).unwrap();
+        assert_eq!((labels,states.len()),(n,1usize<<n));
+        // Independent instantiated HSL support and normalization; no
+        // large dense CPS matrix. Source 03 also gets full CPS column parity.
+        for (x,state) in states.iter().enumerate(){
+            let mut norm=0i128;
+            for z in 0..1u64<<q{
+                let a=state.terms.iter().filter(|t|aq_match(&t.pattern,z)).map(|t|t.signed).sum::<i64>();
+                if a!=0{assert_eq!(z&((1u64<<n)-1),x as u64);}
+                norm+=i128::from(a).pow(2);
+            }
+            assert_eq!(norm,1i128<<state.k);
+        }
+        if n==3{
+            let checked=core_hsl_check(&src);
+            assert_eq!(core_matrix(&c),core_matrix(&checked));
+            // Remove the preserved tag; the normalized columns overlap.
+            let untagged=src.replace("|ss01>","|s01>").replace("|si01>","|i01>");
+            assert!(core_hsl_lower(&untagged).is_some());
+            assert!(core_hsl_tagged_isometry(&untagged).is_none());
+            assert!(core_hsl_tagged_isometry(&src.replace("11 /","10 /")).is_none());
+        }
+        println!("CPS_CORE10_TAGGED_SOURCE case={case} labels={n} qubits={q} norm=PASS orthogonal_support=PASS");
+    }
+    println!("CPS_CORE10_TAGGED_ORACLE cases=2 exact_columns03=PASS missing_tag_reject=PASS normalization_reject=PASS");
+}
 fn core_hsl_fourth_family(src:&str)->Option<(CpsCore,&'static str)>{
     if let Some(c)=core_hsl_product_basis(src).or_else(||core_hsl_basis_family(src)){
         return core_basis_isometry(&c).then_some((c,"injective-basis"));
     }
-    Some((core_hsl_cat_basis(src)?,"unitary-cat-preparation"))
+    if let Some(c)=core_hsl_cat_basis(src){return Some((c,"unitary-cat-preparation"));}
+    Some((core_hsl_tagged_isometry(src)?,"normalized-tagged-template"))
 }
 #[test]
 fn hoare_cps_cat_family(){

@@ -225,6 +225,8 @@ jobs:
           grep -Fx 'CPS_CORE10_CAT_ORACLE hsl_columns=PASS gram=PASS chain_spread=PASS rejection_controls=PASS' evidence/cps-core10-cat-oracle.log
           grep -Fx 'CPS_CORE10_WIDE_SOURCE_ORACLE ordered_ir=PASS legacy16=PASS width33=PASS malformed=PASS' evidence/cps-core10-cat-oracle.log
           grep -Fx 'CPS_CORE10_WIDE_ORACLE width32=PASS legacy_cap=PASS width33_reject=PASS id_cap=PASS replay=PASS' evidence/cps-core10-cat-oracle.log
+          CPS_CORE_SOURCE_DIR="$src" timeout 30s "$(cat evidence/release-bin.path)" --exact exact_property_cnf::hoare_cps_tagged_family_source --nocapture | tee evidence/cps-core10-tagged-oracle.log
+          grep -Fx 'CPS_CORE10_TAGGED_ORACLE cases=2 exact_columns03=PASS missing_tag_reject=PASS normalization_reject=PASS' evidence/cps-core10-tagged-oracle.log
           cmake -S "$src" -B "$src/build" -DCMAKE_BUILD_TYPE=Release > evidence/autoq-configure.log 2>&1
           timeout 600s cmake --build "$src/build" --target autoq -j2 > evidence/autoq-build.log 2>&1
           export LD_LIBRARY_PATH="$src:$src/build/lib:$src/build/cli:${LD_LIBRARY_PATH:-}"
@@ -312,14 +314,14 @@ jobs:
           # CORE-10a retry: construct the existing FxHashSet with Default.
           timeout 350s python3 rust/research/cps_core_basis_family_p0.py "$(cat evidence/release-bin.path)" "$RUNNER_TEMP/cps-gpmc" "$src/build/cli/autoq" "$src" evidence/cps-core10 | tee evidence/cps-core10.log
           grep -F 'CPS_CORE10_SUMMARY {"arms": 72, "cases": 4,' evidence/cps-core10.log
-      - name: CORE-10f width32 original GHZall screening
-        timeout-minutes: 13
+      - name: CORE-10g original nonuniform tagged StateSet screening
+        timeout-minutes: 15
         run: |
           set -euo pipefail
           src="$RUNNER_TEMP/autoq-matched"
           export LD_LIBRARY_PATH="$src:$src/build/lib:$src/build/cli:${LD_LIBRARY_PATH:-}"
-          timeout 690s python3 rust/research/cps_core_fourth_p0.py "$(cat evidence/release-bin.path)" "$RUNNER_TEMP/cps-gpmc" "$src/build/cli/autoq" "$src" evidence/cps-core10-fourth | tee evidence/cps-core10-fourth.log
-          grep -F 'CPS_CORE10_FOURTH_SUMMARY {"arms": 138, "cases": 9,' evidence/cps-core10-fourth.log
+          timeout 790s python3 rust/research/cps_core_fourth_p0.py "$(cat evidence/release-bin.path)" "$RUNNER_TEMP/cps-gpmc" "$src/build/cli/autoq" "$src" evidence/cps-core10-fourth | tee evidence/cps-core10-fourth.log
+          grep -F 'CPS_CORE10_FOURTH_SUMMARY {"arms": 162, "cases": 11,' evidence/cps-core10-fourth.log
       - uses: actions/upload-artifact@v4
         if: always()
         with:

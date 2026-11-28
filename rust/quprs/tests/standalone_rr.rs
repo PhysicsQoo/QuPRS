@@ -49,3 +49,47 @@ fn standalone_rr_leaves_irreducible_h_as_unknown() {
     assert!(!result.solver_invoked);
     assert!(result.wmc_printed_verdict.is_none());
 }
+
+
+// A direct semantic negative control: (1/sqrt(2)) sum_y (-1)^(xy)|x><x|
+// is sqrt(2)|0><0|, NOT I. This is a general PathSum fixture, not a unitary
+// source circuit. An HH rewrite must not drop the constraint x=0.
+#[test]
+fn hh_external_target_must_preserve_free_input() {
+    use quprs::{PathSum};
+    use quprs::pathsum::PhaseCoeff;
+    let mut ps=PathSum::new(1);
+    ps.set_auto_reduce(false);
+    let y=ps.v.get_fresh_var();
+    ps.p.add_term(vec![0,y],PhaseCoeff::HALF);
+    let before=ps.clone();
+    let candidates=ps.get_reducible_vars();
+    assert!(!ps.try_reduce_hh(&candidates));
+    assert_eq!(ps.p.terms,before.p.terms);
+    assert_eq!(ps.f.functions,before.f.functions);
+    assert_eq!(ps.v.path_vars,before.v.path_vars);
+}
+
+// Original source pair, no transformed fixture, no solver dependence.
+#[test]
+fn hh_feynman_grover_source_pair_rr_and_hybrid() {
+    use quprs::{QuantumCircuit,VerificationStrategy};
+    // Byte-identical copies of benchmarks/Feynman/grover_5.qasm and
+    // benchmarks/Feynman/h,y,z,t,tdg,cx/grover_5.qasm. Embed the originals
+    // so the published standalone crate needs no monorepo checkout.
+    let a=QuantumCircuit::from_qasm_str(include_str!("fixtures/feynman/grover_5.qasm")).unwrap();
+    let b=QuantumCircuit::from_qasm_str(include_str!("fixtures/feynman/grover_5_clifford_t.qasm")).unwrap();
+    assert_eq!((a.num_qubits(),b.num_qubits()),(9,9));
+    assert_eq!((a.operations().len(),b.operations().len()),(351,854));
+    for method in [VerificationMethod::ReductionRules,VerificationMethod::Hybrid] {
+        let opts=VerificationOptions{method,strategy:VerificationStrategy::Proportional,rr_tolerance:0.0,timeout_secs:20,..VerificationOptions::default()};
+        let r=quprs::verification::check_equivalence(&a,&b,&opts).unwrap();
+        assert_eq!(r.status,EquivalenceStatus::EquivalentUpToGlobalPhase);
+        assert!(!r.solver_invoked);
+        assert!(!r.rr_approximate);
+        let ps=r.final_pathsum();
+        assert_eq!(ps.v.path_vars.len(),9);
+        assert!(ps.is_identity_up_to_phase());
+        assert_eq!(ps.p.terms.len(),1);
+    }
+}

@@ -12,7 +12,7 @@ from QuPRS import config
 from QuPRS.utils.verification_tolerances import (
     DEFAULT_RR_TOLERANCE, validate_rr_tolerance, scoped_rr_tolerance,
     begin_rr_approximation_tracking, finish_rr_approximation_tracking,
-    rr_approximation_used,
+    rr_approximation_used, record_rr_approximation,
 )
 from QuPRS.interface.gate_library import gate_map, support_gate_set
 from QuPRS.pathsum import PathSum, Register
@@ -60,6 +60,45 @@ def _warn_hybrid_approximate_rr_wmc(method, wmc_entered, approximated):
         RuntimeWarning,
         stacklevel=3,
     )
+
+
+def _rr_rational_diagonal_phase(phase, bits, tolerance):
+    """Return scalar cycles only for a certified small non-global residual.
+
+    Callers must establish no bound variables and exact Boolean identity.
+    Python phase coefficients in this path are rational cycles. Reject
+    non-rational coefficients, non-input symbols and non-squarefree terms;
+    never round or rewrite the residual. Match native RR's strict aggregate
+    bound, independent of the WMC projective distance threshold.
+    """
+    if tolerance <= 0:
+        return None
+    import sympy as sp
+
+    variables = tuple(sp.Symbol(str(bit)) for bit in bits)
+    if not variables:
+        return None
+    expr = sp.sympify(phase)
+    if expr.atoms(sp.Float) or not expr.free_symbols.issubset(set(variables)):
+        return None
+    try:
+        poly = sp.Poly(expr, *variables, domain=sp.QQ)
+    except (sp.PolynomialError, sp.CoercionFailed):
+        return None
+    upper = sp.S.Zero
+    scalar = sp.S.Zero
+    cap = sp.Rational(float(tolerance))
+    for powers, coeff in poly.terms():
+        if any(power > 1 for power in powers):
+            return None
+        if not any(powers):
+            scalar = coeff
+            continue
+        wrapped = coeff % 1
+        upper += min(wrapped, 1 - wrapped)
+        if upper >= cap:
+            return None
+    return scalar if 0 < upper < cap else None
 
 
 def timeout_handler(signum, frame):
@@ -660,9 +699,17 @@ def check_equivalence(
                 # check_P_symbol = tuple(
                 #     filter(lambda x: x.name in rr_view.f.bits, P_free_symbols)
                 # )
-                if len(P_free_symbols) == 0:
+                scalar = None
+                if P_free_symbols and len(rr_view.pathvar) == 0:
+                    scalar = _rr_rational_diagonal_phase(
+                        rr_view.P, rr_view.bits, rr_tolerance
+                    )
+                    if scalar is not None:
+                        record_rr_approximation()
+                if len(P_free_symbols) == 0 or scalar is not None:
                     # Phase coefficients are in cycles; compare wrapped radians.
-                    cycles = float(rr_view.P.evalf()) % 1.0
+                    phase_value = rr_view.P if scalar is None else scalar
+                    cycles = float(phase_value.evalf()) % 1.0
                     phase = (cycles * math.tau) % math.tau
                     phase_is_within_tolerance = (
                         min(phase, math.tau - phase) < wmc_phase_tolerance

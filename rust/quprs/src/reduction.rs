@@ -234,7 +234,16 @@ impl PathSum {
             for term in &phi {
                 if term.len() == 1 {
                     let var = term[0];
-                    
+
+                    // HH sums out two bound path variables. An external input
+                    // is a free index of the represented operator: substituting
+                    // it without keeping the constraint changes its columns
+                    // and the normalization. Skip external targets; do not
+                    // turn this into an implicit input restriction.
+                    if (var as usize) < self.v.num_qubits || !self.v.path_vars.contains(&var) {
+                        continue;
+                    }
+
                     // Validate: v cannot be present in other terms of phi.
                     // If it is, `replacement` would depend on `v`, causing infinite recursion
                     // or leaving `v` un-eliminated in F.

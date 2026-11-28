@@ -43,6 +43,7 @@ on:
           - d7e4
           - d8
           - d8b
+          - d8c
           - e1c-matrix
           - l1
   push:
@@ -2335,3 +2336,49 @@ jobs:
           path: d8b-evidence/
           retention-days: 30
 
+
+  eq-dag-d8c:
+    if: github.ref == 'refs/heads/experiment/eq-dag-encoder' && ((github.event_name == 'push' && contains(github.event.head_commit.message, 'corrected weight precision sweep D8c')) || (github.event_name == 'workflow_dispatch' && inputs.dag_stage == 'd8c'))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: eq-dag-d8-corrected-baseline
+          run-id: 46135170535
+          github-token: ${{ github.token }}
+          path: d8
+      - name: Build original weight bridge and independent interval helper
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y libgmp-dev libmpfr-dev
+          cc -O2 -shared -fPIC rust/quprs/native/mpfr_weight_bridge.c -lmpfr -lgmp -o "$RUNNER_TEMP/phase_weight.so"
+          cc -O2 -shared -fPIC rust/research/eq_dag_e1f_interval.c -lmpfr -lgmp -o "$RUNNER_TEMP/interval.so"
+      - name: Offline precision sweep for VQE residuals
+        run: |
+          set -euo pipefail
+          (cd d8 && sha256sum -c SHA256SUMS)
+          python3 -u rust/research/eq_dag_d8c_precision.py d8 "$RUNNER_TEMP/phase_weight.so" "$RUNNER_TEMP/interval.so" d8c-evidence | tee d8c.log
+      - name: Seal evidence
+        if: always()
+        run: |
+          mkdir -p d8c-evidence
+          test ! -f d8c.log || cp d8c.log d8c-evidence/
+          git rev-parse HEAD > d8c-evidence/head.txt
+          git rev-parse 'HEAD^{tree}' > d8c-evidence/tree.txt
+          cd d8c-evidence
+          find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 -r sha256sum > SHA256SUMS
+          sha256sum -c SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: eq-dag-d8c-precision-sweep
+          path: d8c-evidence/
+          retention-days: 30

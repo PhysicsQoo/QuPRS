@@ -1,0 +1,3 @@
+# W2 — scoped browser source-phase bridge
+
+Reuse exact W1b RaWMoCS binary and prior QuPRS GPMC browser artifact, verified ZIP and RaWMoCS receipt. Compile the original PhaseWeights.hpp and mpfr_weight_bridge.c into a separate thin browser materializer; no solver source edits, no f64 conversion. Compare original GPMC descriptor input, GPMC materialized CNF and RaWMoCS identical materialized CNF at 30 digits. Four one-variable phase controls, malformed controls, tiny nonzero imaginary phase. This is not end-to-end EQ/NEQ/UNKNOWN admission; actual residual trace, native pairing, W3/W4 and source/license package review remain open. Cross-repository artifact access must work or the run stops before building. Experiment branch/manual only.

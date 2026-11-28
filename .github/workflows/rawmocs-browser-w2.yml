@@ -1,0 +1,44 @@
+name: RaWMoCS browser W2 phase bridge
+on:
+  push:
+    branches: [experiment/rawmocs-browser-w2]
+    paths: ['.github/workflows/rawmocs-browser-w2.yml','research/rawmocs_browser_w2/**']
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  w2:
+    if: github.repository == 'PhysicsQoo/QuPRS' && github.ref == 'refs/heads/experiment/rawmocs-browser-w2'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: '4.0.23'
+      - name: Fetch exact upstream browser artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/w2/evidence"
+          gh api repos/PhysicsQoo/RaWMoCS/actions/artifacts/15256299864/zip > "$RUNNER_TEMP/w2/rawmocs.zip"
+          echo 'd8ccbdb5a9ae50e2004da71eabdb91e37c19128cf149d863eb5f6c8e2c412454  '"$RUNNER_TEMP/w2/rawmocs.zip" | sha256sum -c -
+          gh api repos/PhysicsQoo/QuPRS/actions/artifacts/15256494232/zip > "$RUNNER_TEMP/w2/gpmc.zip"
+          echo 'e27788f404b895adb0d9224b7d9c89ccb19a16dc732b44097de502c6e198a215  '"$RUNNER_TEMP/w2/gpmc.zip" | sha256sum -c -
+      - name: Install browser and build tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends m4 make gcc
+          python3 -m pip install playwright==1.65.2
+          python3 -m playwright install --with-deps chromium
+      - name: Build original source-phase bridge and run paired browser test
+        run: python3 research/rawmocs_browser_w2/run.py "$RUNNER_TEMP/w2"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: w2-browser-phase-evidence
+          path: ${{ runner.temp }}/w2/evidence/
+          if-no-files-found: warn

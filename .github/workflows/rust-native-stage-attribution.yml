@@ -44,6 +44,7 @@ on:
           - d8
           - d8b
           - d8c
+          - d8d
           - e1c-matrix
           - l1
   push:
@@ -2382,3 +2383,85 @@ jobs:
           name: eq-dag-d8c-precision-sweep
           path: d8c-evidence/
           retention-days: 30
+
+  eq-dag-d8d:
+    if: github.ref == 'refs/heads/experiment/eq-dag-encoder' && ((github.event_name == 'push' && contains(github.event.head_commit.message, 'matched native precision D8d')) || (github.event_name == 'workflow_dispatch' && inputs.dag_stage == 'd8d'))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: eq-dag-d8-corrected-baseline
+          run-id: 46135170535
+          github-token: ${{ github.token }}
+          path: d8-input
+      - uses: actions/download-artifact@v4
+        with:
+          name: eq-dag-d8c-precision-sweep
+          run-id: 46135993983
+          github-token: ${{ github.token }}
+          path: d8c-input
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: 'rust -> target'
+      - name: Build pinned main and explicit research candidate
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y cmake pkg-config libgmp-dev libmpfr-dev zlib1g-dev m4 make gcc time
+          python3 scripts/install_gpmc_release.py --dest "$RUNNER_TEMP/gpmc"
+          git fetch origin refs/heads/experiment/eq-dag-corrected-baseline
+          test "$(git rev-parse FETCH_HEAD)" = d486685f04824c8d3d07097c6ce0693ae6d47b7a
+          git worktree add --detach "$RUNNER_TEMP/main-baseline" d486685f04824c8d3d07097c6ce0693ae6d47b7a
+          test "$(git -C "$RUNNER_TEMP/main-baseline" rev-parse HEAD)" = d486685f04824c8d3d07097c6ce0693ae6d47b7a
+          test "$(git -C "$RUNNER_TEMP/main-baseline" rev-parse 'HEAD^{tree}')" = 09c50ff09c41890c4576c74283651343f86ae46f
+          cmp rust/quprs/src/reduction.rs "$RUNNER_TEMP/main-baseline/rust/quprs/src/reduction.rs"
+          cmp rust/quprs/src/precise_weight.rs "$RUNNER_TEMP/main-baseline/rust/quprs/src/precise_weight.rs"
+          test "$(git hash-object rust/quprs/src/precise_weight.rs)" = 81cfe09bf58a8aacbc53975f14a179d53385b7d5
+          mkdir d8d-build
+          python3 rust/research/eq_dag_d8d_patch.py rust/quprs/src/precise_weight.rs | tee d8d-build/candidate-patch.txt
+          python3 rust/research/eq_dag_d8d_patch.py "$RUNNER_TEMP/main-baseline/rust/quprs/src/precise_weight.rs" | tee d8d-build/baseline-patch.txt
+          cmp rust/quprs/src/precise_weight.rs "$RUNNER_TEMP/main-baseline/rust/quprs/src/precise_weight.rs"
+          cp rust/quprs/src/precise_weight.rs d8d-build/precise_weight.rs
+          mkdir -p "$RUNNER_TEMP/main-baseline/rust/quprs/examples"
+          cp rust/quprs/examples/eq_dag_d1.rs "$RUNNER_TEMP/main-baseline/rust/quprs/examples/eq_dag_d1.rs"
+          export CARGO_TARGET_DIR="$GITHUB_WORKSPACE/rust/target"
+          QUPRS_SOLVER_PROVISION=external cargo build --locked --release --manifest-path "$RUNNER_TEMP/main-baseline/rust/Cargo.toml" -p quprs --example eq_dag_d1
+          cp "$CARGO_TARGET_DIR/release/examples/eq_dag_d1" "$RUNNER_TEMP/main-eq"
+          QUPRS_SOLVER_PROVISION=external cargo build --locked --release --manifest-path rust/Cargo.toml -p quprs --features research-parity-e2e --example eq_dag_d1
+          cp "$CARGO_TARGET_DIR/release/examples/eq_dag_d1" "$RUNNER_TEMP/parity-eq"
+      - name: Native EQ paired screen with preserved actual CNF
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse 9168826d9db2f0c7b56b07966806d71f8d798ef2^{tree})" = 77a0aaff5b2946d94d0297d33bc1d0cade697a5d
+          for d in d8-input d8c-input; do (cd "$d" && sha256sum -c SHA256SUMS); done
+          python3 -u rust/research/eq_dag_d8d.py "$RUNNER_TEMP/main-eq" "$RUNNER_TEMP/parity-eq" "$RUNNER_TEMP/gpmc" d8-input d8c-input d8d-evidence | tee d8d.log
+      - name: Seal evidence
+        if: always()
+        run: |
+          mkdir -p d8d-evidence
+          test ! -d d8d-build || cp -r d8d-build d8d-evidence/
+          test ! -f d8d.log || cp d8d.log d8d-evidence/
+          git rev-parse HEAD > d8d-evidence/head.txt
+          git rev-parse 'HEAD^{tree}' > d8d-evidence/tree.txt
+          lscpu > d8d-evidence/cpu.txt
+          cd d8d-evidence
+          find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 -r sha256sum > SHA256SUMS
+          sha256sum -c SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: eq-dag-d8d-native-precision
+          path: d8d-evidence/
+          retention-days: 30
+
+
+

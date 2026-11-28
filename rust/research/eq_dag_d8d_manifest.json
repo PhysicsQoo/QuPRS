@@ -1,0 +1,58 @@
+{
+  "baseline": "d486685f04824c8d3d07097c6ce0693ae6d47b7a",
+  "baseline_tree": "09c50ff09c41890c4576c74283651343f86ae46f",
+  "frozen_router": "9168826d9db2f0c7b56b07966806d71f8d798ef2",
+  "router_tree": "77a0aaff5b2946d94d0297d33bc1d0cade697a5d",
+  "router_source_blobs": {
+    "rust/quprs/src/wmc_parity_experiment.rs": "6c7ad400a3434618dbf144f28e206f6e672d1a1d",
+    "rust/quprs/src/lib.rs": "9f1c071156194d4d7a30ddb4a338f114970ed4a4",
+    "rust/quprs/src/reduction.rs": "7b44a79c234ec129db76ae61f6b0213bf55a9cbd"
+  },
+  "timeout_s": 60,
+  "address_space_mib": 4096,
+  "cases": [
+    {
+      "id": "vqe_16",
+      "family": "vqe",
+      "expected": "EQ",
+      "expectation": "paper source/transpiled pair, expected projective EQ; not machine-certified",
+      "strategy": "proportional",
+      "left": {
+        "path": "benchmarks/MQTBench/vqe_nativegates_ibm_qiskit_opt0_16.qasm",
+        "git_blob_sha1": "220f9ce7d976d88e38665523cf5cf9e913d205d8"
+      },
+      "right": {
+        "path": "benchmarks/MQTBench/h,ry,rz,cx/vqe_nativegates_ibm_qiskit_opt0_16.qasm",
+        "git_blob_sha1": "c926a393c89a70e82c5eb5b9f8294bb245fc44a1"
+      },
+      "timeout": 60,
+      "mode": "hybrid"
+    },
+    {
+      "id": "vqe_16_neq",
+      "family": "vqe",
+      "mode": "hybrid",
+      "expected": "NEQ",
+      "expectation": "source-locked Random_Rotation manifest expectation, not certified",
+      "reference_distance": null,
+      "reference_diagnostic": "NOT_MEASURED_RESOURCE_BOUND",
+      "strategy": "proportional",
+      "left": {
+        "path": "benchmarks/MQTBench/qiskit-2.6.1-opt0/h,ry,rz,cx/vqe_nativegates_ibm_qiskit_opt0_16.qasm",
+        "git_blob_sha1": "06ae97e5d904d270fa692cb91ad964596bf15381",
+        "sha256": "01b74bbfa3d54c7aa39e24192957dcd20a1f798a65a2a52337050fc987ddb510"
+      },
+      "right": {
+        "path": "benchmarks/MQTBench/qiskit-2.6.1-opt0/Random_Rotation/vqe_nativegates_ibm_qiskit_opt0_16.qasm",
+        "git_blob_sha1": "658e5a7256d242c3a7ad25f72f042ebc49cee931",
+        "sha256": "f0e647e854c87a72294b8aade63121070330d4efe19fb9b076f25f6e6af81403"
+      }
+    }
+  ],
+  "scope": "D8d actual native precision-matched evaluation. Test-only minimum precision override on both detached source builds. D8c weights 160/128 bits, same GPMC 30 digits; first-pair <=5 s repeats; no default/production changes.",
+  "precision_bits": {
+    "vqe_16": 160,
+    "vqe_16_neq": 128
+  },
+  "precision_source_blob": "81cfe09bf58a8aacbc53975f14a179d53385b7d5"
+}

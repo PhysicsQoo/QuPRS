@@ -5,6 +5,7 @@ on:
     paths:
       - '.github/workflows/rawmocs-frontier-admission.yml'
       - 'research/rawmocs_integration/native_*.py'
+      - 'research/rawmocs_integration/rust_library_poc.rs'
       - 'src/QuPRS/utils/solver_adapter.py'
   workflow_dispatch:
     inputs:

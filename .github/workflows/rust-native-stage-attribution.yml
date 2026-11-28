@@ -39,6 +39,7 @@ on:
           - d7d
           - d7e
           - d7e2
+          - d7e3
           - e1c-matrix
           - l1
   push:
@@ -2065,4 +2066,85 @@ jobs:
         with:
           name: eq-dag-d7e2-python-residual
           path: d7e2-evidence/
+          retention-days: 30
+
+  eq-dag-d7e3:
+    if: github.ref == 'refs/heads/experiment/eq-dag-encoder' && ((github.event_name == 'push' && contains(github.event.head_commit.message, 'Python rational residual red green D7e3')) || (github.event_name == 'workflow_dispatch' && inputs.dag_stage == 'd7e3'))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    env:
+      PYTHONHASHSEED: '0'
+      OMP_NUM_THREADS: '1'
+      OPENBLAS_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Pin source trees and diagnostic dependencies
+        run: |
+          set -euo pipefail
+          git fetch origin refs/heads/fix/python-rr-rational-residual
+          test "$(git rev-parse FETCH_HEAD)" = cd93bc1f2ddfff3bbb8141ac76351fb17944aae9
+          test "$(git rev-parse FETCH_HEAD^{tree})" = fd146487cf3608983438943cf536cf7c5fa3744e
+          test "$(git rev-parse b398f07d6845efc23540549ccbfec717c27b1722^{tree})" = 1dc21015f0f4f69f057c4685b886b686d82b882d
+          git worktree add --detach "$RUNNER_TEMP/python-original" b398f07d6845efc23540549ccbfec717c27b1722
+          git worktree add --detach "$RUNNER_TEMP/python-fixed" cd93bc1f2ddfff3bbb8141ac76351fb17944aae9
+          python -m pip install 'qiskit==2.6.1' 'numpy==2.5.5' 'sympy==1.14.0' 'symengine==0.15.0' 'qiskit-qasm3-import==0.6.0' 'psutil==7.2.2' 'pytest>=8,<9'
+          mkdir d7e3-evidence
+          cp "$RUNNER_TEMP/python-fixed/test/test_python_rr_rational_residual.py" "$RUNNER_TEMP/python-original/test/"
+          sha256sum "$RUNNER_TEMP"/python-{original,fixed}/test/test_python_rr_rational_residual.py | tee d7e3-evidence/test-sha.txt
+      - name: Original must fail QWalk3 at verdict assertion
+        run: |
+          set -euo pipefail
+          export PYTHONPATH="$RUNNER_TEMP/python-original/src"
+          set +e
+          python -m pytest -vv "$RUNNER_TEMP/python-original/test/test_python_rr_rational_residual.py::test_qwalk3_rr_default_regression" 2>&1 | tee d7e3-evidence/red.log
+          rc=${PIPESTATUS[0]}
+          set -e
+          test "$rc" = 1
+          grep -F "assert 'not_equivalent' == 'equivalent'" d7e3-evidence/red.log
+          grep -F '1 failed' d7e3-evidence/red.log
+      - name: Fixed Python regression and exact bound controls
+        run: |
+          set -euo pipefail
+          export PYTHONPATH="$RUNNER_TEMP/python-fixed/src"
+          python -m pytest -vv "$RUNNER_TEMP/python-fixed/test/test_python_rr_rational_residual.py" 2>&1 | tee d7e3-evidence/green.log
+          python -m pytest -vv "$RUNNER_TEMP/python-fixed/test/test_rr_backend_tolerance_parity.py" -k 'python and (test_rr_tolerance_parity_for_exact_qasm_decimals or test_rr_approximation_is_independent_of_global_phase_label or test_hybrid_and_rr_only_use_the_same_decisive_rr)' 2>&1 | tee d7e3-evidence/existing.log
+          python -u rust/research/eq_dag_d7e2.py d7e3-evidence/residual | tee d7e3-evidence/residual.log
+          python - <<'PY'
+          import json
+          rows=json.load(open("d7e3-evidence/residual/summary.json"))["rows"]
+          by={(r["case"],r["tolerance"]):r for r in rows}
+          assert len(by)==6
+          for k in ("tof_3","qwalk-noancilla_negative_3"):
+              for tol in (None,0.0):
+                  r=by[k,tol]
+                  assert r["verdict"]==("equivalent" if k=="tof_3" else "unknown")
+                  assert r["solver_invoked"] is False
+          r=by["qwalk-noancilla_3",None]
+          assert r["verdict"]=="equivalent" and r["rr_approximate"] and not r["solver_invoked"]
+          assert r["h"]==0 and r["numeric_wrapped_l1_cycles"].startswith("2.220446049250313")
+          assert by["qwalk-noancilla_3",0.0]["verdict"]=="unknown"
+          print("D7E3_RED_GREEN_PASS")
+          PY
+      - name: Seal evidence
+        if: always()
+        run: |
+          mkdir -p d7e3-evidence
+          git rev-parse HEAD > d7e3-evidence/head.txt
+          git rev-parse 'HEAD^{tree}' > d7e3-evidence/tree.txt
+          python -m pip freeze > d7e3-evidence/python-dependencies.txt
+          cd d7e3-evidence
+          find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 -r sha256sum > SHA256SUMS
+          sha256sum -c SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: eq-dag-d7e3-python-red-green
+          path: d7e3-evidence/
           retention-days: 30

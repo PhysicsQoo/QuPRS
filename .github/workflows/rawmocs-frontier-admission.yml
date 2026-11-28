@@ -7,6 +7,9 @@ on:
       - 'research/rawmocs_integration/native_*.py'
       - 'research/rawmocs_integration/rust_library_poc.rs'
       - 'research/rawmocs_integration/rust_native_eq.rs'
+      - 'research/rawmocs_integration/stage_rust_native.py'
+      - 'research/rawmocs_integration/test_rust_native_selector.py'
+      - 'src/QuPRS/interface/rust_isolation.py'
       - 'rust/quprs/src/lib.rs'
       - 'rust/quprs/src/precision_count.rs'
       - 'src/QuPRS/utils/solver_adapter.py'
@@ -2141,6 +2144,27 @@ jobs:
           cp research/rawmocs_integration/rust_native_eq.rs "$RUNNER_TEMP/r1-rust/src/main.rs"
           CARGO_TARGET_DIR="$GITHUB_WORKSPACE/.rawmocs-candidate/crates/rawmocs-cli/target" cargo run --locked --release --manifest-path "$RUNNER_TEMP/r1-rust/Cargo.toml" 2>&1 | tee .p4-native-evidence/r3-rust-eq.log
           grep -Fx 'R3_DIRECT_RUST_EQ_PASS cases=6 failure_controls=3 reentry=1' .p4-native-evidence/r3-rust-eq.log
+      - name: R3b optional Rust native selector and PyO3 staged build
+        timeout-minutes: 6
+        env:
+          QUPRS_SOLVER_PROVISION: external
+          QUPRS_GPMC_PATH: ${{ github.workspace }}/.gpmc/build/gpmc
+          R3B_EVIDENCE: ${{ github.workspace }}/.p4-native-evidence/r3b
+        run: |
+          set -euo pipefail
+          stage="$RUNNER_TEMP/quprs-r3b"
+          mkdir -p "$stage" "$R3B_EVIDENCE"
+          git archive HEAD | tar -x -C "$stage"
+          python research/rawmocs_integration/stage_rust_native.py "$stage" "$GITHUB_WORKSPACE/.rawmocs-candidate" "$R3B_EVIDENCE"
+          python -m venv --system-site-packages "$RUNNER_TEMP/r3b-venv"
+          source "$RUNNER_TEMP/r3b-venv/bin/activate"
+          export CARGO_TARGET_DIR="$GITHUB_WORKSPACE/.rawmocs-candidate/crates/rawmocs-cli/target"
+          cd "$stage"
+          cargo generate-lockfile --manifest-path rust/Cargo.toml
+          cp rust/Cargo.lock "$R3B_EVIDENCE/Cargo.lock"
+          maturin develop --locked --release --features rawmocs-native 2>&1 | tee "$R3B_EVIDENCE/build.log"
+          PYTHONPATH="$stage/src" python research/rawmocs_integration/test_rust_native_selector.py 2>&1 | tee "$R3B_EVIDENCE/api.log"
+          grep -Fx 'R3B_PYO3_NATIVE_PASS cases=8 ffi_ledgers=4' "$R3B_EVIDENCE/api.log"
       - name: Actual QuPRS run_wmc and public Python verdict parity
         env:
           PYTHONPATH: ${{ github.workspace }}/src:${{ github.workspace }}/.rawmocs-candidate/crates/rawmocs-cli/tools

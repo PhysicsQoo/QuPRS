@@ -378,6 +378,8 @@ def check_equivalence(
             "'reduction_rules', or 'wmc_only'."
         )
 
+    if tool_name == "rawmocs_rust_native" and backend != "rust":
+        raise ValueError("rawmocs_rust_native requires backend=\"rust\"")
     if tool_name == "rawmocs_python_native" and backend != "python":
         raise ValueError("rawmocs_python_native requires backend=\"python\"")
 
@@ -422,6 +424,20 @@ def check_equivalence(
                     },
                     request_started=request_started,
                     request_deadline=request_deadline,
+                )
+        elif tool_name == "rawmocs_rust_native":
+            # This optional native library never resolves a solver executable.
+            remaining = int(request_deadline - time.monotonic())
+            if remaining < 1:
+                rust_res = {"status": "Timeout", "verification_time_sec": time.monotonic() - request_started}
+            else:
+                rust_res = _pathsum_rust.check_equivalence(
+                    c1_input, c2_input, method=method, strategy=strategy,
+                    tool_name=tool_name, timeout=remaining, safe_mode=False,
+                    wmc_phase_tolerance=wmc_phase_tolerance,
+                    approximate_distance_tolerance=approximate_distance_tolerance,
+                    rr_tolerance=rr_tolerance, phase_tolerance=wmc_phase_tolerance,
+                    gpmc_precision_digits=gpmc_precision_digits,
                 )
         else:
             import os

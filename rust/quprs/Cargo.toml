@@ -50,3 +50,7 @@ proptest = "1.0"
 default = ["high-precision-gpmc"]
 high-precision-gpmc = []
 browser-transport = []
+rawmocs-native = ["dep:rawmocs_mpfr", "high-precision-gpmc"]
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+rawmocs_mpfr = { package = "rawmocs", version = "=0.4.0", optional = true }

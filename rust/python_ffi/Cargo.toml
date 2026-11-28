@@ -21,5 +21,6 @@ pyo3 = { version = "=0.30.1", features = ["extension-module", "abi3-py311"] }
 pathsum = { package = "quprs", path = "../quprs", default-features = false }
 
 [features]
+rawmocs-native = ["pathsum/rawmocs-native"]
 default = ["high-precision-gpmc"]
 high-precision-gpmc = ["pathsum/high-precision-gpmc"]

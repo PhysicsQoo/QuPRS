@@ -60,15 +60,18 @@ def test_rust_safe_mode_qasm_text_parity():
     assert direct.equivalent == isolated.equivalent == "equivalent"
 
 
-def test_rust_safe_mode_preserves_global_phase_fail_closed():
+@pytest.mark.parametrize("method", ["reduction_rules", "hybrid", "wmc_only"])
+def test_rust_safe_mode_preserves_global_phase(method):
     a = QuantumCircuit(1)
     b = QuantumCircuit(1)
     b.global_phase = 0.5
-    with pytest.raises(ValueError, match="global_phase"):
-        check_equivalence(
-            a, b, backend="rust", method="reduction_rules",
-            safe_mode=True, timeout=30,
-        )
+    common = dict(backend="rust", method=method, timeout=30)
+    direct = check_equivalence(a, b, safe_mode=False, **common)
+    isolated = check_equivalence(a, b, safe_mode=True, **common)
+    assert direct.equivalent == isolated.equivalent == "equivalent*"
+    assert direct.wmc_solver_invoked == isolated.wmc_solver_invoked
+    assert (isolated.gate_num, isolated.gate_num2) == (0, 0)
+    assert float(b.global_phase) == 0.5
 
 
 def test_rust_safe_mode_external_gpmc_wmc_parity():

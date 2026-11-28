@@ -42,7 +42,7 @@ fn extract_circuit(obj: &Bound<'_, PyAny>) -> PyResult<(Vec<QuantumOp>, usize)> 
 }
 
 #[pyfunction]
-#[pyo3(signature = (circuit1, circuit2, method="hybrid", strategy="Difference", tool_name="gpmc", timeout=600, safe_mode=false, wmc_phase_tolerance=1e-8, approximate_distance_tolerance=Some(1e-8), rr_tolerance=1e-10, phase_tolerance=None, gpmc_precision_digits=30))]
+#[pyo3(signature = (circuit1, circuit2, method="hybrid", strategy="Difference", tool_name="gpmc", timeout=600, safe_mode=false, wmc_phase_tolerance=1e-8, approximate_distance_tolerance=Some(1e-8), rr_tolerance=1e-10, phase_tolerance=None, gpmc_precision_digits=30, scalar1_radians=None, scalar2_radians=None))]
 pub fn check_equivalence(
     circuit1: &Bound<'_, PyAny>,
     circuit2: &Bound<'_, PyAny>,
@@ -56,6 +56,8 @@ pub fn check_equivalence(
     rr_tolerance: f64,
     phase_tolerance: Option<f64>,
     gpmc_precision_digits: u32,
+    scalar1_radians: Option<&str>,
+    scalar2_radians: Option<&str>,
 ) -> PyResult<Py<PyAny>> {
     // The Python safe_mode worker isolation has no Rust FFI equivalent.
     // Never silently claim that the requested isolation is active.
@@ -103,8 +105,17 @@ pub fn check_equivalence(
         .ok().as_deref() == Some("1");
     let total_ffi_start = ffi_clock_enabled.then(Instant::now);
     let parse_start = ffi_clock_enabled.then(Instant::now);
-    let (ops1, num_qubits1) = extract_circuit(circuit1)?;
-    let (ops2, num_qubits2) = extract_circuit(circuit2)?;
+    let (mut ops1, num_qubits1) = extract_circuit(circuit1)?;
+    let (mut ops2, num_qubits2) = extract_circuit(circuit2)?;
+    let gate_count1 = ops1.len();
+    let gate_count2 = ops2.len();
+    for (ops, value) in [(&mut ops1, scalar1_radians), (&mut ops2, scalar2_radians)] {
+        if let Some(value) = value {
+            let angle = pathsum::rational::Angle::from_qasm_str(value)
+                .map_err(PyValueError::new_err)?;
+            ops.push(QuantumOp::GlobalPhase(angle));
+        }
+    }
     let qasm_extract_ns = parse_start.map(|start| start.elapsed().as_nanos() as u64);
     let system_qubits = std::cmp::max(num_qubits1, num_qubits2);
 
@@ -115,8 +126,8 @@ pub fn check_equivalence(
             dict.set_item("approximate_distance_tolerance", approximate_distance_tolerance)?;
             dict.set_item("wmc_solver_invoked", false)?;
             dict.set_item("qubits", system_qubits)?;
-            dict.set_item("gates1", ops1.len())?;
-            dict.set_item("gates2", ops2.len())?;
+            dict.set_item("gates1", gate_count1)?;
+            dict.set_item("gates2", gate_count2)?;
             dict.set_item("verification_time_sec", 0.0)?;
             dict.set_item("pathsum_time_sec", 0.0)?;
             dict.set_item("final_ps", "N/A")?;
@@ -189,8 +200,8 @@ pub fn check_equivalence(
         }
         
         dict.set_item("qubits", result.qubit_num)?;
-        dict.set_item("gates1", result.gate_num1)?;
-        dict.set_item("gates2", result.gate_num2)?;
+        dict.set_item("gates1", gate_count1)?;
+        dict.set_item("gates2", gate_count2)?;
         dict.set_item("verification_time_sec", result.verification_time)?;
         dict.set_item("pathsum_time_sec", result.pathsum_time)?;
         

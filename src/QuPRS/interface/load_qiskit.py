@@ -255,36 +255,26 @@ def load_circuit(circuit: str) -> QuantumCircuit:
         return circuit
 
 
-def _validate_rust_qasm_global_phase_contract(circuit1, circuit2) -> None:
-    """Reject relative scalar phases that the QASM2 Rust bridge cannot carry.
-
-    Equal explicitly specified input phases cancel in the comparison and
-    therefore may be omitted by the transport without changing either exact
-    equality or equality up to global phase. Unequal scalar phases cannot
-    safely be discarded when the public API distinguishes the two.
-    """
-
-    def phase_of(circuit) -> float:
+def _rust_qiskit_scalar_options(circuit1, circuit2):
+    """Transport finite numeric Qiskit scalars separately from QASM."""
+    def phase_of(circuit):
         if not isinstance(circuit, QuantumCircuit):
             return 0.0
         try:
             phase = float(circuit.global_phase)
         except (TypeError, ValueError, OverflowError) as exc:
-            raise ValueError(
-                "Rust backend requires a bound numeric QuantumCircuit.global_phase"
-            ) from exc
-        if not np.isfinite(phase):
-            raise ValueError(
-                "Rust backend requires a finite QuantumCircuit.global_phase"
-            )
+            raise ValueError("Rust backend requires a bound numeric QuantumCircuit.global_phase") from exc
+        if not math.isfinite(phase):
+            raise ValueError("Rust backend requires a finite QuantumCircuit.global_phase")
         return phase
-
-    if phase_of(circuit1) != phase_of(circuit2):
-        raise ValueError(
-            "Rust QASM2 transport cannot preserve unequal "
-            "QuantumCircuit.global_phase values. The exact-vs-global-phase "
-            "equivalence classification would be unreliable."
-        )
+    first, second = phase_of(circuit1), phase_of(circuit2)
+    if first == second:
+        return {}
+    def encoded(value):
+        n, d = value.as_integer_ratio()
+        return f"{n}/{d}"
+    return {key: encoded(value) for key, value in
+            (("scalar1_radians", first), ("scalar2_radians", second)) if value != 0.0}
 
 
 # =============================================================================
@@ -339,7 +329,9 @@ def check_equivalence(
             - 'Naive': Uses a naive strategy.
             - 'Straightforward': Uses a straightforward strategy.
         tool_name (str, optional): External WMC solver selection: "gpmc"
-            (default) or "ganak". This applies when a weighted count is
+            (default), "ganak", or "rawmocs_rust_native" (Rust backend and
+            an extension built with the optional rawmocs-native feature).
+            This applies when a weighted count is
             required, including Hybrid fallback and WMC-only runs. QuPRS
             does not silently switch to another solver on failure.
         backend (str, optional): "python" (default) uses the Python
@@ -414,20 +406,29 @@ def check_equivalence(
             "'reduction_rules', or 'wmc_only'."
         )
 
+    if tool_name == "rawmocs_rust_native" and backend != "rust":
+        raise ValueError("rawmocs_rust_native requires backend=\"rust\"")
+
     if backend == "rust":
-        _validate_rust_qasm_global_phase_contract(circuit1, circuit2)
+        scalar_options = _rust_qiskit_scalar_options(circuit1, circuit2)
         request_started = time.monotonic()
         request_deadline = request_started + timeout
         from QuPRS import _pathsum_rust
         
         # Load circuits as QASM strings to pass to Rust if they are QuantumCircuits
         if isinstance(circuit1, QuantumCircuit):
-            c1_input = qasm3.dumps(circuit1) if "OPENQASM 3.0" in getattr(circuit1, 'qasm', lambda: '')() else qasm2.dumps(circuit1)
+            transport1 = circuit1.copy() if circuit1.global_phase != 0 else circuit1
+            if transport1 is not circuit1:
+                transport1.global_phase = 0
+            c1_input = qasm3.dumps(transport1) if "OPENQASM 3.0" in getattr(circuit1, 'qasm', lambda: '')() else qasm2.dumps(transport1)
         else:
             c1_input = circuit1
             
         if isinstance(circuit2, QuantumCircuit):
-            c2_input = qasm3.dumps(circuit2) if "OPENQASM 3.0" in getattr(circuit2, 'qasm', lambda: '')() else qasm2.dumps(circuit2)
+            transport2 = circuit2.copy() if circuit2.global_phase != 0 else circuit2
+            if transport2 is not circuit2:
+                transport2.global_phase = 0
+            c2_input = qasm3.dumps(transport2) if "OPENQASM 3.0" in getattr(circuit2, 'qasm', lambda: '')() else qasm2.dumps(transport2)
         else:
             c2_input = circuit2
 
@@ -452,9 +453,25 @@ def check_equivalence(
                         "gpmc_precision_digits": gpmc_precision_digits,
                         "phase_tolerance": wmc_phase_tolerance,
                         "timeout": remaining,
+                        **scalar_options,
                     },
                     request_started=request_started,
                     request_deadline=request_deadline,
+                )
+        elif tool_name == "rawmocs_rust_native":
+            # This optional native library never resolves a solver executable.
+            remaining = int(request_deadline - time.monotonic())
+            if remaining < 1:
+                rust_res = {"status": "Timeout", "verification_time_sec": time.monotonic() - request_started}
+            else:
+                rust_res = _pathsum_rust.check_equivalence(
+                    c1_input, c2_input, method=method, strategy=strategy,
+                    tool_name=tool_name, timeout=remaining, safe_mode=False,
+                    wmc_phase_tolerance=wmc_phase_tolerance,
+                    approximate_distance_tolerance=approximate_distance_tolerance,
+                    rr_tolerance=rr_tolerance, phase_tolerance=wmc_phase_tolerance,
+                    gpmc_precision_digits=gpmc_precision_digits,
+                    **scalar_options,
                 )
         else:
             import os
@@ -510,6 +527,7 @@ def check_equivalence(
                                         rr_tolerance=rr_tolerance,
                                         phase_tolerance=wmc_phase_tolerance,
                                         gpmc_precision_digits=gpmc_precision_digits,
+                                        **scalar_options,
                                     )
                             finally:
                                 if previous_path is None:

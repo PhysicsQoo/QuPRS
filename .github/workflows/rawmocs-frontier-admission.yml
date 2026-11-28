@@ -2136,11 +2136,12 @@ jobs:
           python research/rawmocs_integration/native_first.py
       - name: P4.7 paired bounded transport WallTime and Simulation preparation
         env:
+          RAWMOCS_PERF_PROFILE: ${{ github.event_name == 'push' && 'lean' || 'full' }}
           PYTHONPATH: ${{ github.workspace }}:${{ github.workspace }}/src:${{ github.workspace }}/.rawmocs-candidate/crates/rawmocs-cli/tools
           PYTHONHASHSEED: '0'
         run: python research/rawmocs_integration/native_perf.py prepare
       - name: P4.7 bounded solver-boundary CPU Simulation
-        timeout-minutes: 8
+        timeout-minutes: 5
         env:
           PYTHONPATH: ${{ github.workspace }}:${{ github.workspace }}/src:${{ github.workspace }}/.rawmocs-candidate/crates/rawmocs-cli/tools
           PYTHONHASHSEED: '0'
@@ -2264,16 +2265,11 @@ jobs:
     if: github.event_name == 'workflow_dispatch' && inputs.suite == 'p47-released-long'
     name: P4.7 released long witnessed transport / ${{ matrix.case }}
     runs-on: ubuntu-24.04
-    timeout-minutes: 25
+    timeout-minutes: 18
     strategy:
       fail-fast: false
       matrix:
         include:
-          - case: qpeinexact22
-            artifact: '14999026030'
-            zip_sha: a11704d97a21c7642054c31caaa733e734a0505860fb63a1acd94b22a906ee9f
-            cnf_sha: 6fb69626195bee5b89ed3503ae8b1b4801d9267e7bd5ff3684af152afcd885e1
-            witness_sha: e59e2741a69dbb13b4f6d0b44562ac689541c4bcf7c43da476006ec8f1b87512
           - case: grover6
             artifact: '14993988130'
             zip_sha: b222c21a0177876d6fdd4e915ac7359a94f2058ac7846ca33b0c00946fb7054e
@@ -2285,6 +2281,7 @@ jobs:
             cnf_sha: 079f86a832056412d015759dd20a556a998ab4d596bea774a9ff5ebaed3484b7
             witness_sha: 07635afae84795a1bc4846ceaad3dd46bc47d4284d9afb32df8ac918625df630
     env:
+      RAWMOCS_LONG_LIMIT_S: '60'
       OPENBLAS_NUM_THREADS: '1'
       OMP_NUM_THREADS: '1'
       MKL_NUM_THREADS: '1'

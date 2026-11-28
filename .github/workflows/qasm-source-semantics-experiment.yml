@@ -206,10 +206,6 @@ jobs:
           timeout 120s git -C "$src" fetch --depth=1 origin "$pin"
           git -C "$src" checkout --detach FETCH_HEAD
           test "$(git -C "$src" rev-parse HEAD)" = "$pin"
-          cmake -S "$src" -B "$src/build" -DCMAKE_BUILD_TYPE=Release > evidence/autoq-configure.log 2>&1
-          timeout 600s cmake --build "$src/build" --target autoq -j2 > evidence/autoq-build.log 2>&1
-          export LD_LIBRARY_PATH="$src:$src/build/lib:$src/build/cli:${LD_LIBRARY_PATH:-}"
-          "$src/build/cli/autoq" -v | tee evidence/autoq-version.txt
           cargo test --release --locked --manifest-path rust/Cargo.toml -p quprs --test property_hoare_experiment --no-run --message-format=json > evidence/release-build.jsonl
           python3 - <<'PY'
           import json,pathlib
@@ -218,6 +214,20 @@ jobs:
           assert len(paths)==1,paths
           pathlib.Path("evidence/release-bin.path").write_text(paths[0])
           PY
+          # Fail fast on CORE-10 source/capacity contracts before building
+          # AutoQ or launching the matched/held-out counting cohorts.
+          CPS_CORE_SOURCE_DIR="$src" timeout 30s "$(cat evidence/release-bin.path)" --exact exact_property_cnf::hoare_cps_basis_family_source --nocapture | tee evidence/cps-core10-basis.log
+          grep -Fx 'CPS_CORE10_BASIS_SUMMARY cases=4 columns=1248 rejection_controls=6 widened=PASS output_boundary=PASS' evidence/cps-core10-basis.log
+          timeout 30s "$(cat evidence/release-bin.path)" --exact exact_property_cnf::hoare_cps_entrywise_square --nocapture | tee evidence/cps-core10-fourth-oracle.log
+          grep -Fx 'CPS_CORE10_FOURTH_ORACLE matrix=PASS span_counterexample=PASS product_sign=PASS' evidence/cps-core10-fourth-oracle.log
+          grep -Fx 'CPS_CORE10_RECTANGULAR_ORACLE matrix=PASS both_directions=PASS encoder_admission=PASS' evidence/cps-core10-fourth-oracle.log
+          timeout 30s "$(cat evidence/release-bin.path)" --exact exact_property_cnf::hoare_cps_cat_family --nocapture | tee evidence/cps-core10-cat-oracle.log
+          grep -Fx 'CPS_CORE10_CAT_ORACLE hsl_columns=PASS gram=PASS chain_spread=PASS rejection_controls=PASS' evidence/cps-core10-cat-oracle.log
+          grep -Fx 'CPS_CORE10_WIDE_ORACLE width32=PASS legacy_cap=PASS width33_reject=PASS id_cap=PASS replay=PASS' evidence/cps-core10-cat-oracle.log
+          cmake -S "$src" -B "$src/build" -DCMAKE_BUILD_TYPE=Release > evidence/autoq-configure.log 2>&1
+          timeout 600s cmake --build "$src/build" --target autoq -j2 > evidence/autoq-build.log 2>&1
+          export LD_LIBRARY_PATH="$src:$src/build/lib:$src/build/cli:${LD_LIBRARY_PATH:-}"
+          "$src/build/cli/autoq" -v | tee evidence/autoq-version.txt
           timeout 660s python3 rust/research/cps_core_matched_p0.py "$(cat evidence/release-bin.path)" "$RUNNER_TEMP/cps-gpmc" "$src/build/cli/autoq" "$src" evidence/cps-core-matched | tee evidence/cps-core-matched.log
           grep -F 'CPS_MATCHED_SUMMARY {"arms": 324, "periods": 6' evidence/cps-core-matched.log
           CPS_CORE_SOURCE_DIR="$src" CPS_CORE_ENCODING_DIR="$PWD/evidence/cps-core-encoding" timeout 60s "$(cat evidence/release-bin.path)" --exact exact_property_cnf::hoare_cps_core_encoding_ab --nocapture | tee evidence/cps-core-encoding-export.log
@@ -297,8 +307,6 @@ jobs:
           set -euo pipefail
           src="$RUNNER_TEMP/autoq-matched"
           export LD_LIBRARY_PATH="$src:$src/build/lib:$src/build/cli:${LD_LIBRARY_PATH:-}"
-          CPS_CORE_SOURCE_DIR="$src" timeout 30s "$(cat evidence/release-bin.path)" --exact exact_property_cnf::hoare_cps_basis_family_source --nocapture | tee evidence/cps-core10-basis.log
-          grep -F 'CPS_CORE10_BASIS_SUMMARY cases=4 ' evidence/cps-core10-basis.log
           # StateSet membership needs monomial or deterministic label-fibre certification, not span inclusion alone.
           # CORE-10a retry: construct the existing FxHashSet with Default.
           timeout 350s python3 rust/research/cps_core_basis_family_p0.py "$(cat evidence/release-bin.path)" "$RUNNER_TEMP/cps-gpmc" "$src/build/cli/autoq" "$src" evidence/cps-core10 | tee evidence/cps-core10.log
@@ -309,12 +317,6 @@ jobs:
           set -euo pipefail
           src="$RUNNER_TEMP/autoq-matched"
           export LD_LIBRARY_PATH="$src:$src/build/lib:$src/build/cli:${LD_LIBRARY_PATH:-}"
-          timeout 30s "$(cat evidence/release-bin.path)" --exact exact_property_cnf::hoare_cps_entrywise_square --nocapture | tee evidence/cps-core10-fourth-oracle.log
-          grep -Fx 'CPS_CORE10_FOURTH_ORACLE matrix=PASS span_counterexample=PASS product_sign=PASS' evidence/cps-core10-fourth-oracle.log
-          grep -Fx 'CPS_CORE10_RECTANGULAR_ORACLE matrix=PASS both_directions=PASS encoder_admission=PASS' evidence/cps-core10-fourth-oracle.log
-          timeout 30s "$(cat evidence/release-bin.path)" --exact exact_property_cnf::hoare_cps_cat_family --nocapture | tee evidence/cps-core10-cat-oracle.log
-          grep -Fx 'CPS_CORE10_CAT_ORACLE hsl_columns=PASS gram=PASS chain_spread=PASS rejection_controls=PASS' evidence/cps-core10-cat-oracle.log
-          grep -Fx 'CPS_CORE10_WIDE_ORACLE width32=PASS legacy_cap=PASS width33_reject=PASS id_cap=PASS replay=PASS' evidence/cps-core10-cat-oracle.log
           timeout 690s python3 rust/research/cps_core_fourth_p0.py "$(cat evidence/release-bin.path)" "$RUNNER_TEMP/cps-gpmc" "$src/build/cli/autoq" "$src" evidence/cps-core10-fourth | tee evidence/cps-core10-fourth.log
           grep -F 'CPS_CORE10_FOURTH_SUMMARY {"arms": 138, "cases": 9,' evidence/cps-core10-fourth.log
       - uses: actions/upload-artifact@v4

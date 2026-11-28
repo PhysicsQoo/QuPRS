@@ -1316,10 +1316,82 @@ fn core_hsl_basis_family(src:&str)->Option<CpsCore>{
     let c=CpsCore::canonical(ps,Anf::from([0]))?;
     core_basis_isometry(&c).then_some(c)
 }
+// Exact product of one-bit basis-ray families, as in pinned HXH HSL.
+// Each input bit labels one output basis bit. Per-column phases do not
+// change isometry or ray membership. No tensor-column enumeration.
+fn core_hsl_product_basis(src:&str)->Option<CpsCore>{
+    let mut lines=src.lines().map(str::trim);
+    if lines.next()?!="Constants"||lines.next()?!="c1 := 1"{return None;}
+    let line=lines.next()?;
+    let signed=match line{
+        "Extended Dirac"=>false,
+        "c2 := -1"=>{if lines.next()?!="Extended Dirac"{return None;}true},
+        _=>return None,
+    };
+    let (body,width)=lines.next()?.rsplit_once(" ^ ")?;
+    if body!=if signed{"{c1 |0>, c2 |1>}"}else{"{c1 |i> : |i|=1}"}{return None;}
+    let n=width.parse::<usize>().ok()?;
+    if n==0||n>16||lines.any(|l|!l.is_empty()){return None;}
+    let mut ps=PathSum::new(n);ps.set_auto_reduce(false);
+    if signed{for i in 0..n{ps.p.add_term(vec![i as u32],quprs::PhaseCoeff::HALF);}}
+    let c=CpsCore::canonical(ps,Anf::from([0]))?;
+    core_basis_isometry(&c).then_some(c)
+}
+// Entrywise square M∘M in the same CPS core. Formal input labels are
+// shared, path variables are independently rebased, and output labels
+// are matched by Boolean equality factors. k doubles, not recomputed.
+// Its squared Frobenius norm is sum_{x,z}|M[z,x]|^4.
+fn core_entrywise_square(c:&CpsCore)->Option<CpsCore>{
+    if !c.valid(){return None;}
+    let mut ps=c.ps.clone();ps.set_auto_reduce(false);
+    let mut map=BTreeMap::new();
+    for &id in &c.guard.ids{
+        let v=if (id as usize)<c.n(){id}else{
+            if ps.v.next_id>=63{return None;}
+            ps.v.get_fresh_var()
+        };
+        map.insert(id,v);
+    }
+    let (p,f)=core_rename(&c.ps,&map)?;
+    let mut factors=c.guard.factors().cloned().collect::<Vec<_>>();
+    for g in c.guard.factors(){factors.push(core_rename_anf(g,&map)?);}
+    for (a,b) in c.ps.f.functions.iter().zip(&f.functions){
+        let mut eq=core_anf(a)?;xor_insert(&mut eq,0);
+        for m in core_anf(b)?{xor_insert(&mut eq,m);}
+        factors.push(eq);
+    }
+    for (m,coeff) in p.terms{ps.p.add_term(m,coeff);}
+    CpsCore::from_factors(ps,core_pack_guard_factors(factors),c.k.checked_mul(2)?)
+}
+#[test]
+fn hoare_cps_entrywise_square(){
+    // Full exact matrix parity, including complex phases and independent
+    // paths. Span inclusion alone accepts H on a complete basis; the
+    // fourth moment refutes ray membership (mass 1 instead of 2).
+    for ops in [vec![],vec![G::H(0)],vec![G::H(0),G::T(0)],vec![G::H(0),G::X(0),G::H(0)]]{
+        let c=CpsCore::circuit(1,&ops).unwrap();
+        let q=core_entrywise_square(&c).unwrap();
+        assert_eq!((q.n(),q.q(),q.k),(1,1,2*c.k));
+        let expect=core_matrix(&c).into_iter().map(|row|row.into_iter().map(|v|rus_mul(v,v)).collect::<Vec<_>>()).collect::<Vec<_>>();
+        assert_eq!(core_matrix(&q),expect);
+    }
+    let h=CpsCore::circuit(1,&[G::H(0)]).unwrap();
+    let sq=core_entrywise_square(&h).unwrap();
+    assert_eq!((h.k,core_norm_numerator(&h)),(1,(4,0)));
+    assert_eq!((sq.k,core_norm_numerator(&sq)),(2,(4,0)));
+    let signed=core_hsl_product_basis("Constants\nc1 := 1\nc2 := -1\nExtended Dirac\n{c1 |0>, c2 |1>} ^ 2\n").unwrap();
+    let matrix=core_matrix(&signed);
+    for x in 0..4usize{for z in 0..4usize{
+        assert_eq!(matrix[z][x],if x==z{[if x.count_ones()%2==0{1}else{-1},0,0,0]}else{[0;4]});
+    }}
+    println!("CPS_CORE10_FOURTH_ORACLE matrix=PASS span_counterexample=PASS product_sign=PASS");
+}
+
 fn core_basis_isometry(c:&CpsCore)->bool{
     if !c.valid()||c.k!=0||c.guard.ids.len()!=c.n()||
-        !c.guard.factors().all(|g|g==&Anf::from([0]))||
-        c.ps.p.terms.keys().any(|m|!m.is_empty()){return false;}
+        !c.guard.factors().all(|g|g==&Anf::from([0])){return false;}
+    // shared_valid already confines admitted exact phases to live IDs;
+    // here every live ID is a formal input. Column-wise unit phase is OK.
     let mut seen=BTreeSet::new();
     for f in &c.ps.f.functions{
         if f.len()>1{return false;}
@@ -1743,11 +1815,14 @@ fn hoare_cps_core_matched_worker(){
         let post=std::fs::read_to_string(dir.join("post.hsl")).ok()?;
         let src=std::fs::read_to_string(dir.join("circuit.qasm")).ok()?;
         let t=std::time::Instant::now();
-        let basis=std::env::var("CPS_CORE_SOURCE_VARIANT").as_deref()==Ok("basis-family");
-        stage="pre-lowering";let a=if basis{core_hsl_basis_family(&pre)?}else{core_hsl_lower(&pre)?};
+        let source_variant=std::env::var("CPS_CORE_SOURCE_VARIANT");
+        let basis=source_variant.as_deref()==Ok("basis-family");
+        let fourth=source_variant.as_deref()==Ok("basis-fourth");
+        stage="pre-lowering";let a=if fourth{core_hsl_product_basis(&pre)?}else if basis{core_hsl_basis_family(&pre)?}else{core_hsl_lower(&pre)?};
         stage="post-lowering";
         let b=match std::env::var("CPS_CORE_SOURCE_VARIANT").as_deref(){
             Ok("basis-family")=>core_hsl_basis_family(&post)?,
+            Ok("basis-fourth")=>core_hsl_product_basis(&post)?,
             Err(std::env::VarError::NotPresent)|Ok("baseline")=>core_hsl_lower(&post)?,
             Ok("selector")=>core_hsl_lower_with(&post,|a,n,b|core_hsl_state_factored_selector(a,n,b,true))?,
             _=>return None,
@@ -1758,7 +1833,10 @@ fn hoare_cps_core_matched_worker(){
             Ok(v)=>v,Err(detail)=>{println!("CPS_COMPOSITION_DETAIL {detail}");return None;}
         };
         stage="label-certificate";
-        if basis{
+        if fourth{
+            if !core_basis_isometry(&a)||!core_basis_isometry(&b)||a.n()!=b.n(){return None;}
+            println!("CPS_CORE10_MEMBERSHIP_CERT kind=fourth-moment");
+        }else if basis{
             // Range inclusion alone is not StateSet membership: a
             // superposition of multiple allowed kets could pass the norm.
             // Either U is monomial on basis states, or the existing
@@ -1770,10 +1848,18 @@ fn hoare_cps_core_matched_worker(){
             if !monomial&&!core_label_support(&ua,&b){return None;}
             println!("CPS_CORE10_MEMBERSHIP_CERT kind={}",if monomial{"monomial-unitary"}else{"deterministic-label-fibre"});
         }else if !core_label_support(&ua,&b){return None;}
+        let mut c=if fourth{
+            // Direct existing affine B-dagger composition; no native RR
+            // before the initial squared obligation is shared by policies.
+            stage="composition";
+            let m=match ua.then_adjoint_affine(&b){Ok((m,_,_))=>m,Err(detail)=>{println!("CPS_COMPOSITION_DETAIL {detail}");return None;}};
+            stage="entrywise-square";
+            core_entrywise_square(&m)?
+        }else{
         stage="adjoint";let bd=match b.adjoint_diagnostic(){
             Ok(v)=>v,Err(detail)=>{println!("CPS_COMPOSITION_DETAIL {detail}");return None;}
         };
-        stage="composition";let mut c=match ua.then_diagnostic(&bd){
+        stage="composition";match ua.then_diagnostic(&bd){
             Ok(v)=>v,Err(detail)=>{
                 if !detail.contains("bound-id-cap"){println!("CPS_COMPOSITION_DETAIL {detail}");return None;}
                 match ua.then_adjoint_affine(&b){
@@ -1798,6 +1884,7 @@ fn hoare_cps_core_matched_worker(){
                     }
                 }
             }
+        }
         };
         let build_ns=t.elapsed().as_nanos();
         stage="initial-snapshot";let snap=guarded_snapshot(&c.ps,c.n(),&c.guard)?;

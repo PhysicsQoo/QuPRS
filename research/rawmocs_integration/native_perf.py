@@ -103,6 +103,11 @@ def prepare():
                 quprs_sha=subprocess.check_output(["git","rev-parse","HEAD"],text=True).strip(),
                 rawmocs_sha=subprocess.check_output(["git","-C",".rawmocs-candidate","rev-parse","HEAD"],text=True).strip(),
                 binaries={"rawmocs":digest(RAW),"gpmc":digest(GPMC),"native":digest(Path(rawmocs._native.__file__))})
+    lean = os.environ.get("RAWMOCS_PERF_PROFILE", "full") == "lean"
+    report["profile"] = "lean" if lean else "full"
+    report["walltime_trials"] = 3 if lean else 6
+    report["scout_limit_ns"] = 250_000_000 if lean else 500_000_000
+    simulation_arms = ("gpmc", "rawmocs_native") if lean else ARMS
     config=["options:",'  max-time: "1s"',"benchmarks:"]
     save(report)
     for name in ("complex","wide","vqe4","grover4"):
@@ -121,10 +126,10 @@ def prepare():
         except solver_process.SolverTimeout:
             case["status"]="SCOUT_CENSORED";save(report);continue
         same(rows);case["scout"]=rows
-        if max(v["wall_ns"] for v in rows.values())>500_000_000:
+        if max(v["wall_ns"] for v in rows.values())>report["scout_limit_ns"]:
             case["status"]="TOO_LONG_FOR_SIMULATION";save(report);continue
         case["trials"]=[]
-        for i in range(6):
+        for i in range(report["walltime_trials"]):
             order=ARMS[i%3:]+ARMS[:i%3]
             if i>=3:order=order[::-1]
             assert digest(path)==case["cnf_sha256"]
@@ -142,10 +147,13 @@ def prepare():
         if report["cases"][name]["status"]=="ADMITTED":
             selected.append(name);break
     report["simulation_scope"]="direct solver boundary; native Python import included, QuPRS import excluded"
+    if lean:
+        assert len(selected)==2, "no real short circuit admitted for routine Simulation"
     report["simulation_selected"]=selected
+    report["simulation_arms"]=list(simulation_arms)
     for name in selected:
         path=ROOT/f"perf-{name}.cnf"
-        for arm in ARMS:
+        for arm in simulation_arms:
             wrapper=ROOT/f"perf-{name}-{arm}.sh"
             out=ROOT/f"perf-{name}-{arm}.simulation.stdout"
             err=ROOT/f"perf-{name}-{arm}.simulation.stderr"
@@ -166,10 +174,13 @@ def verify():
     report=json.loads((ROOT/"performance.json").read_text())
     assert report["status"]=="WALLTIME_PASS"
     assert report["binaries"]=={"rawmocs":digest(RAW),"gpmc":digest(GPMC),"native":digest(Path(rawmocs._native.__file__))}
+    expected_arms = ["gpmc", "rawmocs_native"] if report["profile"]=="lean" else list(ARMS)
+    assert report["simulation_arms"] == expected_arms
+    assert len(report["simulation_selected"]) == 2 if report["profile"]=="lean" else bool(report["simulation_selected"])
     for name in report["simulation_selected"]:
         case=report["cases"][name]
         assert digest(ROOT/f"perf-{name}.cnf")==case["cnf_sha256"]
-        for arm in ARMS:
+        for arm in expected_arms:
             prefix=ROOT/f"perf-{name}-{arm}"
             stdout=prefix.with_suffix(".simulation.stdout").read_text()
             stderr=prefix.with_suffix(".simulation.stderr").read_text()

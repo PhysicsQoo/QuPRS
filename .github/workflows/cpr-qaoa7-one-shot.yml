@@ -1,0 +1,85 @@
+name: CPR QAOA7 one-shot diagnostic
+on:
+  push:
+    branches: ['experiment/cpr-qaoa7-final-diagnostic']
+    paths: ['.github/workflows/cpr-qaoa7-one-shot.yml', 'rust/research/cpr_qaoa7_final_diagnostic.py']
+permissions:
+  contents: read
+jobs:
+  qaoa7:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      BASE_SHA: b398f07d6845efc23540549ccbfec717c27b1722
+      HEAD_SHA: 57ea6f5f81deb12ec4fd4ca938894c1405d545b3
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.HEAD_SHA }}
+          path: candidate
+          submodules: recursive
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.BASE_SHA }}
+          path: candidate/pr-walltime-base
+          submodules: recursive
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build exact two verifier revisions and pin solver bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/cpr-qaoa7-evidence"
+          cd candidate
+          test "$(git rev-parse HEAD)" = "$HEAD_SHA"
+          test "$(git -C pr-walltime-base rev-parse HEAD)" = "$BASE_SHA"
+          git rev-parse HEAD HEAD^{tree} | tee "$RUNNER_TEMP/cpr-qaoa7-evidence/head.txt"
+          git -C pr-walltime-base rev-parse HEAD HEAD^{tree} | tee "$RUNNER_TEMP/cpr-qaoa7-evidence/base.txt"
+          cmp rust/Cargo.lock pr-walltime-base/rust/Cargo.lock
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends cmake pkg-config libgmp-dev libmpfr-dev zlib1g-dev
+          for arm in base head; do
+            src="$PWD"
+            if [[ "$arm" == base ]]; then src="$PWD/pr-walltime-base"; fi
+            venv="$RUNNER_TEMP/quprs-pr-walltime-$arm"
+            python -m venv "$venv"
+            "$venv/bin/python" -m pip install --disable-pip-version-check maturin
+            (cd "$src" && VIRTUAL_ENV="$venv" "$venv/bin/maturin" develop --release -E dev)
+            "$venv/bin/python" -m pip freeze > "$RUNNER_TEMP/cpr-qaoa7-evidence/$arm-freeze.txt"
+          done
+          a=pr-walltime-base/src/QuPRS/utils/wmc_tools/gpmc
+          b=src/QuPRS/utils/wmc_tools/gpmc
+          test -x "$a" && test -x "$b"
+          cmp "$a" "$b"
+          sha256sum "$a" "$b" | tee "$RUNNER_TEMP/cpr-qaoa7-evidence/gpmc.sha256"
+          rustc --version | tee "$RUNNER_TEMP/cpr-qaoa7-evidence/rustc.txt"
+          lscpu > "$RUNNER_TEMP/cpr-qaoa7-evidence/cpu.txt"
+      - name: Fixed 8-pair QAOA7 end-to-end observation
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd candidate
+          export GITHUB_WORKSPACE="$PWD"
+          export PYTHONPATH="$PWD"
+          unset QUPRS_STAGE_LEDGER QUPRS_DIAGNOSTIC_RR_TOLERANCE QUPRS_DIAGNOSTIC_DISTANCE_TOLERANCE QUPRS_DIAGNOSTIC_PHASE_TOLERANCE QUPRS_DIAGNOSTIC_GPMC_DIGITS QUPRS_CROSS_METHOD_SOLVER_TIMEOUT QUPRS_GPMC_PATH
+          "$RUNNER_TEMP/quprs-pr-walltime-head/bin/python" ../rust/research/cpr_qaoa7_final_diagnostic.py 2>&1 | tee "$RUNNER_TEMP/cpr-qaoa7-evidence/observations.log"
+      - name: Seal diagnostic evidence
+        if: always()
+        shell: bash
+        run: |
+          cd "$RUNNER_TEMP/cpr-qaoa7-evidence"
+          find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: cpr-qaoa7-final-diagnostic
+          path: ${{ runner.temp }}/cpr-qaoa7-evidence
+          if-no-files-found: error
+          retention-days: 14

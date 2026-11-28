@@ -117,6 +117,41 @@ def main():
                 assert all(row[a]["verdict"]==expected for a in ("gpmc","rawmocs","rawmocs_native")),row
                 assert row["rawmocs"]==row["rawmocs_native"],row
                 report["e2e"].append(row);save()
+        # Built-in opt-in Python EQ route: use memory CNF, no external solver.
+        report["python_native_builtin"] = []
+        actual_solve = rawmocs.solve
+        for name,circuit,expected in (("eq",eq,"equivalent"),("neq",neq,"not_equivalent")):
+            for method in ("wmc_only","hybrid"):
+                baseline = check_equivalence(identity,circuit,method=method,strategy="Naive",
+                    backend="python",tool_name="gpmc",timeout=10,safe_mode=False)
+                seen = []
+                def observe_text(cnf, **kwargs):
+                    assert isinstance(cnf,str) and cnf.startswith("p cnf ")
+                    assert kwargs["digits"] == 30
+                    seen.append(hashlib.sha256(cnf.encode()).hexdigest())
+                    return actual_solve(cnf, **kwargs)
+                with patch.object(rawmocs,"solve",observe_text), \
+                     patch.object(rawmocs,"solve_file",forbidden), \
+                     patch.object(solver_process,"run",forbidden), \
+                     patch("tempfile.NamedTemporaryFile",forbidden):
+                    result = check_equivalence(identity,circuit,method=method,strategy="Naive",
+                        backend="python",tool_name="rawmocs_python_native",timeout=10,safe_mode=False)
+                assert result.equivalent == baseline.equivalent == expected
+                assert len(seen) == int(result.wmc_solver_invoked)
+                assert result.wmc_solver_invoked == baseline.wmc_solver_invoked
+                report["python_native_builtin"].append(dict(case=name,method=method,
+                    verdict=result.equivalent,invoked=result.wmc_solver_invoked,cnf_sha256=seen))
+                save()
+        assert any(r["invoked"] for r in report["python_native_builtin"])
+        # Fail closed: a native failure is not a numerical result or CLI fallback.
+        bad = "not a CNF"
+        try:
+            run_wmc(None,"rawmocs_python_native",timeout=10,preserve_count=True,cnf_text=bad)
+        except SolverExecutionError as exc:
+            assert exc.kind == "INVALID_INPUT" and not hasattr(exc,"count")
+        else:
+            raise AssertionError("invalid native CNF accepted")
+        print("PYTHON_NATIVE_BUILTIN_EQ_PASS cases=4")
         assert get_solver_adapter("gpmc") is default
         try:get_solver_adapter("rawmocs_native")
         except ValueError:pass

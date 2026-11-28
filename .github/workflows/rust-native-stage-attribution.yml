@@ -38,6 +38,7 @@ on:
           - d7c
           - d7d
           - d7e
+          - d7e2
           - e1c-matrix
           - l1
   push:
@@ -2017,4 +2018,51 @@ jobs:
         with:
           name: eq-dag-d7e-corrected-baseline
           path: d7e-evidence/
+          retention-days: 30
+
+  eq-dag-d7e2:
+    if: github.ref == 'refs/heads/experiment/eq-dag-encoder' && ((github.event_name == 'push' && contains(github.event.head_commit.message, 'diagnose Python QWalk residual D7e2')) || (github.event_name == 'workflow_dispatch' && inputs.dag_stage == 'd7e2'))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    env:
+      PYTHONHASHSEED: '0'
+      OMP_NUM_THREADS: '1'
+      OPENBLAS_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Pin Python source and dependencies
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse f1c75aa3f1429af1c4747a451355b64d25792947^{tree})" = 0924ca6f7a701ae1e13fc925a79d1c0a3ce438f5
+          git worktree add --detach "$RUNNER_TEMP/hh-fixed" f1c75aa3f1429af1c4747a451355b64d25792947
+          python -m pip install 'qiskit==2.6.1' numpy sympy symengine 'qiskit-qasm3-import>=0.5.1' psutil
+      - name: Bounded Python residual and verdict diagnostics
+        run: |
+          set -euo pipefail
+          export PYTHONPATH="$RUNNER_TEMP/hh-fixed/src"
+          python -m py_compile rust/research/eq_dag_d7e2.py
+          python -u rust/research/eq_dag_d7e2.py d7e2-evidence | tee d7e2.log
+      - name: Seal evidence
+        if: always()
+        run: |
+          mkdir -p d7e2-evidence
+          test ! -f d7e2.log || cp d7e2.log d7e2-evidence/
+          git rev-parse HEAD > d7e2-evidence/head.txt
+          git rev-parse 'HEAD^{tree}' > d7e2-evidence/tree.txt
+          python -m pip freeze > d7e2-evidence/python-dependencies.txt
+          cd d7e2-evidence
+          find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 -r sha256sum > SHA256SUMS
+          sha256sum -c SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: eq-dag-d7e2-python-residual
+          path: d7e2-evidence/
           retention-days: 30

@@ -1041,8 +1041,8 @@ fn hoare_cps_core_guarded_rr(){
 // reconstruction and no re-normalization from residual hidden count.
 impl CpsCore{
     fn wmc_norm_plan(&self)->Option<(Cnf,[Lit;3],usize,i32)>{
-        if !self.valid()||self.n()!=self.q(){return None;}
-        let s=compact(&self.ps,self.n())?;
+        if !self.valid(){return None;}
+        let s=compact_shape(&self.ps,self.n(),self.q())?;
         let primary=s.n.checked_add(s.h.checked_mul(2)?)?;
         // Each ANF mask indexes one copy only; CNF literals index both copies.
         if s.n+s.h>63||primary>126{return None;}
@@ -1384,6 +1384,23 @@ fn hoare_cps_entrywise_square(){
     for x in 0..4usize{for z in 0..4usize{
         assert_eq!(matrix[z][x],if x==z{[if x.count_ones()%2==0{1}else{-1},0,0,0]}else{[0;4]});
     }}
+    // Independent rectangular matrix oracle. A embeds one bit into
+    // two, B is the entire two-bit basis; then reverse the roles.
+    let a=core_hsl_basis_family("Constants\nc1 := 1\nExtended Dirac\n{c1 |i0> : |i|=1}\n").unwrap();
+    let b=core_hsl_basis_family("Constants\nc1 := 1\nExtended Dirac\n{c1 |i> : |i|=2}\n").unwrap();
+    for (lhs,rhs,n,q,mass) in [(&a,&b,1usize,2usize,2i64),(&b,&a,2,1,2)]{
+        let (m,_,_)=lhs.then_adjoint_affine(rhs).unwrap();
+        let sq=core_entrywise_square(&m).unwrap();
+        assert_eq!((sq.n(),sq.q(),sq.k),(n,q,0));
+        let want=if n==1{vec![vec![[1,0,0,0],[0;4]],vec![[0;4],[1,0,0,0]],vec![[0;4];2],vec![[0;4];2]]}
+            else{vec![vec![[1,0,0,0],[0;4],[0;4],[0;4]],vec![[0;4],[1,0,0,0],[0;4],[0;4]]]};
+        assert_eq!(core_matrix(&sq),want);
+        assert_eq!(core_norm_numerator(&sq),(mass,0));
+        for plan in [sq.wmc_norm_plan(),sq.wmc_norm_factored_plan()]{
+            let (_,_,primary,k)=plan.unwrap();assert_eq!((primary,k),(n,0));
+        }
+    }
+    println!("CPS_CORE10_RECTANGULAR_ORACLE matrix=PASS both_directions=PASS encoder_admission=PASS");
     println!("CPS_CORE10_FOURTH_ORACLE matrix=PASS span_counterexample=PASS product_sign=PASS");
 }
 
@@ -1818,11 +1835,11 @@ fn hoare_cps_core_matched_worker(){
         let source_variant=std::env::var("CPS_CORE_SOURCE_VARIANT");
         let basis=source_variant.as_deref()==Ok("basis-family");
         let fourth=source_variant.as_deref()==Ok("basis-fourth");
-        stage="pre-lowering";let a=if fourth{core_hsl_product_basis(&pre)?}else if basis{core_hsl_basis_family(&pre)?}else{core_hsl_lower(&pre)?};
+        stage="pre-lowering";let a=if fourth{core_hsl_product_basis(&pre).or_else(||core_hsl_basis_family(&pre))?}else if basis{core_hsl_basis_family(&pre)?}else{core_hsl_lower(&pre)?};
         stage="post-lowering";
         let b=match std::env::var("CPS_CORE_SOURCE_VARIANT").as_deref(){
             Ok("basis-family")=>core_hsl_basis_family(&post)?,
-            Ok("basis-fourth")=>core_hsl_product_basis(&post)?,
+            Ok("basis-fourth")=>core_hsl_product_basis(&post).or_else(||core_hsl_basis_family(&post))?,
             Err(std::env::VarError::NotPresent)|Ok("baseline")=>core_hsl_lower(&post)?,
             Ok("selector")=>core_hsl_lower_with(&post,|a,n,b|core_hsl_state_factored_selector(a,n,b,true))?,
             _=>return None,
@@ -1834,7 +1851,7 @@ fn hoare_cps_core_matched_worker(){
         };
         stage="label-certificate";
         if fourth{
-            if !core_basis_isometry(&a)||!core_basis_isometry(&b)||a.n()!=b.n(){return None;}
+            if !core_basis_isometry(&a)||!core_basis_isometry(&b){return None;}
             println!("CPS_CORE10_MEMBERSHIP_CERT kind=fourth-moment");
         }else if basis{
             // Range inclusion alone is not StateSet membership: a
@@ -1887,15 +1904,26 @@ fn hoare_cps_core_matched_worker(){
         }
         };
         let build_ns=t.elapsed().as_nanos();
-        stage="initial-snapshot";let snap=guarded_snapshot(&c.ps,c.n(),&c.guard)?;
+        stage="initial-snapshot";let snap=guarded_snapshot_shape(&c.ps,c.n(),c.q(),&c.guard)?;
         std::fs::write(dir.join("initial.txt"),format!("k={}\n{snap:?}\n",c.k)).ok()?;
         let initial_h=c.guard.ids.len()-c.n();
         let t=std::time::Instant::now();
         let mut steps=0;
         if policy!="wmc"{
-            for _ in 0..32{
-                let Some((next,_))=c.rr_step() else{break;};
-                c=next;steps+=1;
+            if fourth{
+                let start=c.clone();let mut receipts=Vec::new();
+                for _ in 0..32{
+                    let Some((next,r))=c.rr_step_shape() else{break;};
+                    c=next;receipts.push(r);steps+=1;
+                }
+                let replay=start.replay_rr_shape(&receipts)?;
+                if replay.k!=c.k||guarded_snapshot_shape(&replay.ps,replay.n(),replay.q(),&replay.guard)!=guarded_snapshot_shape(&c.ps,c.n(),c.q(),&c.guard){return None;}
+                std::fs::write(dir.join("fourth-rr.txt"),format!("{receipts:?}\n")).ok()?;
+            }else{
+                for _ in 0..32{
+                    let Some((next,_))=c.rr_step() else{break;};
+                    c=next;steps+=1;
+                }
             }
         }
         let rr_ns=t.elapsed().as_nanos();
@@ -1927,8 +1955,8 @@ fn hoare_cps_core_matched_worker(){
 // convention. No new reduction or change to PathSum/Guard semantics.
 impl CpsCore{
     fn wmc_norm_factored_plan(&self)->Option<(Cnf,[Lit;3],usize,i32)>{
-        if !self.valid()||self.n()!=self.q(){return None;}
-        let s=compact(&self.ps,self.n())?;
+        if !self.valid(){return None;}
+        let s=compact_shape(&self.ps,self.n(),self.q())?;
         let primary=s.n.checked_add(s.h.checked_mul(2)?)?;
         // Each ANF mask indexes one copy only; CNF literals index both copies.
         if s.n+s.h>63||primary>126{return None;}

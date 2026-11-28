@@ -6,6 +6,9 @@ on:
       - '.github/workflows/rawmocs-frontier-admission.yml'
       - 'research/rawmocs_integration/native_*.py'
       - 'research/rawmocs_integration/rust_library_poc.rs'
+      - 'research/rawmocs_integration/rust_native_eq.rs'
+      - 'rust/quprs/src/lib.rs'
+      - 'rust/quprs/src/precision_count.rs'
       - 'src/QuPRS/utils/solver_adapter.py'
   workflow_dispatch:
     inputs:
@@ -2127,6 +2130,17 @@ jobs:
           CARGO_TARGET_DIR="$GITHUB_WORKSPACE/.rawmocs-candidate/crates/rawmocs-cli/target" cargo run --locked --release --manifest-path "$RUNNER_TEMP/r1-rust/Cargo.toml" 2>&1 | tee "$R1_EVIDENCE/probe.log"
           grep -Fx 'R1_DIRECT_LIBRARY_BOUNDARY_PASS cases=8 failures=2 reentry=1' "$R1_EVIDENCE/probe.log"
           sha256sum "$R1_EVIDENCE"/*.cnf > "$R1_EVIDENCE/cnf.sha256"
+      - name: R3 direct Rust EQ native solver (release-pinned)
+        timeout-minutes: 5
+        env:
+          QUPRS_SOLVER_PROVISION: external
+          QUPRS_GPMC_PATH: ${{ github.workspace }}/.gpmc/build/gpmc
+          QUPRS_STAGE_LEDGER: '1'
+        run: |
+          set -euo pipefail
+          cp research/rawmocs_integration/rust_native_eq.rs "$RUNNER_TEMP/r1-rust/src/main.rs"
+          CARGO_TARGET_DIR="$GITHUB_WORKSPACE/.rawmocs-candidate/crates/rawmocs-cli/target" cargo run --locked --release --manifest-path "$RUNNER_TEMP/r1-rust/Cargo.toml" 2>&1 | tee .p4-native-evidence/r3-rust-eq.log
+          grep -Fx 'R3_DIRECT_RUST_EQ_PASS cases=6 failure_controls=3 reentry=1' .p4-native-evidence/r3-rust-eq.log
       - name: Actual QuPRS run_wmc and public Python verdict parity
         env:
           PYTHONPATH: ${{ github.workspace }}/src:${{ github.workspace }}/.rawmocs-candidate/crates/rawmocs-cli/tools

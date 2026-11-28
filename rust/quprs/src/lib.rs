@@ -187,7 +187,7 @@ pub struct EquivalenceCheckResult {
     /// RR-only/HYBRID used an analytic upper bound for a nonzero residual phase.
     /// This is a tolerance-bounded approximate result, NOT exact source identity.
     pub rr_approximate: bool,
-    /// True only when an external weighted counter was invoked.
+    /// True when a weighted counter was invoked, including an in-process native counter.
     pub solver_invoked: bool,
     pub final_ps: PathSum, 
     /// Present only when QUPRS_STAGE_LEDGER=1, never populated in ordinary runs.
@@ -200,7 +200,7 @@ impl EquivalenceCheckResult {
         self.status.as_str()
     }
 
-    /// Actual external WMC solver process invocation, not analytic shortcuts.
+    /// Actual WMC solver invocation, not analytic shortcuts; child spawns are separate diagnostics.
     pub fn wmc_solver_invoked(&self) -> bool {
         self.solver_invoked
     }
@@ -292,6 +292,42 @@ pub fn check_equivalence_with_options(
     gates2: &[QuantumOp],
     options: &VerificationOptions,
 ) -> Result<EquivalenceCheckResult> {
+    check_equivalence_with_counter_impl(num_qubits, gates1, gates2, options, None)
+}
+
+/// Experimental per-request native WMC bridge; no global registration or fallback.
+/// The caller supplies the release-pinned Rust library until registry admission.
+#[doc(hidden)]
+pub enum NativeCounterError {
+    Timeout,
+    Failure(anyhow::Error),
+}
+#[doc(hidden)]
+pub type NativeCounter<'a> = dyn Fn(&str, std::time::Duration)
+    -> std::result::Result<precision_count::PrintedCount, NativeCounterError> + 'a;
+
+#[doc(hidden)]
+pub fn check_equivalence_with_native_counter(
+    num_qubits: usize,
+    gates1: &[QuantumOp],
+    gates2: &[QuantumOp],
+    options: &VerificationOptions,
+    counter: &NativeCounter<'_>,
+) -> Result<EquivalenceCheckResult> {
+    anyhow::ensure!(options.tool_name == "rawmocs_rust_native",
+        "experimental native counter requires explicit rawmocs_rust_native selection");
+    check_equivalence_with_counter_impl(num_qubits, gates1, gates2, options, Some(counter))
+}
+
+fn check_equivalence_with_counter_impl(
+    num_qubits: usize,
+    gates1: &[QuantumOp],
+    gates2: &[QuantumOp],
+    options: &VerificationOptions,
+    native_counter: Option<&NativeCounter<'_>>,
+) -> Result<EquivalenceCheckResult> {
+    anyhow::ensure!(options.tool_name != "rawmocs_rust_native" || native_counter.is_some(),
+        "experimental native counter must be supplied explicitly");
     if options.gpmc_precision_digits != 30 && options.gpmc_precision_digits != 90 {
         return Err(anyhow::anyhow!("gpmc_precision_digits must be 30 or 90"));
     }
@@ -321,6 +357,7 @@ pub fn check_equivalence_with_options(
         options.rr_tolerance,
         options.approximate_distance_tolerance,
         options.gpmc_precision_digits,
+        native_counter,
     )
 }
 
@@ -625,6 +662,7 @@ fn check_equivalence_with_distance_mode(
     rr_tolerance: f64,
     approximate_distance_tolerance: Option<f64>,
     gpmc_precision_digits: u32,
+    native_counter: Option<&NativeCounter<'_>>,
 ) -> Result<EquivalenceCheckResult> {
     if !rr_tolerance.is_finite() || rr_tolerance < 0.0 {
         return Err(anyhow::anyhow!("rr_tolerance must be finite and non-negative"));
@@ -747,7 +785,7 @@ fn check_equivalence_with_distance_mode(
         // High-precision source weights are selected only for GPMC's
         // projective-distance mode. All other modes retain their fast path.
         #[cfg(feature="high-precision-gpmc")]
-        if matches!(tool_name, "gpmc" | "rawmocs") {
+        if matches!(tool_name, "gpmc" | "rawmocs" | "rawmocs_rust_native") {
             // Unweighted CNFs have no phase input to approximate. In
             // particular, retain exact identity proofs for arbitrarily tight
             // distance requests without asking MPFR for unused precision.
@@ -782,14 +820,34 @@ fn check_equivalence_with_distance_mode(
             // Serialize only when a solver actually needs CNF. Reuse precisely
             // these bytes for the subprocess, rather than rendering twice.
             let dimacs_start = Instant::now();
-            let cnf_string = wmc_mgr.try_to_dimacs_string(tool_name)?;
+            let grammar = if native_counter.is_some() { "gpmc" } else { tool_name };
+            let cnf_string = wmc_mgr.try_to_dimacs_string(grammar)?;
             to_dimacs_time = Some(dimacs_start.elapsed().as_secs_f64());
 
             solver_invoked = true;
             let tool_start = Instant::now();
-            match wmc_mgr.solve_with_deadline_distance_printed_precision_prepared(
-                tool_name, deadline, gpmc_precision_digits, &cnf_string,
-            ) {
+            let counted = if let Some(counter) = native_counter {
+                let _scope = diagnostics::span("solver_supervision");
+                let remaining = deadline.map(|d| d.saturating_duration_since(Instant::now()))
+                    .unwrap_or_default();
+                if remaining.is_zero() {
+                    Err(anyhow::anyhow!(crate::solver_process::SolverTimeout))
+                } else {
+                    match counter(&cnf_string, remaining) {
+                        Ok(_) if deadline.is_some_and(|d| Instant::now() >= d) =>
+                            Err(anyhow::anyhow!(crate::solver_process::SolverTimeout)),
+                        Ok(value) => Ok(value),
+                        Err(NativeCounterError::Timeout) =>
+                            Err(anyhow::anyhow!(crate::solver_process::SolverTimeout)),
+                        Err(NativeCounterError::Failure(error)) => Err(error),
+                    }
+                }
+            } else {
+                wmc_mgr.solve_with_deadline_distance_printed_precision_prepared(
+                    tool_name, deadline, gpmc_precision_digits, &cnf_string,
+                )
+            };
+            match counted {
                 Ok(value) => { printed_count = Some(value); }
                 Err(error) if error.downcast_ref::<crate::solver_process::SolverTimeout>().is_some() => {
                     status = EquivalenceStatus::Timeout;

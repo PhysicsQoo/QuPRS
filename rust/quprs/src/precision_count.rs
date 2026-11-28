@@ -151,13 +151,23 @@ pub fn parse_rawmocs_stdout(stdout: &str) -> Result<(bool, PrintedCount)> {
         || fields[3..].iter().any(|s| s.contains('/')) {
         return Err(anyhow!("RaWMoCS invalid MPFR count record"));
     }
-    let (real, real_half_unit) = component(fields[3])?;
-    let (imag, imag_half_unit) = component(fields[4])?;
+    Ok((sat, rawmocs_count_from_parts(sat, fields[3], fields[4])?))
+}
+
+/// Decode structured native decimal components without constructing stdout.
+/// Intervals describe representation only, never solver arithmetic accuracy.
+#[doc(hidden)]
+pub fn rawmocs_count_from_parts(sat: bool, re: &str, im: &str) -> Result<PrintedCount> {
+    if re.contains('/') || im.contains('/') {
+        return Err(anyhow!("RaWMoCS decimal count required"));
+    }
+    let (real, real_half_unit) = component(re)?;
+    let (imag, imag_half_unit) = component(im)?;
     if !sat && (!real.is_zero() || !imag.is_zero()) {
         return Err(anyhow!("RaWMoCS UNSAT with nonzero count"));
     }
-    Ok((sat, PrintedCount { real, imag, real_half_unit, imag_half_unit,
-                            format_name: "rawmocs-mpfr".to_string() }))
+    Ok(PrintedCount { real, imag, real_half_unit, imag_half_unit,
+                      format_name: "rawmocs-mpfr".to_string() })
 }
 
 #[cfg(test)]

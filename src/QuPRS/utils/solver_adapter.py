@@ -93,7 +93,70 @@ class GanakAdapter(SolverAdapter):
         )
 
 
+class RawmocsPythonNativeAdapter(GpmcAdapter):
+    """Experimental opt-in binding; no executable or subprocess required."""
+
+    def _solve(self, source, timeout, *, capture_decimal, memory):
+        import math
+        from fractions import Fraction
+        from QuPRS.utils.precision_count import _number_and_unit
+        from QuPRS.utils.solver_process import SolverTimeout
+        try:
+            import rawmocs
+        except ImportError as exc:
+            raise SolverExecutionError(
+                "RaWMoCS Python native backend requires the released rawmocs 0.3.0 package"
+            ) from exc
+        if rawmocs.__version__ != "0.3.0":
+            raise SolverExecutionError("RaWMoCS Python native backend requires rawmocs 0.3.0")
+        budget = min(86_400_000, math.floor(timeout * 1000))
+        if budget <= 0:
+            raise SolverTimeout("Native budget exhausted before solve")
+        digits = 30
+        try:
+            solve = rawmocs.solve if memory else rawmocs.solve_file
+            result = solve(source, digits=digits, timeout_ms=budget)
+        except rawmocs.SolveError as exc:
+            if exc.kind == "TIMEOUT":
+                raise SolverTimeout(str(exc)) from exc
+            error = SolverExecutionError(str(exc))
+            error.kind = exc.kind
+            error.diagnostics = exc.diagnostics
+            raise error from exc
+        if result.digits != digits or result.precision_bits != 100 or type(result.sat) is not bool:
+            raise SolverResultError("Native precision or SAT status mismatch")
+        if any("/" in x for x in (result.real, result.imag)):
+            raise SolverResultError("Native decimal count required")
+        try:
+            real, ru = _number_and_unit(result.real)
+            imag, iu = _number_and_unit(result.imag)
+            for value, unit, binary in ((real, ru, result.real_binary),
+                                        (imag, iu, result.imag_binary)):
+                if binary.precision_bits != 100 or abs(binary.exponent2) > 16384:
+                    raise ValueError("Native binary transport outside supported range")
+                exact = Fraction(int(binary.significand)) * Fraction(2)**binary.exponent2
+                if abs(exact - value) > unit:
+                    raise ValueError("Native binary/decimal mismatch")
+            if not result.sat and (real or imag):
+                raise ValueError("Native UNSAT with nonzero count")
+            if capture_decimal:
+                return PrintedCount(real, imag, ru, iu, "rawmocs-mpfr"), result.sat
+            re, im = float(real), float(imag)
+            if not math.isfinite(re) or not math.isfinite(im):
+                raise ValueError("Native count outside finite binary64 range")
+            return complex(re, im), result.sat
+        except (ValueError, OverflowError) as exc:
+            raise SolverResultError(str(exc)) from exc
+
+    def execute_native(self, cnf_path, timeout, *, capture_decimal):
+        return self._solve(cnf_path, timeout, capture_decimal=capture_decimal, memory=False)
+
+    def execute_native_text(self, cnf_text, timeout, *, capture_decimal):
+        return self._solve(cnf_text, timeout, capture_decimal=capture_decimal, memory=True)
+
+
 _BUILTINS = {
+    "rawmocs_python_native": RawmocsPythonNativeAdapter("rawmocs_python_native", (), SolverCapabilities("pair")),
     "gpmc": GpmcAdapter("gpmc", SOLVER_ARGUMENTS["gpmc"], SolverCapabilities("pair")),
     "ganak": GanakAdapter("ganak", SOLVER_ARGUMENTS["ganak"], SolverCapabilities("complex-i")),
 }
@@ -126,7 +189,7 @@ def registered_solver_adapter(adapter):
                 del _EXTENSIONS[adapter.solver_id]
 
 
-def execute_solver(adapter, cnf_path, timeout, *, resource_resolver, process_runner, capture_decimal=False):
+def execute_solver(adapter, cnf_path, timeout, *, resource_resolver, process_runner, capture_decimal=False, cnf_text=None):
     """Invoke the explicitly selected solver, preserving process supervision."""
     import time
     from QuPRS.utils.solver_process import SOLVER_ENV_LOCK, SolverTimeout
@@ -141,6 +204,13 @@ def execute_solver(adapter, cnf_path, timeout, *, resource_resolver, process_run
     try:
         if remaining() <= 0:
             raise SolverTimeout("SolverTimeout: budget exhausted before solver launch")
+        if cnf_text is not None:
+            native_text = getattr(adapter, "execute_native_text", None)
+            if native_text is None:
+                raise SolverExecutionError("Selected solver does not support memory CNF")
+            count, sat = native_text(cnf_text, remaining(), capture_decimal=capture_decimal)
+            return SolverResult(adapter.solver_id, count, adapter.arguments, 0,
+                                time.monotonic() - started, sat)
         native = getattr(adapter, "execute_native", None)
         if native is not None:
             count, sat = native(cnf_path, remaining(), capture_decimal=capture_decimal)
